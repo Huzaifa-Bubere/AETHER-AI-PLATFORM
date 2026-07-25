@@ -1,0 +1,197 @@
+\chapter{Proposed System}
+
+\section{System Architecture}
+
+Smart Interview AI follows a three-tier microservices architecture (Figure~\ref{fig:architecture}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  box/.style   = {rectangle, draw, rounded corners, minimum width=3.2cm,
+                  minimum height=0.9cm, text centered, font=\small},
+  cloud/.style = {ellipse, draw, minimum width=2.8cm, minimum height=0.75cm,
+                  text centered, font=\small},
+  arr/.style   = {->, thick, gray}
+]
+\node[box, fill=blue!15]   (browser) at (0,0)    {Browser (React SPA)};
+\node[box, fill=green!15]  (backend) at (5.5,0)  {Node.js/Express API};
+\node[box, fill=orange!15] (aisvr)   at (5.5,-2) {Python FastAPI AI Server};
+
+\node[cloud, fill=gray!10] (gemini)    at (11, 1.5) {Gemini API};
+\node[cloud, fill=gray!10] (mongo)     at (11, 0)   {MongoDB Atlas};
+\node[cloud, fill=gray!10] (cloudinary)at (11,-1.5) {Cloudinary};
+\node[cloud, fill=gray!10] (stripe)    at (11,-3)   {Stripe};
+\node[cloud, fill=gray!10] (piston)    at (11,-4.5) {Piston API};
+
+\draw[arr] (browser) -- node[above,font=\tiny]{REST/Socket.IO} (backend);
+\draw[arr] (backend) -- node[right,font=\tiny]{HTTP} (aisvr);
+\draw[arr] (backend) -- (gemini);
+\draw[arr] (backend) -- (mongo);
+\draw[arr] (backend) -- (cloudinary);
+\draw[arr] (backend) -- (stripe);
+\draw[arr] (backend) -- (piston);
+\end{tikzpicture}
+\caption{System Architecture Diagram}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Frontend (React SPA)}
+Key technologies: React 18, Vite, React Router v7, Zustand, Axios, Socket.IO Client, Radix UI, Tailwind CSS, Monaco Editor, Recharts, Web Speech API, MediaDevices API.
+
+\subsection{Backend (Node.js/Express)}
+Key components: Mongoose, JWT, Socket.IO, Multer, Helmet, CORS, express-rate-limit, Winston, Nodemailer, Stripe SDK.
+
+\subsection{AI Server (Python FastAPI)}
+Capabilities: MediaPipe Face Mesh (eye contact), MediaPipe Pose (posture), Librosa (audio analysis), PyPDF2 + python-docx (resume parsing), Google Generative AI SDK (Gemini).
+
+\section{Database Design}
+
+\subsection{User Schema}
+
+\begin{table}[H]
+\centering
+\caption{User Collection -- Key Fields}
+\vspace{6pt}
+\begin{tabularx}{\textwidth}{|L{2.8cm}|L{2.5cm}|X|}
+\hline
+\textbf{Field} & \textbf{Type} & \textbf{Description} \\
+\hline
+\_id & ObjectId & Primary key \\
+\hline
+email & String (unique) & User email address \\
+\hline
+password & String & bcrypt hashed (cost 12) \\
+\hline
+profile & Object & firstName, lastName, avatar \\
+\hline
+preferences & Object & role, experienceLevel, industries \\
+\hline
+subscription & Object & plan, status, stripeCustomerId \\
+\hline
+auth & Object & isVerified, loginAttempts, lockUntil \\
+\hline
+stats & Object & totalInterviews, averageScore \\
+\hline
+\end{tabularx}
+\label{tab:userschema}
+\end{table}
+
+\subsection{Interview Schema}
+
+Key fields:
+\begin{itemize}
+  \item \texttt{type}: behavioral $|$ technical $|$ coding $|$ system-design $|$ skill-based
+  \item \texttt{status}: scheduled $|$ in-progress $|$ completed $|$ cancelled
+  \item \texttt{questions[]}: id, text, type, difficulty, examples, constraints, testCases (\texttt{Mixed} type)
+  \item \texttt{responses[]}: questionId, answer, codeSubmission, duration
+  \item \texttt{analysis}: contentMetrics (relevanceScore, technicalAccuracy, communicationClarity, structureScore), overallScore
+  \item \texttt{feedback}: overallRating, strengths, improvements, recommendations, detailedFeedback
+\end{itemize}
+
+\section{API Design}
+
+\begin{table}[H]
+\centering
+\caption{Primary API Endpoints}
+\vspace{6pt}
+\begin{tabularx}{\textwidth}{|L{1.5cm}|L{5.5cm}|X|}
+\hline
+\textbf{Method} & \textbf{Endpoint} & \textbf{Description} \\
+\hline
+POST & /api/auth/register & User registration \\
+\hline
+POST & /api/auth/login & User login \\
+\hline
+POST & /api/resume/upload & Upload and parse resume \\
+\hline
+POST & /api/interview/create & Create interview with AI questions \\
+\hline
+POST & /api/interview/:id/start & Start interview session \\
+\hline
+GET  & /api/interview/:id/next-question & Get next unanswered question \\
+\hline
+POST & /api/interview/:id/response & Submit answer \\
+\hline
+POST & /api/interview/:id/end & End interview session \\
+\hline
+POST & /api/interview/:id/feedback & Generate AI feedback \\
+\hline
+POST & /api/code/execute-tests & Execute code with test cases \\
+\hline
+GET  & /api/health/full-check & System health check \\
+\hline
+\end{tabularx}
+\label{tab:apiendpoints}
+\end{table}
+
+\section{Feasibility Study}
+
+\subsection*{Technical Feasibility}
+All required technologies are mature, well-documented, and freely available. The Google Gemini API provides a generous free tier sufficient for development. MongoDB Atlas, Cloudinary, and Vercel offer free tiers adequate for initial deployment.
+
+\subsection*{Economic Feasibility}
+The platform can be developed and deployed at near-zero cost:
+\begin{itemize}
+  \item Vercel: Free for frontend hosting.
+  \item Render: \$7/month for backend (starter plan).
+  \item MongoDB Atlas: Free M0 cluster (512MB).
+  \item Cloudinary: Free tier (25GB storage).
+  \item Gemini API: Free tier (60 requests/minute).
+\end{itemize}
+
+\subsection*{Operational Feasibility}
+The platform requires no installation and runs in any modern browser. The interface is designed to be intuitive for candidates familiar with online coding platforms.
+
+\section{Methodology}
+
+The project followed an \textbf{Agile} development methodology with two-week sprints. Each sprint included planning, development, review, and retrospective phases. Version control was managed using Git with a feature-branch workflow.
+
+\section{Hardware and Software Requirements}
+
+\begin{table}[H]
+\centering
+\caption{Hardware and Software Requirements}
+\vspace{6pt}
+\begin{tabularx}{\textwidth}{|L{3.5cm}|X|}
+\hline
+\textbf{Component} & \textbf{Specification} \\
+\hline
+\multicolumn{2}{|c|}{\textbf{Development Environment}} \\
+\hline
+OS & Windows 11 / macOS / Ubuntu 22.04 \\
+\hline
+RAM & 8GB minimum, 16GB recommended \\
+\hline
+Node.js & v18.x or higher \\
+\hline
+Python & 3.11.x \\
+\hline
+\multicolumn{2}{|c|}{\textbf{Production Environment}} \\
+\hline
+Frontend & Vercel (CDN, global edge network) \\
+\hline
+Backend & Render Starter (512MB RAM, 0.5 CPU) \\
+\hline
+Database & MongoDB Atlas M0 (512MB, shared cluster) \\
+\hline
+File Storage & Cloudinary (25GB free tier) \\
+\hline
+\multicolumn{2}{|c|}{\textbf{Key Software Versions}} \\
+\hline
+React & 18.3.1 \\
+\hline
+Express & 4.18.2 \\
+\hline
+Mongoose & 8.x \\
+\hline
+FastAPI & 0.104.1 \\
+\hline
+MediaPipe & 0.10.8 \\
+\hline
+Google Generative AI & 0.21.0 \\
+\hline
+\end{tabularx}
+\label{tab:hwsw}
+\end{table}
+
+\newpage

@@ -1,0 +1,146 @@
+\chapter{Implementation Details}
+
+\section{Frontend Implementation}
+
+\subsection{Component Architecture}
+
+The React frontend follows a feature-based folder structure:
+
+\begin{lstlisting}[language=bash, caption={Frontend Folder Structure}]
+frontend/src/app/
+  components/
+    interview/    # VideoRecorder, SpeechRecognition, AIAvatar
+    ui/           # Radix UI wrappers (Button, Card, Dialog, ...)
+  hooks/          # useSocket, useAudioAnalysis, useWebRTC
+  pages/          # One file per route
+  services/       # api.ts, interview.ts, resume.ts
+  stores/         # authStore.ts, interviewStore.ts
+  types/          # TypeScript interfaces
+\end{lstlisting}
+
+\subsection{State Management}
+
+Zustand stores manage global application state. The \texttt{interviewStore} is the most complex, managing:
+\begin{itemize}
+    \item Current interview session and question.
+    \item Recording state and media stream.
+    \item Loading and error states.
+    \item Actions: \texttt{createInterview}, \texttt{startInterview}, \texttt{getNextQuestion}, \texttt{submitResponse}, \texttt{endInterview}.
+\end{itemize}
+
+A key design decision was to \textbf{not} call \texttt{getNextQuestion} automatically after \texttt{submitResponse}. This prevents duplicate API calls when both the store and the page component try to fetch the next question simultaneously.
+
+\subsection{VideoRecorder Component}
+
+The \texttt{VideoRecorder} component handles camera initialisation with a three-attempt fallback strategy:
+\begin{enumerate}
+    \item Ideal quality: 1280×720, echo cancellation, noise suppression.
+    \item Basic: \texttt{\{video: true, audio: true\}}.
+    \item Audio only: \texttt{\{video: false, audio: true\}}.
+\end{enumerate}
+
+The \texttt{facingMode: 'user'} constraint was removed because it causes black screens on desktop GPUs with integrated + discrete GPU configurations. The component waits for the \texttt{loadedmetadata} event before calling \texttt{play()} to ensure the first frame is visible.
+
+\subsection{SpeechRecognition Component}
+
+The \texttt{SpeechRecognition} component uses the native Web Speech API with:
+\begin{itemize}
+    \item \texttt{continuous: true} and \texttt{interimResults: true} for real-time transcription.
+    \item Automatic restart on \texttt{no-speech} events (silence does not stop recognition).
+    \item Callback refs (\texttt{useRef}) for all event handlers to prevent stale closure issues.
+    \item CSS-only animated waveform bars (no \texttt{Math.random()} to avoid infinite re-renders).
+\end{itemize}
+
+\section{Backend Implementation}
+
+\subsection{Interview Route Architecture}
+
+The interview route implements a \textbf{fire-and-return} pattern for response submission:
+
+\begin{lstlisting}[language=JavaScript, caption={Fire-and-Return Response Submission}]
+// Step 1: Save response immediately
+await Interview.findByIdAndUpdate(id, {
+  $push: { responses: responseData }
+});
+
+// Step 2: Return 200 instantly
+res.json({ success: true, message: 'Response submitted' });
+
+// Step 3: Run AI analysis in background (non-blocking)
+(async () => {
+  const analysis = await geminiService.analyzeResponse({...});
+  await Interview.findByIdAndUpdate(id, {
+    $set: { 'analysis.contentMetrics.relevanceScore': analysis.scores.relevance, ... }
+  });
+})();
+\end{lstlisting}
+
+\subsection{Feedback Generation with Synchronous Fallback}
+
+The feedback route detects if background analysis was incomplete and runs synchronous analysis:
+
+\begin{lstlisting}[language=JavaScript, caption={Synchronous Analysis Fallback}]
+const hasScores = metrics && (
+  (metrics.relevanceScore || 0) > 0 ||
+  (metrics.technicalAccuracy || 0) > 0
+);
+
+if (!hasScores && interview.responses.length > 0) {
+  // Run synchronous analysis on all responses
+  for (const resp of interview.responses) {
+    const analysis = await geminiService.analyzeResponse({...});
+    allScores.push(analysis.scores);
+  }
+  // Average scores and update DB
+  await Interview.findByIdAndUpdate(id, { $set: { ... } });
+}
+\end{lstlisting}
+
+\subsection{Code Execution Service}
+
+The code execution service supports two backends:
+\begin{itemize}
+    \item \textbf{Piston API} (default): Free public API, no authentication required.
+    \item \textbf{Judge0} (optional): Requires API key, more reliable for production.
+\end{itemize}
+
+The Python test harness uses a four-attempt fallback chain:
+\begin{enumerate}
+    \item \texttt{fn(*expanded\_args)} -- normal call with expanded arguments.
+    \item \texttt{fn(*[expanded\_args])} -- wrapped in list.
+    \item \texttt{fn(*original\_args)} -- raw original arguments.
+    \item \texttt{fn(*[original\_args])} -- raw wrapped.
+\end{enumerate}
+
+\section{AI Server Implementation}
+
+\subsection{Eye Contact Scoring}
+
+Eye contact is scored using MediaPipe Face Mesh iris landmarks (indices 468 and 473):
+
+\begin{lstlisting}[language=Python, caption={Eye Contact Scoring}]
+def _estimate_eye_contact(self, landmarks) -> float:
+    left_iris = landmarks.landmark[468]
+    right_iris = landmarks.landmark[473]
+    nose_tip = landmarks.landmark[1]
+    
+    # Horizontal deviation from nose (camera center proxy)
+    avg_dev = (abs(left_iris.x - nose_tip.x) + 
+               abs(right_iris.x - nose_tip.x)) / 2.0
+    avg_vdev = (abs(left_iris.y - nose_tip.y) + 
+                abs(right_iris.y - nose_tip.y)) / 2.0
+    
+    h_score = max(0.0, 1.0 - (avg_dev / 0.12)) * 100
+    v_score = max(0.0, 1.0 - (avg_vdev / 0.12)) * 100
+    return round((h_score * 0.6 + v_score * 0.4), 1)
+\end{lstlisting}
+
+\subsection{Posture Scoring}
+
+Posture is scored using MediaPipe Pose landmarks for shoulder alignment, spine offset, hip level, and forward lean:
+
+\begin{equation}
+\text{Posture Score} = 0.3 \times S_{shoulder} + 0.3 \times S_{spine} + 0.2 \times S_{hip} + 0.2 \times S_{lean}
+\end{equation}
+
+where each sub-score is computed as $\max(0, 1 - \frac{\text{deviation}}{\text{threshold}}) \times 100$.

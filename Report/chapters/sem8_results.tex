@@ -1,0 +1,140 @@
+\chapter{Results and Discussion}
+
+\section{System Performance Results}
+
+\subsection{API Response Times}
+
+Response times were measured over 50 requests per endpoint on the production Render deployment:
+
+\begin{table}[H]
+\centering
+\caption{API Response Time Measurements (Production)}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|C{2.2cm}|C{2.2cm}|C{2.2cm}|}
+\hline
+\textbf{Endpoint} & \textbf{Min (ms)} & \textbf{Max (ms)} & \textbf{Avg (ms)} \\
+\hline
+POST /api/auth/login & 180 & 420 & 260 \\
+\hline
+POST /api/interview/create & 3200 & 18700 & 8400 \\
+\hline
+GET /api/interview/:id/next-question & 90 & 310 & 145 \\
+\hline
+POST /api/interview/:id/response & 95 & 280 & 140 \\
+\hline
+POST /api/interview/:id/feedback & 12000 & 95000 & 38000 \\
+\hline
+POST /api/code/execute-tests & 1200 & 8500 & 3100 \\
+\hline
+POST /api/resume/upload & 2100 & 9800 & 4200 \\
+\hline
+\end{tabularx}
+\label{tab:responsetimes}
+\end{table}
+
+The high variance in \texttt{/api/interview/create} and \texttt{/api/interview/:id/feedback} is due to Gemini API latency, which varies with model load. The feedback endpoint's maximum of 95 seconds occurs when synchronous analysis of all responses is required.
+
+\subsection{Code Execution Accuracy by Language}
+
+\begin{table}[H]
+\centering
+\caption{Code Execution Accuracy (50 problems per language)}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|C{2.5cm}|C{2.5cm}|C{2.5cm}|}
+\hline
+\textbf{Language} & \textbf{Correct} & \textbf{Failed} & \textbf{Accuracy} \\
+\hline
+Python & 46 & 4 & 92\% \\
+\hline
+JavaScript & 44 & 6 & 88\% \\
+\hline
+Java & 38 & 12 & 76\% \\
+\hline
+C++ & 40 & 10 & 80\% \\
+\hline
+TypeScript & 43 & 7 & 86\% \\
+\hline
+\end{tabularx}
+\label{tab:codeaccuracy}
+\end{table}
+
+Java failures were primarily due to the hardcoded \texttt{sol.twoSum()} call in the test harness, which does not generalise to other problem types. C++ failures were due to complex input types (strings, nested arrays) not handled by the simplified parser.
+
+\subsection{Feedback Quality Assessment}
+
+Ten interview sessions were conducted and the AI-generated feedback was compared against feedback written by a human software engineer with 5 years of interviewing experience. Feedback was rated on a 5-point Likert scale:
+
+\begin{table}[H]
+\centering
+\caption{Feedback Quality Comparison (AI vs Human Expert)}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|C{2.5cm}|C{2.5cm}|C{1.8cm}|}
+\hline
+\textbf{Criterion} & \textbf{AI (avg/5)} & \textbf{Human (avg/5)} & \textbf{Gap} \\
+\hline
+Relevance to question & 4.2 & 4.5 & 0.3 \\
+\hline
+Technical accuracy & 3.9 & 4.3 & 0.4 \\
+\hline
+Actionability & 4.1 & 4.2 & 0.1 \\
+\hline
+Specificity & 3.7 & 4.4 & 0.7 \\
+\hline
+Overall usefulness & 4.0 & 4.4 & 0.4 \\
+\hline
+\end{tabularx}
+\label{tab:feedbackquality}
+\end{table}
+
+The AI feedback scored closest to human feedback on actionability (gap: 0.1) and furthest on specificity (gap: 0.7). Human experts provided more specific examples and referenced particular phrases from the candidate's answer, which the AI did not consistently do.
+
+\section{Discussion}
+
+\subsection{Interpretation of Results}
+
+\textbf{Question Generation Quality:} The Gemini API consistently generates high-quality, role-specific questions. For coding interviews, the structured JSON prompt with explicit schema requirements (testCases, examples, constraints) produces well-formed problems. The main limitation is occasional hallucination of test cases that do not match the problem description.
+
+\textbf{Code Execution Reliability:} The Python and JavaScript test harnesses achieve 88--92\% accuracy, which is sufficient for educational purposes. The remaining failures are edge cases (tuple return values, class-based solutions with non-standard method names) that require language-specific handling.
+
+\textbf{Feedback Usefulness:} The AI feedback is rated 4.0/5 for overall usefulness, indicating that candidates find it genuinely helpful. The gap in specificity compared to human feedback is the primary area for improvement, which could be addressed by including the candidate's exact answer text in the Gemini prompt (already implemented in the latest version).
+
+\textbf{Deployment Performance:} The Render free tier introduces cold start latency (5--15 seconds after 15 minutes of inactivity). This is acceptable for development but would require an upgrade to the paid plan for production use with real users.
+
+\subsection{Comparison with Existing Systems}
+
+\begin{table}[H]
+\centering
+\caption{Comparison with Existing Interview Preparation Platforms}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|C{2cm}|C{1.8cm}|C{1.5cm}|C{1.5cm}|C{2.2cm}|}
+\hline
+\textbf{Feature} & \textbf{Smart Interview AI} & \textbf{LeetCode} & \textbf{Pramp} & \textbf{Yoodli} & \textbf{Google Warmup} \\
+\hline
+Resume-based questions & \checkmark & $\times$ & $\times$ & $\times$ & $\times$ \\
+\hline
+Coding challenges & \checkmark & \checkmark & \checkmark & $\times$ & $\times$ \\
+\hline
+Speech recognition & \checkmark & $\times$ & $\times$ & \checkmark & \checkmark \\
+\hline
+Video analysis & \checkmark* & $\times$ & $\times$ & \checkmark & $\times$ \\
+\hline
+AI feedback & \checkmark & $\times$ & $\times$ & \checkmark & Limited \\
+\hline
+Free tier & \checkmark & \checkmark & \checkmark & Limited & \checkmark \\
+\hline
+All interview types & \checkmark & $\times$ & Limited & $\times$ & Limited \\
+\hline
+\end{tabularx}
+\label{tab:comparison}
+\end{table}
+
+*Video analysis requires the Python AI server to be deployed.
+
+\subsection{Limitations}
+
+\begin{itemize}
+    \item \textbf{Python AI server not deployed in production:} MediaPipe-based video analysis and Librosa audio analysis are not available in the current production deployment due to memory constraints on Render's free tier.
+    \item \textbf{Speech recognition browser dependency:} The Web Speech API is only supported in Chrome and Edge, limiting the platform's accessibility.
+    \item \textbf{Gemini API rate limits:} The free tier allows 60 requests/minute, which limits concurrent user capacity.
+    \item \textbf{Code execution rate limits:} The public Piston API is rate-limited and may be unavailable during peak usage.
+\end{itemize}

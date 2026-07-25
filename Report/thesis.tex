@@ -1,0 +1,204 @@
+\documentclass[12pt,a4paper]{report}
+
+% ── Core packages ──────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}          % better line breaking, prevents overfull hboxes
+\usepackage{acronym}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{wrapfig}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{multicol}
+\usepackage{rotating}
+\usepackage{longtable}
+\usepackage{tabularx}           % auto-width columns
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{ragged2e}
+\usepackage{anyfontsize}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{lineno}
+\usepackage{comment}
+\usepackage{natbib}
+\usepackage[toc,page]{appendix}
+\usepackage{blindtext}
+
+% ── Geometry ───────────────────────────────────────────────────────────────────
+\usepackage[left=3.5cm, right=2.0cm, top=2.5cm, bottom=2.5cm]{geometry}
+
+% ── TikZ ───────────────────────────────────────────────────────────────────────
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, positioning, fit, calc,
+                decorations.pathreplacing}
+
+% ── Listings ───────────────────────────────────────────────────────────────────
+\usepackage{listings}
+\lstset{
+  basicstyle    = \ttfamily\footnotesize,
+  breaklines    = true,
+  breakatwhitespace = false,
+  frame         = single,
+  framesep      = 3pt,
+  xleftmargin   = 6pt,
+  xrightmargin  = 6pt,
+  backgroundcolor = \color{gray!8},
+  keywordstyle  = \color{blue!80!black}\bfseries,
+  commentstyle  = \color{green!50!black}\itshape,
+  stringstyle   = \color{red!70!black},
+  numbers       = left,
+  numberstyle   = \tiny\color{gray},
+  numbersep     = 6pt,
+  showstringspaces = false,
+  tabsize       = 2,
+  columns       = flexible,
+  keepspaces    = true,
+}
+
+% ── Hyperref (load last among most packages) ───────────────────────────────────
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks = true,
+  linkcolor  = blue,
+  filecolor  = magenta,
+  citecolor  = blue,
+  urlcolor   = blue,
+  breaklinks = true,
+}
+\usepackage{cleveref}
+
+% ── Title formatting ───────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{15pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{20pt}{20pt}
+
+\titleformat{\section}
+  {\fontsize{14pt}{16pt}\bfseries}{\thesection}{1em}{}
+\titlespacing*{\section}{0pt}{14pt}{8pt}
+
+\titleformat{\subsection}
+  {\fontsize{13pt}{15pt}\bfseries}{\thesubsection}{1em}{}
+\titlespacing*{\subsection}{0pt}{12pt}{6pt}
+
+\titleformat{\subsubsection}
+  {\fontsize{12pt}{14pt}\bfseries}{\thesubsubsection}{1em}{}
+\titlespacing*{\subsubsection}{0pt}{10pt}{4pt}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+
+% ── Spacing ────────────────────────────────────────────────────────────────────
+\onehalfspacing
+\setlength{\parskip}{0.4em}
+\setlength{\parindent}{0pt}
+
+% ── Table column types ─────────────────────────────────────────────────────────
+% L{w} = left-aligned fixed-width; C{w} = centred; R{w} = right-aligned
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\Centering\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\RaggedLeft\arraybackslash}p{#1}}
+
+% ── Custom commands ────────────────────────────────────────────────────────────
+\newcommand{\dedicationNamea}{Mother}
+\newcommand{\dedicationNameb}{Father}
+% Indian Rupee symbol (₹) via Unicode with utf8 inputenc
+\newcommand{\rupee}{₹}
+
+% ── Global definitions ─────────────────────────────────────────────────────────
+\def\mytitle{SMART INTERVIEW AI: AN AI-POWERED MOCK INTERVIEW PLATFORM}
+\def\HoDName{Dr. Swati Nadkarni}
+\def\principalName{Dr. Bhavesh Patel}
+\def\studentNamea{Aayush Mishra}
+\def\studentNameb{Student Name 2}
+\def\studentNamec{Student Name 3}
+\def\studentNamed{Student Name 4}
+\def\NewRollNoa{Roll No 1}
+\def\NewRollNob{Roll No 2}
+\def\NewRollNoc{Roll No 3}
+\def\NewRollNod{Roll No 4}
+\def\mydegree{BACHELOR OF TECHNOLOGY}
+\def\branch{Information Technology}
+\def\mysupervisor{Guide Name}
+\def\myrollno{XXX}
+\def\mydep{Department of Information Technology}
+\def\academicyear{2025-2026}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+\baselineskip=18pt plus1pt
+\pagenumbering{roman}
+
+% Disable parskip for front matter
+\newlength{\savedparskip}
+\setlength{\savedparskip}{\parskip}
+\setlength{\parskip}{0pt}
+
+% ── Front matter ───────────────────────────────────────────────────────────────
+\include{./front_matter/title_page}
+
+\addcontentsline{toc}{section}{Certificate}
+\include{./front_matter/certificate}
+
+\addcontentsline{toc}{section}{Candidate's Declaration}
+\include{./front_matter/candidate_s_declaration}
+
+\addcontentsline{toc}{section}{Certificate of Plagiarism Check}
+\include{./front_matter/Certificate_of_Plag_Check}
+
+%\addcontentsline{toc}{section}{Dedication}
+%\include{./front_matter/dedication}
+
+\addcontentsline{toc}{section}{Acknowledgement}
+\include{./front_matter/acknowledgements}
+
+\addcontentsline{toc}{section}{Abstract}
+\include{./front_matter/Abstract}
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+% ── Main content ───────────────────────────────────────────────────────────────
+\fontsize{12}{16}\selectfont
+\captionsetup{font={small}, labelfont=bf, width=0.9\textwidth}
+\setlength{\parskip}{\savedparskip}
+
+\clearpage
+\pagenumbering{arabic}
+\justifying
+
+\include{./chapters/introduction}
+\include{./chapters/literature_review}
+\include{./chapters/srs}
+\include{./chapters/scheduling}
+\include{./chapters/proposedsystem}
+\include{./chapters/sem7_implementation}
+\include{./chapters/sem7_summary}
+\include{./chapters/results_and_discussions}
+\include{./chapters/conclusions}
+
+% Sem 8 chapters (uncomment for Sem 8 report):
+%\include{./chapters/sem8_implementation_details}
+%\include{./chapters/sem8_testing}
+%\include{./chapters/sem8_results}
+%\include{./chapters/sem8_conclusion}
+
+% ── Bibliography ───────────────────────────────────────────────────────────────
+\bibliographystyle{ieeetr}
+\bibliography{references}
+\addcontentsline{toc}{chapter}{Bibliography}
+
+% ── Appendix ───────────────────────────────────────────────────────────────────
+\include{./chapters/appendix}
+
+\end{document}

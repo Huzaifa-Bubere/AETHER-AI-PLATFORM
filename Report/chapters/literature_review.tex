@@ -1,0 +1,74 @@
+\chapter{Literature Review}
+
+\section{Survey of Existing Systems}
+
+\subsection{Online Coding Platforms}
+
+\textbf{LeetCode} \cite{leetcode2024} is the most widely used platform for coding interview preparation, offering over 3,000 algorithmic problems with automated test case evaluation. However, it is limited to coding challenges and does not support behavioural or system design interviews, nor does it provide AI-generated feedback on answer quality.
+
+\textbf{HackerRank} \cite{hackerrank2024} extends LeetCode's model with company-specific assessments and a broader range of problem types. It includes a basic interview simulation feature but lacks personalisation based on the candidate's resume or target role.
+
+\textbf{Pramp} \cite{pramp2024} offers peer-to-peer mock interviews where two candidates interview each other simultaneously. While this provides realistic practice, it depends on the availability and quality of the peer interviewer and does not scale to meet individual demand.
+
+\textbf{Interviewing.io} \cite{interviewingio2024} connects candidates with anonymous technical interviewers from top technology companies. The quality of feedback is high but the service is expensive (\$225--\$500 per session) and has limited availability.
+
+\subsection{AI-Powered Interview Tools}
+
+\textbf{Final Round AI} \cite{finalroundai2024} provides real-time AI assistance during live interviews, suggesting answers to questions as they are asked. While innovative, this approach raises ethical concerns about authenticity and does not help candidates genuinely improve their skills.
+
+\textbf{Yoodli} \cite{yoodli2024} focuses on communication coaching, analysing speech patterns, filler words, pacing, and eye contact from recorded video. It does not generate interview questions or evaluate technical content.
+
+\textbf{Google Interview Warmup} \cite{googleinterviewwarmup2024} is a free tool that presents common interview questions and uses speech recognition to transcribe answers, providing basic feedback on talking points and filler words. It is limited to a small set of predefined questions and does not support coding interviews.
+
+\subsection{LLM-Based Question Generation}
+
+Recent research has explored the use of large language models for educational assessment and interview simulation. \citeauthor{brown2020language} demonstrated that GPT-3 can generate contextually appropriate questions from a given text passage \cite{brown2020language}. \citeauthor{wei2022chain} showed that chain-of-thought prompting significantly improves the reasoning quality of LLM outputs \cite{wei2022chain}, a technique applicable to generating structured interview questions with follow-up probes.
+
+\citeauthor{kojima2022large} demonstrated that LLMs can act as zero-shot reasoners, evaluating the logical consistency of answers without task-specific fine-tuning \cite{kojima2022large}. This capability is directly applicable to automated interview response evaluation.
+
+\subsection{Computer Vision for Behavioural Analysis}
+
+\textbf{MediaPipe} \cite{mediapipe2023}, developed by Google, provides a cross-platform framework for building multimodal applied ML pipelines. Its face mesh solution detects 468 facial landmarks in real time, enabling precise eye gaze estimation and facial expression analysis. Its pose estimation solution detects 33 body landmarks, enabling posture scoring.
+
+\citeauthor{baltrusaitis2018openface} developed OpenFace, a facial behaviour analysis toolkit that achieves state-of-the-art performance on action unit recognition and gaze estimation \cite{baltrusaitis2018openface}. While more accurate than MediaPipe for research purposes, it requires native installation and is not suitable for browser-based deployment.
+
+\subsection{Speech Analysis}
+
+The Web Speech API \cite{webspeechapi2024}, supported by Chrome and Edge, provides browser-native speech recognition without requiring server-side processing. \citeauthor{graves2013speech} demonstrated that recurrent neural networks can achieve human-level speech recognition accuracy \cite{graves2013speech}. OpenAI's Whisper \cite{radford2023robust} provides robust multilingual speech recognition but requires significant computational resources, making it unsuitable for real-time browser-based transcription.
+
+\section{Limitation of Existing Systems and Research Gap}
+
+Based on the survey above, the following limitations and gaps are identified:
+
+\begin{enumerate}
+    \item \textbf{Lack of end-to-end integration:} No existing platform integrates question generation, code execution, speech recognition, computer vision analysis, and AI feedback in a single unified system.
+
+    \item \textbf{No resume-based personalisation:} Existing platforms use static question banks. None dynamically generate questions based on the candidate's specific resume, projects, and skills.
+
+    \item \textbf{Limited feedback dimensions:} Most platforms evaluate only code correctness or content relevance. None simultaneously assess technical accuracy, communication clarity, answer structure, eye contact, posture, and speech patterns.
+
+    \item \textbf{Accessibility barriers:} High-quality mock interview services are expensive and geographically limited. A web-based AI platform can democratise access.
+
+    \item \textbf{No real-time multimodal analysis:} Existing tools either analyse video post-session (Yoodli) or provide real-time assistance without evaluation (Final Round AI). No platform provides real-time multimodal analysis during a live interview simulation.
+\end{enumerate}
+
+\section{Problem Statement and Objectives}
+
+\subsection*{Problem Statement}
+
+There is a need for an accessible, personalised, and comprehensive AI-powered interview preparation platform that generates role-specific questions from a candidate's resume, evaluates responses across multiple dimensions in real time, supports live coding challenges with automated test case execution, and delivers detailed post-session feedback---all within a standard web browser without any installation.
+
+\subsection*{Objectives}
+
+\begin{itemize}
+    \item To develop a full-stack web application integrating LLM-based question generation, real-time speech recognition, computer vision analysis, and automated code execution.
+    \item To leverage the Google Gemini 2.5 Flash model for question generation, response scoring, and feedback synthesis.
+    \item To implement a resume parsing pipeline that extracts structured information and computes ATS compatibility scores.
+    \item To build a coding interview module supporting thirteen programming languages with automated test case evaluation.
+    \item To deploy the platform on scalable cloud infrastructure accessible globally.
+    \item To validate the system through functional testing of all major user flows.
+\end{itemize}
+
+\section{Scope}
+
+The project covers the complete development lifecycle of the Smart Interview AI platform, from requirements analysis through design, implementation, testing, and deployment. The scope includes all five interview types, the resume analysis module, the subscription payment system, and the admin dashboard. It excludes native mobile applications, integration with external job boards, and live human interviewer participation.

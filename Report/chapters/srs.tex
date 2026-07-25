@@ -1,0 +1,214 @@
+\chapter{Software Requirements Specification}
+
+\section{Introduction}
+
+This Software Requirements Specification (SRS) follows the IEEE 830-1984 standard \cite{IEEE_srs} and describes the functional and non-functional requirements for the Smart Interview AI platform.
+
+\subsection*{Purpose}
+This document specifies the requirements for Smart Interview AI and guides the design, development, and testing of the system.
+
+\subsection*{Document Conventions}
+\begin{itemize}
+  \item \textbf{Bold text} denotes system components, technologies, or critical terms.
+  \item Requirements use the prefix REQ-F (functional) or REQ-NF (non-functional).
+  \item Priority: \textbf{High} = must have, \textbf{Medium} = should have, \textbf{Low} = nice to have.
+\end{itemize}
+
+\subsection*{Intended Audience}
+Developers, project guide, testers, and evaluators.
+
+\subsection*{Product Scope}
+Smart Interview AI is a full-stack web application enabling candidates to practice job interviews with AI-generated questions, receive real-time feedback, execute code against automated test cases, and obtain comprehensive post-session performance reports.
+
+\section{Overall Description}
+
+\subsection*{Product Perspective}
+The system consists of three tiers: a React SPA (Vercel), a Node.js/Express REST API (Render), and a Python FastAPI AI server. It integrates with Google Gemini, MongoDB Atlas, Cloudinary, Stripe, Piston API, and Gmail SMTP.
+
+\subsection*{Product Functions}
+\begin{itemize}
+  \item User registration, authentication, and profile management.
+  \item Resume upload, parsing, and ATS scoring.
+  \item Interview session creation with AI-generated questions.
+  \item Real-time speech-to-text transcription.
+  \item Live coding challenges with multi-language code execution.
+  \item Computer vision analysis of eye contact and posture.
+  \item Post-session AI feedback generation.
+  \item Interview history and performance tracking.
+  \item Subscription management with Stripe.
+  \item Admin dashboard for platform management.
+\end{itemize}
+
+\subsection*{User Classes and Characteristics}
+
+\begin{table}[H]
+\centering
+\caption{User Classes and Characteristics}
+\vspace{6pt}
+\begin{tabularx}{\textwidth}{|L{2.8cm}|X|X|}
+\hline
+\textbf{User Class} & \textbf{Description} & \textbf{Key Needs} \\
+\hline
+Job Candidate & Primary user preparing for technical or behavioural interviews & Personalised questions, real-time feedback, coding practice \\
+\hline
+Administrator & Platform manager monitoring usage and managing users & User management, analytics, system health \\
+\hline
+\end{tabularx}
+\label{tab:userclasses}
+\end{table}
+
+\subsection*{Operating Environment}
+\begin{itemize}
+  \item \textbf{Client:} Chrome 90+, Firefox 88+, Edge 90+ with camera and microphone access.
+  \item \textbf{Backend:} Node.js v18+, Linux (Render).
+  \item \textbf{AI Server:} Python 3.11, Railway or Fly.io.
+  \item \textbf{Database:} MongoDB Atlas (cloud-hosted).
+  \item \textbf{Network:} HTTPS required for camera/microphone access.
+\end{itemize}
+
+\subsection*{Design and Implementation Constraints}
+\begin{itemize}
+  \item Web Speech API is only supported in Chrome and Edge.
+  \item Camera and microphone access require HTTPS or localhost.
+  \item The Piston API public endpoint is rate-limited.
+  \item The Google Gemini API has per-minute token limits.
+  \item The Python AI server requires 400MB+ RAM for MediaPipe and OpenCV.
+\end{itemize}
+
+\subsection*{Assumptions and Dependencies}
+\begin{itemize}
+  \item Users have a stable internet connection ($\geq$2 Mbps).
+  \item The Google Gemini API remains available at current pricing.
+  \item MongoDB Atlas free tier provides sufficient storage for development.
+  \item Stripe test mode is used during development.
+\end{itemize}
+
+\section{External Interface Requirements}
+
+\subsection*{Software Interfaces}
+
+\begin{table}[H]
+\centering
+\caption{External Software Interfaces}
+\vspace{6pt}
+\begin{tabularx}{\textwidth}{|L{3cm}|L{2.5cm}|X|}
+\hline
+\textbf{Interface} & \textbf{Protocol} & \textbf{Purpose} \\
+\hline
+Google Gemini API & HTTPS/REST & Question generation, response analysis, feedback \\
+\hline
+MongoDB Atlas & Wire Protocol & Data persistence \\
+\hline
+Cloudinary API & HTTPS/REST & Resume and file storage \\
+\hline
+Stripe API & HTTPS/REST & Payment processing \\
+\hline
+Piston API & HTTPS/REST & Code execution \\
+\hline
+Gmail SMTP & SMTP/TLS & Email notifications \\
+\hline
+Web Speech API & Browser Native & Speech-to-text transcription \\
+\hline
+MediaPipe & Browser/Python & Computer vision analysis \\
+\hline
+\end{tabularx}
+\label{tab:softwareinterfaces}
+\end{table}
+
+\section{System Features}
+
+\subsection{User Authentication and Profile Management}
+\textbf{Priority: High.}
+\begin{itemize}
+  \item REQ-F-01: Register with email and password.
+  \item REQ-F-02: Send email verification link on registration.
+  \item REQ-F-03: Authenticate using JWT access tokens (15 min) and refresh tokens (7 days).
+  \item REQ-F-04: Lock accounts after 5 consecutive failed login attempts for 2 hours.
+  \item REQ-F-05: Allow password reset via time-limited email link.
+  \item REQ-F-06: Allow users to update profile, preferences, and avatar.
+\end{itemize}
+
+\subsection{Resume Analysis}
+\textbf{Priority: High.}
+\begin{itemize}
+  \item REQ-F-07: Accept PDF, DOC, and DOCX files up to 10MB.
+  \item REQ-F-08: Extract skills, experience, education, certifications, and achievements.
+  \item REQ-F-09: Compute an ATS compatibility score (0--100).
+  \item REQ-F-10: Store resumes in Cloudinary with a local fallback.
+  \item REQ-F-11: Allow users to view and download their resumes.
+  \item REQ-F-12: Allow users to delete their resumes.
+\end{itemize}
+
+\subsection{Interview Session Management}
+\textbf{Priority: High.}
+\begin{itemize}
+  \item REQ-F-13: Support five interview types: technical, behavioural, coding, system design, skill-based.
+  \item REQ-F-14: Generate 3--5 questions using Gemini based on role, difficulty, duration, and resume.
+  \item REQ-F-15: Present questions one at a time and track answered questions.
+  \item REQ-F-16: Record the duration of each response.
+  \item REQ-F-17: Allow users to pause and resume sessions.
+  \item REQ-F-18: Mark interviews as completed when all questions are answered.
+  \item REQ-F-19: Run AI analysis of each response asynchronously in the background.
+\end{itemize}
+
+\subsection{Coding Interview Module}
+\textbf{Priority: High.}
+\begin{itemize}
+  \item REQ-F-20: Present algorithmic problems with description, examples, constraints, and test cases.
+  \item REQ-F-21: Provide a Monaco code editor with syntax highlighting for 13 languages.
+  \item REQ-F-22: Execute submitted code against test cases using the Piston API.
+  \item REQ-F-23: Display pass/fail results with actual vs.\ expected output.
+  \item REQ-F-24: Generate dynamic hints using the Gemini API.
+  \item REQ-F-25: Normalise function arguments to handle multi-line inputs correctly.
+\end{itemize}
+
+\subsection{Feedback Generation}
+\textbf{Priority: High.}
+\begin{itemize}
+  \item REQ-F-26: Generate a comprehensive feedback report after each session.
+  \item REQ-F-27: Include overall score, grade, strengths, improvements, and recommendations.
+  \item REQ-F-28: Include content metrics: relevance, technical accuracy, clarity, and structure.
+  \item REQ-F-29: Run synchronous analysis if background analysis did not complete before session end.
+  \item REQ-F-30: Display a question-by-question breakdown with the candidate's answers.
+\end{itemize}
+
+\subsection{Subscription and Payments}
+\textbf{Priority: Medium.}
+\begin{itemize}
+  \item REQ-F-31: Offer three tiers: Free, Pro (\rupee2,499/month), Enterprise (\rupee8,499/month).
+  \item REQ-F-32: Process payments via Stripe Checkout.
+  \item REQ-F-33: Handle Stripe webhooks for subscription lifecycle events.
+  \item REQ-F-34: Send payment receipt emails on successful subscription.
+\end{itemize}
+
+\section{Non-Functional Requirements}
+
+\subsection*{Performance}
+\begin{itemize}
+  \item REQ-NF-01: Question generation shall complete within 60 seconds.
+  \item REQ-NF-02: Code execution results shall be returned within 15 seconds.
+  \item REQ-NF-03: The API shall handle at least 100 concurrent users on the Render starter plan.
+\end{itemize}
+
+\subsection*{Security}
+\begin{itemize}
+  \item REQ-NF-04: All API endpoints shall require JWT authentication except public routes.
+  \item REQ-NF-05: Passwords shall be hashed using bcrypt with cost factor 12.
+  \item REQ-NF-06: All inputs shall be sanitised to prevent XSS and NoSQL injection.
+  \item REQ-NF-07: Rate limiting: 100 req/15 min (general), 5 req/15 min (auth).
+  \item REQ-NF-08: HTTPS shall be enforced in production.
+\end{itemize}
+
+\subsection*{Reliability}
+\begin{itemize}
+  \item REQ-NF-09: The system shall degrade gracefully when the Python AI server is unavailable.
+  \item REQ-NF-10: MongoDB connections shall be retried up to 3 times before failing.
+  \item REQ-NF-11: Background AI analysis failures shall be logged but shall not block response submission.
+\end{itemize}
+
+\subsection*{Usability}
+\begin{itemize}
+  \item REQ-NF-12: The platform shall be fully functional on Chrome and Edge.
+  \item REQ-NF-13: The interview room shall be responsive on screens wider than 1024px.
+  \item REQ-NF-14: Error messages shall be user-friendly and actionable.
+\end{itemize}

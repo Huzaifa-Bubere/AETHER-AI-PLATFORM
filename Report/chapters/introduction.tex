@@ -1,0 +1,92 @@
+\chapter{Introduction}
+
+\section{Background}
+
+The process of preparing for technical and behavioural job interviews has traditionally been a challenging, expensive, and largely unstructured endeavour. Candidates preparing for roles in software engineering, data science, and related fields must simultaneously master data structures and algorithms, system design principles, communication skills, and domain-specific knowledge. Existing preparation methods---textbooks, online coding platforms, peer mock interviews, and professional coaching---each address only a subset of these requirements and rarely provide the integrated, personalised feedback that candidates need to improve holistically.
+
+The rapid advancement of Large Language Models (LLMs) and multimodal AI systems has created an unprecedented opportunity to automate and personalise the interview preparation experience. Models such as Google Gemini, OpenAI GPT-4, and Anthropic Claude can generate contextually relevant interview questions, evaluate the quality of candidate responses, and produce detailed, actionable feedback at a level of sophistication previously achievable only by experienced human interviewers.
+
+Simultaneously, browser-based technologies such as the Web Speech API, WebRTC, and the MediaPipe computer vision library have made it possible to capture, process, and analyse audio and video streams directly in the browser without requiring native application installation. This convergence of AI capability and browser technology creates the foundation for a fully web-based, AI-powered interview simulation platform.
+
+\section{Motivation}
+
+Several key observations motivated the development of Smart Interview AI:
+
+\begin{itemize}
+    \item \textbf{Lack of personalisation:} Existing platforms such as LeetCode, HackerRank, and Pramp offer coding practice and peer mock interviews but do not generate questions tailored to a candidate's specific resume, target role, or skill gaps.
+
+    \item \textbf{Absence of holistic feedback:} Most platforms evaluate only the correctness of code or the content of written answers. They do not assess communication clarity, answer structure, body language, eye contact, or speech patterns---all of which are critical in real interviews.
+
+    \item \textbf{Cost barriers:} Professional interview coaching services charge \$100--\$500 per session, making them inaccessible to the majority of candidates, particularly those from developing economies.
+
+    \item \textbf{Scalability:} Human-conducted mock interviews cannot scale to meet the demand of millions of candidates preparing simultaneously. An AI-powered platform can serve unlimited users concurrently at negligible marginal cost.
+
+    \item \textbf{Immediate feedback:} Human interviewers typically provide feedback after a session ends. An AI system can analyse responses in real time and provide immediate, granular feedback on each answer.
+\end{itemize}
+
+\section{Problem Statement}
+
+Despite the availability of numerous interview preparation resources, there is no single platform that:
+\begin{enumerate}
+    \item Generates personalised interview questions from a candidate's resume and target role using a state-of-the-art LLM.
+    \item Supports all major interview formats: technical, behavioural, coding, system design, and skill-based.
+    \item Evaluates spoken and written responses across multiple dimensions including relevance, technical accuracy, communication clarity, and answer structure.
+    \item Analyses non-verbal communication cues such as eye contact, posture, and facial expressions in real time.
+    \item Executes code against test cases across multiple programming languages and provides immediate pass/fail feedback.
+    \item Delivers a comprehensive, AI-generated feedback report after each session.
+    \item Is accessible via a standard web browser without any installation.
+\end{enumerate}
+
+\section{Objectives}
+
+The primary objectives of this project are:
+
+\begin{itemize}
+    \item To design and implement a full-stack web application that simulates realistic job interviews using AI-generated questions.
+    \item To integrate the Google Gemini 2.5 Flash LLM for dynamic question generation, response analysis, and feedback synthesis.
+    \item To build a real-time coding interview environment with a Monaco editor, multi-language code execution via the Piston API, and automated test case evaluation.
+    \item To implement browser-based speech recognition for real-time answer transcription using the Web Speech API.
+    \item To develop a computer vision pipeline using MediaPipe for eye contact tracking, posture scoring, and facial expression analysis.
+    \item To create a resume analysis module that parses uploaded resumes, extracts skills and experience, and computes an ATS compatibility score.
+    \item To deploy the platform on cloud infrastructure (Vercel + Render) with MongoDB Atlas as the database and Cloudinary for file storage.
+    \item To implement a subscription model with Stripe for monetisation.
+\end{itemize}
+
+\section{Scope}
+
+The scope of this project encompasses:
+
+\begin{itemize}
+    \item A React-based single-page application (SPA) deployed on Vercel.
+    \item A Node.js/Express REST API backend deployed on Render.
+    \item A Python FastAPI AI server for computer vision and audio analysis.
+    \item Five interview types: technical, behavioural, coding, system design, and skill-based.
+    \item Support for thirteen programming languages in the coding interview module.
+    \item Resume upload, parsing, and ATS scoring.
+    \item Real-time speech-to-text transcription.
+    \item Post-interview feedback generation with scores, strengths, improvements, and recommendations.
+    \item User authentication with JWT, email verification, and password reset.
+    \item Stripe-based subscription payments (Free, Pro, Enterprise tiers).
+    \item An admin dashboard for platform management.
+\end{itemize}
+
+The project does not include:
+\begin{itemize}
+    \item A native mobile application.
+    \item Integration with job boards or applicant tracking systems.
+    \item Live human interviewer participation.
+    \item Video recording storage (planned for future work).
+\end{itemize}
+
+\section{Organisation of the Report}
+
+The remainder of this report is organised as follows:
+
+\begin{itemize}
+    \item \textbf{Chapter 2 -- Literature Review:} Surveys existing interview preparation platforms and AI-based evaluation systems, identifies research gaps, and states the problem objectives.
+    \item \textbf{Chapter 3 -- Software Requirements Specification:} Documents functional and non-functional requirements, user classes, system features, and constraints.
+    \item \textbf{Chapter 4 -- Project Scheduling and Planning:} Presents the project timeline, work breakdown structure, and resource allocation.
+    \item \textbf{Chapter 5 -- Proposed System:} Describes the system architecture, design decisions, technology stack, and methodology.
+    \item \textbf{Chapter 6 -- Implementation Plan:} Details the implementation of key modules including the interview engine, coding platform, AI analysis pipeline, and deployment configuration.
+    \item \textbf{Chapter 7 -- Summary:} Summarises the work completed and outlines future directions.
+\end{itemize}

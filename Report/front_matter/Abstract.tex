@@ -1,0 +1,22 @@
+\thispagestyle{empty}
+
+\begin{center}
+{\Large {\bf \uppercase{Abstract}}}
+\end{center}
+
+\vspace{\baselineskip}
+\hrule
+\vspace{2\baselineskip}
+
+\noindent
+The traditional interview preparation process is fragmented, expensive, and lacks personalised feedback. Candidates rely on static resources, mock interviews with peers, or costly coaching services that do not scale. This project presents \textbf{Smart Interview AI}, a full-stack, AI-powered mock interview platform that simulates real technical and behavioural interviews, evaluates candidate responses in real time, and delivers detailed, actionable feedback.
+
+The platform is built on a \textbf{MERN stack} (MongoDB, Express.js, React, Node.js) augmented by a \textbf{Python FastAPI AI server} and the \textbf{Google Gemini 2.5 Flash} large language model. Candidates can conduct five types of interviews---technical, behavioural, coding, system design, and skill-based---with questions dynamically generated from their uploaded resume and target role. A Monaco-based code editor with a Piston API execution engine supports live coding challenges across thirteen programming languages. Speech recognition via the Web Speech API transcribes spoken answers in real time, while a MediaPipe-powered video analysis module assesses eye contact, posture, and facial expressions through the browser camera.
+
+After each session, Gemini generates a comprehensive feedback report covering content metrics (relevance, technical accuracy, communication clarity, structure), an overall performance score, strengths, areas for improvement, and personalised recommendations. The platform also includes resume analysis with ATS scoring, interview scheduling with email reminders, a practice mode, Stripe-based subscription payments, and an admin dashboard.
+
+The system is deployed with the frontend on \textbf{Vercel} and the backend on \textbf{Render}, with MongoDB Atlas as the cloud database and Cloudinary for file storage. Evaluation demonstrates that the platform successfully generates role-specific questions, executes code against test cases with correct argument normalisation, and produces meaningful feedback even when background analysis races with session termination.
+
+\vspace{\baselineskip}
+\noindent
+{\large \bf{Keywords:} } Artificial Intelligence, Mock Interview, Large Language Model, Gemini API, MERN Stack, Speech Recognition, Computer Vision, MediaPipe, Code Execution, Resume Analysis, Real-Time Feedback

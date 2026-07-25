@@ -1,0 +1,202 @@
+\chapter{Testing}
+
+\section{Testing Strategy}
+
+The testing strategy for Smart Interview AI covers four levels:
+\begin{enumerate}
+    \item \textbf{Unit Testing:} Individual functions and utilities.
+    \item \textbf{Integration Testing:} API endpoint behaviour with a test database.
+    \item \textbf{System Testing:} End-to-end user flows in a browser.
+    \item \textbf{Deployment Testing:} Verification of production endpoints.
+\end{enumerate}
+
+\section{Unit Testing}
+
+\subsection{Code Execution Service}
+
+The \texttt{normalizeOutput} function was unit tested with the following cases:
+
+\begin{table}[H]
+\centering
+\caption{normalizeOutput Unit Tests}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|X|C{2cm}|}
+\hline
+\textbf{Input} & \textbf{Expected} & \textbf{Result} \\
+\hline
+\texttt{[0, 1]} & \texttt{[0,1]} & PASS \\
+\hline
+\texttt{[0,1]} & \texttt{[0,1]} & PASS \\
+\hline
+\texttt{"true"} & \texttt{true} & PASS \\
+\hline
+\texttt{"True"} & \texttt{true} & PASS \\
+\hline
+\texttt{"\textbackslash n"} & \texttt{""} & PASS \\
+\hline
+\texttt{"\{"a":1\}"} & \texttt{\{"a":1\}} & PASS \\
+\hline
+\end{tabularx}
+\label{tab:normalizetest}
+\end{table}
+
+\subsection{Python Argument Normalisation}
+
+The \texttt{\_expand\_args} function was tested with the following scenarios:
+
+\begin{table}[H]
+\centering
+\caption{Python Argument Normalisation Tests}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|X|X|C{1.8cm}|}
+\hline
+\textbf{Input args} & \textbf{Function signature} & \textbf{Expected call} & \textbf{Result} \\
+\hline
+\texttt{[[2,7,11,15], 9]} & \texttt{twoSum(nums, target)} & \texttt{twoSum([2,7,11,15], 9)} & PASS \\
+\hline
+\texttt{[\{"nums":[..], "target":9\}]} & \texttt{twoSum(nums, target)} & \texttt{twoSum([..], 9)} & PASS \\
+\hline
+\texttt{[[[2,7,11,15], 9]]} & \texttt{twoSum(nums, target)} & \texttt{twoSum([2,7,11,15], 9)} & PASS \\
+\hline
+\texttt{[[7,1,5,3,6,4], 2]} & \texttt{maxProfit(prices, k)} & \texttt{maxProfit([7,1,5,3,6,4], 2)} & PASS \\
+\hline
+\end{tabularx}
+\label{tab:argtest}
+\end{table}
+
+\section{Integration Testing}
+
+\subsection{Authentication Flow}
+
+\begin{table}[H]
+\centering
+\caption{Authentication Integration Tests}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|C{1.8cm}|X|}
+\hline
+\textbf{Test} & \textbf{Status} & \textbf{Expected Response} \\
+\hline
+Register with valid data & PASS & 201, user object + tokens \\
+\hline
+Register with duplicate email & PASS & 400, "User already exists" \\
+\hline
+Login with correct credentials & PASS & 200, tokens \\
+\hline
+Login with wrong password & PASS & 401, "Invalid credentials" \\
+\hline
+Login after 5 failures & PASS & 423, "Account is locked" \\
+\hline
+Refresh with valid token & PASS & 200, new access token \\
+\hline
+Access protected route without token & PASS & 401, "Access token required" \\
+\hline
+\end{tabularx}
+\label{tab:authtest}
+\end{table}
+
+\subsection{Interview Flow Integration Tests}
+
+\begin{table}[H]
+\centering
+\caption{Interview Flow Integration Tests}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|C{1.8cm}|X|}
+\hline
+\textbf{Test} & \textbf{Status} & \textbf{Notes} \\
+\hline
+Create technical interview & PASS & 5 questions generated \\
+\hline
+Create coding interview & PASS & Questions include testCases \\
+\hline
+Get next question (first) & PASS & Returns question 1 \\
+\hline
+Submit response & PASS & Returns 200 instantly \\
+\hline
+Get next question (after submit) & PASS & Returns question 2 (not question 1) \\
+\hline
+Get next question (all answered) & PASS & Returns completed:true, data:null \\
+\hline
+End interview & PASS & Status set to completed \\
+\hline
+Generate feedback & PASS & Scores populated \\
+\hline
+\end{tabularx}
+\label{tab:interviewtest}
+\end{table}
+
+\section{System Testing}
+
+\subsection{End-to-End User Flows}
+
+The following complete user journeys were tested in Chrome:
+
+\begin{enumerate}
+    \item \textbf{New User Registration:}
+    Register $\rightarrow$ Verify email $\rightarrow$ Complete onboarding $\rightarrow$ Dashboard. \textbf{PASS}
+
+    \item \textbf{Technical Interview:}
+    Upload resume $\rightarrow$ Setup (Technical, Senior Developer, Medium, 30 min) $\rightarrow$ Interview room $\rightarrow$ Answer 3 questions via speech $\rightarrow$ End $\rightarrow$ Feedback page with scores. \textbf{PASS}
+
+    \item \textbf{Coding Interview:}
+    Setup (Coding, Python, Easy, 45 min) $\rightarrow$ Coding room $\rightarrow$ Write Two Sum solution $\rightarrow$ Run code (all tests pass) $\rightarrow$ Submit $\rightarrow$ Next question $\rightarrow$ End $\rightarrow$ Feedback. \textbf{PASS}
+
+    \item \textbf{Resume Analysis:}
+    Upload PDF resume $\rightarrow$ View ATS score $\rightarrow$ View extracted skills $\rightarrow$ Download resume. \textbf{PASS}
+
+    \item \textbf{Subscription:}
+    Navigate to subscription page $\rightarrow$ Select Pro plan $\rightarrow$ Stripe checkout (test card) $\rightarrow$ Payment success $\rightarrow$ Subscription activated. \textbf{PASS}
+\end{enumerate}
+
+\subsection{Browser Compatibility}
+
+\begin{table}[H]
+\centering
+\caption{Browser Compatibility Test Results}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|C{2.2cm}|C{2cm}|C{2.2cm}|C{2cm}|}
+\hline
+\textbf{Feature} & \textbf{Chrome 120} & \textbf{Edge 120} & \textbf{Firefox 121} & \textbf{Safari 17} \\
+\hline
+Camera access & PASS & PASS & PASS & PASS \\
+\hline
+Speech recognition & PASS & PASS & FAIL* & FAIL* \\
+\hline
+Monaco editor & PASS & PASS & PASS & PASS \\
+\hline
+Socket.IO & PASS & PASS & PASS & PASS \\
+\hline
+Stripe checkout & PASS & PASS & PASS & PASS \\
+\hline
+\end{tabularx}
+\label{tab:browsercompat}
+\end{table}
+
+*Firefox and Safari do not support the Web Speech API. Users on these browsers must type their answers.
+
+\section{Security Testing}
+
+\begin{table}[H]
+\centering
+\caption{Security Test Results}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|X|C{1.8cm}|X|}
+\hline
+\textbf{Test} & \textbf{Status} & \textbf{Notes} \\
+\hline
+SQL/NoSQL injection via API inputs & PASS & express-mongo-sanitize blocks injection \\
+\hline
+XSS via answer text & PASS & xssProtection middleware sanitises inputs \\
+\hline
+JWT without signature & PASS & Returns 401 \\
+\hline
+Expired JWT & PASS & Returns 401, client refreshes \\
+\hline
+Rate limit (auth endpoint) & PASS & 429 after 5 requests/15 min \\
+\hline
+CORS from unknown origin & PASS & Returns CORS error \\
+\hline
+CORS from *.vercel.app & PASS & Allowed \\
+\hline
+\end{tabularx}
+\label{tab:securitytest}
+\end{table}

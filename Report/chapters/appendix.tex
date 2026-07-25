@@ -1,0 +1,154 @@
+\begin{appendices}
+
+\chapter{Appendix}
+
+\section{API Endpoint Reference}
+
+% Text width = 21cm - 3.5cm(left) - 2cm(right) = 15.5cm
+% Col widths: Method=1.5cm, Endpoint=5.5cm, Auth=1.8cm, Description=remaining
+% 15.5 - 1.5 - 5.5 - 1.8 - (4 borders ~0.2cm) = ~6.5cm for Description
+\begin{longtable}{|L{1.5cm}|L{5.5cm}|L{1.8cm}|p{5.8cm}|}
+\caption{Complete API Endpoint Reference} \label{tab:fullapi} \\
+\hline
+\textbf{Method} & \textbf{Endpoint} & \textbf{Auth} & \textbf{Description} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Method} & \textbf{Endpoint} & \textbf{Auth} & \textbf{Description} \\
+\hline
+\endhead
+POST & /api/auth/register & No & User registration \\
+\hline
+POST & /api/auth/login & No & User login \\
+\hline
+POST & /api/auth/refresh & No & Refresh access token \\
+\hline
+POST & /api/auth/logout & Yes & Logout \\
+\hline
+POST & /api/auth/forgot-password & No & Request password reset \\
+\hline
+POST & /api/auth/reset-password & No & Reset password \\
+\hline
+GET & /api/auth/verify-email & No & Verify email address \\
+\hline
+POST & /api/resume/upload & Yes & Upload and parse resume \\
+\hline
+GET & /api/resume/latest & Yes & Get latest resume \\
+\hline
+GET & /api/resume/:id & Yes & Get specific resume \\
+\hline
+GET & /api/resume/:id/view & Yes & View resume in browser \\
+\hline
+GET & /api/resume/:id/download & Yes & Download resume \\
+\hline
+DELETE & /api/resume/:id & Yes & Delete resume \\
+\hline
+POST & /api/interview/create & Yes & Create interview \\
+\hline
+POST & /api/interview/:id/start & Yes & Start session \\
+\hline
+POST & /api/interview/:id/end & Yes & End session \\
+\hline
+GET & /api/interview/:id/next-question & Yes & Get next question \\
+\hline
+POST & /api/interview/:id/response & Yes & Submit answer \\
+\hline
+POST & /api/interview/:id/feedback & Yes & Generate feedback \\
+\hline
+GET & /api/interview/:id/feedback & Yes & Get feedback \\
+\hline
+GET & /api/interview/history & Yes & Interview history \\
+\hline
+POST & /api/code/execute & Yes & Execute code \\
+\hline
+POST & /api/code/execute-tests & Yes & Execute with test cases \\
+\hline
+POST & /api/code/hints & Yes & Generate hints \\
+\hline
+POST & /api/payment/create-checkout-session & Yes & Create Stripe checkout \\
+\hline
+GET & /api/payment/subscription & Yes & Get subscription status \\
+\hline
+POST & /api/payment/webhook & No & Stripe webhook \\
+\hline
+GET & /api/health/full-check & No & System health check \\
+\hline
+GET & /api/health/ping & No & Liveness probe \\
+\hline
+\end{longtable}
+
+\section{Technology Stack Summary}
+
+\begin{table}[H]
+\centering
+\caption{Complete Technology Stack}
+\vspace{8pt}
+\begin{tabularx}{\textwidth}{|L{3cm}|L{3.5cm}|X|}
+\hline
+\textbf{Layer} & \textbf{Technology} & \textbf{Version / Purpose} \\
+\hline
+Frontend Framework & React & 18.3.1 \\
+\hline
+Build Tool & Vite & 6.3.5 \\
+\hline
+Styling & Tailwind CSS & 4.1.12 \\
+\hline
+UI Components & Radix UI & Various \\
+\hline
+State Management & Zustand & 4.5.0 \\
+\hline
+HTTP Client & Axios & 1.6.7 \\
+\hline
+Real-time & Socket.IO Client & 4.7.4 \\
+\hline
+Code Editor & Monaco Editor & 4.7.0 \\
+\hline
+Charts & Recharts & 2.15.2 \\
+\hline
+Backend Framework & Express.js & 4.18.2 \\
+\hline
+Language & TypeScript & 5.3.3 \\
+\hline
+Database ODM & Mongoose & 8.x \\
+\hline
+Authentication & jsonwebtoken & 9.0.2 \\
+\hline
+File Upload & Multer & 1.4.5 \\
+\hline
+Email & Nodemailer & 6.10.1 \\
+\hline
+Payments & Stripe & 20.3.1 \\
+\hline
+AI (LLM) & Google Generative AI & 0.21.0 \\
+\hline
+AI Server & FastAPI & 0.104.1 \\
+\hline
+Computer Vision & MediaPipe & 0.10.8 \\
+\hline
+Audio Analysis & Librosa & 0.10.1 \\
+\hline
+PDF Parsing & PyPDF2 & 3.0.1 \\
+\hline
+Database & MongoDB Atlas & 7.0 \\
+\hline
+File Storage & Cloudinary & SDK v1.41.3 \\
+\hline
+Code Execution & Piston API & Public v2 \\
+\hline
+Frontend Hosting & Vercel & - \\
+\hline
+Backend Hosting & Render & Starter plan \\
+\hline
+\end{tabularx}
+\label{tab:techstack}
+\end{table}
+
+\section{Plagiarism Report}
+\newpage
+
+\section{Publication by Candidate}
+\newpage
+
+\section{Project Competition}
+
+\end{appendices}

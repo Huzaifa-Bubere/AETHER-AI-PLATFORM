@@ -6,9 +6,9 @@ import AptitudeAttempt, { ResponseStatus } from '../models/AptitudeAttempt';
 import { buildQuestionSet } from '../services/questionSelector.service';
 import { generateAIAnalysis } from '../services/aptitudeAI.service';
 
-// ADAPT: replace with your actual authenticated-request type (req.user.id from your JWT middleware)
+// ADAPT: replace with your actual authenticated-request type (req.user.userId from your JWT middleware)
 interface AuthedRequest extends Request {
-  user?: { id: string };
+  user?: { userId: string };
 }
 
 /** GET /api/aptitude/tests — list published tests students can start */
@@ -16,12 +16,12 @@ export async function listPublishedTests(req: Request, res: Response) {
   const tests = await AptitudeTest.find({ isPublished: true }).select(
     'title roundType categories durationMinutes totalMarks difficultyPlan'
   );
-  res.json({ tests });
+  return res.json({ tests });
 }
 
 /** POST /api/aptitude/tests/:testId/start — creates a fresh randomized attempt */
 export async function startAttempt(req: AuthedRequest, res: Response) {
-  const userId = req.user!.id;
+  const userId = req.user!.userId;
   const { testId } = req.params;
 
   const test = await AptitudeTest.findOne({ _id: testId, isPublished: true });
@@ -47,12 +47,12 @@ export async function startAttempt(req: AuthedRequest, res: Response) {
     totalMarks: test.totalMarks,
   });
 
-  res.status(201).json({ attemptId: attempt._id, resumed: false });
+  return res.status(201).json({ attemptId: attempt._id, resumed: false });
 }
 
 /** GET /api/aptitude/attempts/:attemptId — question images + palette state, never the correct answer */
 export async function getAttempt(req: AuthedRequest, res: Response) {
-  const userId = req.user!.id;
+  const userId = req.user!.userId;
   const attempt = await AptitudeAttempt.findOne({ _id: req.params.attemptId, user: userId }).populate({
     path: 'questions',
     select: 'imageUrl category difficulty marks',
@@ -61,7 +61,7 @@ export async function getAttempt(req: AuthedRequest, res: Response) {
 
   const deadline = new Date(attempt.startedAt.getTime() + attempt.durationMinutes * 60000);
 
-  res.json({
+  return res.json({
     attemptId: attempt._id,
     status: attempt.status,
     deadline,
@@ -76,7 +76,7 @@ export async function getAttempt(req: AuthedRequest, res: Response) {
 
 /** POST /api/aptitude/attempts/:attemptId/response — auto-save a single answer / palette state */
 export async function saveResponse(req: AuthedRequest, res: Response) {
-  const userId = req.user!.id;
+  const userId = req.user!.userId;
   const { attemptId } = req.params;
   const { questionId, selectedOption, markedForReview, timeSpentSeconds } = req.body as {
     questionId: string;
@@ -101,23 +101,23 @@ export async function saveResponse(req: AuthedRequest, res: Response) {
   r.status = computeStatus(selectedOption, markedForReview);
 
   await attempt.save();
-  res.json({ saved: true });
+  return res.json({ saved: true });
 }
 
 /** POST /api/aptitude/attempts/:attemptId/submit — manual or auto submit */
 export async function submitAttempt(req: AuthedRequest, res: Response) {
-  const userId = req.user!.id;
+  const userId = req.user!.userId;
   const attempt = await AptitudeAttempt.findOne({ _id: req.params.attemptId, user: userId, status: 'in-progress' });
   if (!attempt) return res.status(404).json({ message: 'Active attempt not found.' });
 
   const auto = isExpired(attempt) || !!req.body?.autoSubmitted;
   await finalizeSubmission(attempt, auto);
-  res.json({ submitted: true, autoSubmitted: auto, attemptId: attempt._id });
+  return res.json({ submitted: true, autoSubmitted: auto, attemptId: attempt._id });
 }
 
 /** GET /api/aptitude/attempts/:attemptId/result — full review with correct answers + AI analysis */
 export async function getResult(req: AuthedRequest, res: Response) {
-  const userId = req.user!.id;
+  const userId = req.user!.userId;
   const attempt = await AptitudeAttempt.findOne({ _id: req.params.attemptId, user: userId, status: 'completed' }).populate(
     'questions'
   );
@@ -139,7 +139,7 @@ export async function getResult(req: AuthedRequest, res: Response) {
     };
   });
 
-  res.json({
+  return res.json({
     attemptId: attempt._id,
     score: attempt.score,
     totalMarks: attempt.totalMarks,

@@ -41,9 +41,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - PYTHON_AI_SERVER_URL=http://ai-server:8000
       - PYTHON_AI_SERVER_API_KEY=${PYTHON_AI_SERVER_API_KEY}
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
+    # volumes:
+    #   - ./backend:/app
+    #   - /app/node_modules
     depends_on:
       - mongodb
       - redis

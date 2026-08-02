@@ -5,7 +5,7 @@ import AptitudeAttempt from '../models/AptitudeAttempt';
 import { uploadQuestionImage, deleteQuestionImage } from '../utils/aptitudeImageUpload';
 
 interface AuthedRequest extends Request {
-  user?: { id: string };
+  user?: { userId: string };
   file?: Express.Multer.File;
   files?: Express.Multer.File[];
 }
@@ -28,10 +28,10 @@ export async function createQuestion(req: AuthedRequest, res: Response) {
     explanation: explanation || '',
     imageUrl: url,
     imagePublicId: publicId,
-    createdBy: req.user!.id,
+    createdBy: req.user!.userId,
   });
 
-  res.status(201).json({ question });
+  return res.status(201).json({ question });
 }
 
 /**
@@ -69,7 +69,7 @@ export async function bulkCreateQuestions(req: AuthedRequest, res: Response) {
         explanation: m.explanation || '',
         imageUrl: url,
         imagePublicId: publicId,
-        createdBy: req.user!.id,
+        createdBy: req.user!.userId,
       });
       created.push(question);
     } catch (err: any) {
@@ -77,7 +77,7 @@ export async function bulkCreateQuestions(req: AuthedRequest, res: Response) {
     }
   }
 
-  res.status(207).json({ createdCount: created.length, failedCount: failed.length, created, failed });
+  return res.status(207).json({ createdCount: created.length, failedCount: failed.length, created, failed });
 }
 
 /** GET /api/admin/aptitude/questions?roundType=&category=&difficulty=&status=&page=&limit= */
@@ -100,7 +100,7 @@ export async function listQuestions(req: Request, res: Response) {
     AptitudeQuestion.countDocuments(filter),
   ]);
 
-  res.json({ questions, total, page: pageNum, pages: Math.ceil(total / limitNum) });
+  return res.json({ questions, total, page: pageNum, pages: Math.ceil(total / limitNum) });
 }
 
 /** PUT /api/admin/aptitude/questions/:id (metadata only — send image separately if replacing it) */
@@ -124,14 +124,14 @@ export async function updateQuestion(req: AuthedRequest, res: Response) {
   if (explanation !== undefined) question.explanation = explanation;
 
   await question.save();
-  res.json({ question });
+  return res.json({ question });
 }
 
 /** PATCH /api/admin/aptitude/questions/:id/status  { status: 'active' | 'inactive' } */
 export async function toggleQuestionStatus(req: Request, res: Response) {
   const question = await AptitudeQuestion.findByIdAndUpdate(req.params.id, { status: req.body.status }, { new: true });
   if (!question) return res.status(404).json({ message: 'Question not found.' });
-  res.json({ question });
+  return res.json({ question });
 }
 
 /** DELETE /api/admin/aptitude/questions/:id */
@@ -140,35 +140,35 @@ export async function deleteQuestion(req: Request, res: Response) {
   if (!question) return res.status(404).json({ message: 'Question not found.' });
   await deleteQuestionImage(question.imagePublicId).catch(() => {});
   await question.deleteOne();
-  res.json({ deleted: true });
+  return res.json({ deleted: true });
 }
 
 // ---------- Tests ----------
 
 /** POST /api/admin/aptitude/tests */
 export async function createTest(req: AuthedRequest, res: Response) {
-  const test = await AptitudeTest.create({ ...req.body, createdBy: req.user!.id });
-  res.status(201).json({ test });
+  const test = await AptitudeTest.create({ ...req.body, createdBy: req.user!.userId });
+  return res.status(201).json({ test });
 }
 
 /** PUT /api/admin/aptitude/tests/:id */
 export async function updateTest(req: Request, res: Response) {
   const test = await AptitudeTest.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
   if (!test) return res.status(404).json({ message: 'Test not found.' });
-  res.json({ test });
+  return res.json({ test });
 }
 
 /** PATCH /api/admin/aptitude/tests/:id/publish  { isPublished: boolean } */
 export async function togglePublishTest(req: Request, res: Response) {
   const test = await AptitudeTest.findByIdAndUpdate(req.params.id, { isPublished: req.body.isPublished }, { new: true });
   if (!test) return res.status(404).json({ message: 'Test not found.' });
-  res.json({ test });
+  return res.json({ test });
 }
 
 /** GET /api/admin/aptitude/tests */
 export async function listTests(_req: Request, res: Response) {
   const tests = await AptitudeTest.find().sort({ createdAt: -1 });
-  res.json({ tests });
+  return res.json({ tests });
 }
 
 // ---------- Dashboard / Students ----------
@@ -187,7 +187,7 @@ export async function getDashboardStats(_req: Request, res: Response) {
 
   const totalStudents = await AptitudeAttempt.distinct('user').then((u) => u.length);
 
-  res.json({
+  return res.json({
     totalStudents,
     totalQuestions,
     totalTests,
@@ -233,7 +233,7 @@ export async function listStudentPerformance(req: Request, res: Response) {
   }
 
   const students = await AptitudeAttempt.aggregate(pipeline);
-  res.json({ students });
+  return res.json({ students });
 }
 
 /**
@@ -246,5 +246,5 @@ export async function toggleStudentBlock(req: Request, res: Response) {
   const User = require('../models/User').default;
   const user = await User.findByIdAndUpdate(req.params.userId, { isBlocked: req.body.isBlocked }, { new: true });
   if (!user) return res.status(404).json({ message: 'Student not found.' });
-  res.json({ user });
+  return res.json({ user });
 }

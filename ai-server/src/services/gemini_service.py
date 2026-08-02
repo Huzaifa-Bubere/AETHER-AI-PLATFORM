@@ -8,6 +8,10 @@ from loguru import logger
 class GeminiService:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
+        print("=" * 60)
+        print("GEMINI_API_KEY =", self.api_key)
+        print("MODEL =", os.getenv("GEMINI_MODEL"))
+        print("=" * 60)
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable is required")
         

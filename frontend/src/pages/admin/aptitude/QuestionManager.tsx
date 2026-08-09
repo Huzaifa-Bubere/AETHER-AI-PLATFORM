@@ -1,7 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react';
-import axios from 'axios';
+import api from '../../../lib/aptitudeApi';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL });
 
 const CATEGORIES = [
   'quantitative-aptitude',
@@ -64,14 +63,14 @@ export default function QuestionManager() {
   };
 
   return (
-    <div className="text-neutral-100">
+    <div className="min-h-screen bg-background px-6 py-20 text-foreground">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-bold">Question Bank</h1>
         <div className="flex gap-2">
           <BulkUploadButton onDone={fetchQuestions} />
           <button
             onClick={() => setShowUploadForm((v) => !v)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold hover:bg-blue-500"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
           >
             + Add Question
           </button>
@@ -79,7 +78,7 @@ export default function QuestionManager() {
       </div>
 
       {showUploadForm && (
-        <form onSubmit={handleUpload} className="mb-6 grid gap-3 rounded-xl border border-neutral-800 bg-neutral-900 p-5 sm:grid-cols-2">
+        <form onSubmit={handleUpload} className="mb-6 grid gap-3 rounded-xl border border-border bg-card p-5 sm:grid-cols-2">
           <Field label="Question Image">
             <input
               type="file"
@@ -103,11 +102,11 @@ export default function QuestionManager() {
             <Select name="correctOption" options={['A', 'B', 'C', 'D']} />
           </Field>
           <Field label="Marks">
-            <input name="marks" type="number" defaultValue={1} min={0} className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm" />
+            <input name="marks" type="number" defaultValue={1} min={0} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
           </Field>
           <div className="sm:col-span-2">
             <Field label="Explanation">
-              <textarea name="explanation" rows={2} className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm" />
+              <textarea name="explanation" rows={2} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
             </Field>
           </div>
           {preview && <img src={preview} alt="preview" className="max-h-40 rounded-lg sm:col-span-2" />}
@@ -127,9 +126,9 @@ export default function QuestionManager() {
         <FilterSelect value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })} options={['active', 'inactive']} placeholder="All statuses" />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-neutral-800">
+      <div className="overflow-hidden rounded-xl border border-border">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-900 text-neutral-400">
+          <thead className="bg-card text-muted-foreground">
             <tr>
               <th className="p-3 text-left">Image</th>
               <th className="p-3 text-left">Round</th>
@@ -144,7 +143,7 @@ export default function QuestionManager() {
           </thead>
           <tbody>
             {questions.map((q) => (
-              <tr key={q._id} className="border-t border-neutral-800">
+              <tr key={q._id} className="border-t border-border">
                 <td className="p-3">
                   <img src={q.imageUrl} alt="" className="h-12 w-16 rounded object-cover" />
                 </td>
@@ -155,13 +154,13 @@ export default function QuestionManager() {
                 <td className="p-3">{q.marks}</td>
                 <td className="p-3">{q.timesUsed}</td>
                 <td className="p-3">
-                  <span className={q.status === 'active' ? 'text-emerald-400' : 'text-neutral-500'}>{q.status}</span>
+                  <span className={q.status === 'active' ? 'text-emerald-700' : 'text-muted-foreground'}>{q.status}</span>
                 </td>
                 <td className="p-3">
-                  <button onClick={() => toggleStatus(q._id, q.status)} className="mr-3 text-blue-400 hover:underline">
+                  <button onClick={() => toggleStatus(q._id, q.status)} className="mr-3 text-primary hover:underline">
                     {q.status === 'active' ? 'Deactivate' : 'Activate'}
                   </button>
-                  <button onClick={() => remove(q._id)} className="text-red-400 hover:underline">
+                  <button onClick={() => remove(q._id)} className="text-destructive hover:underline">
                     Delete
                   </button>
                 </td>
@@ -169,7 +168,7 @@ export default function QuestionManager() {
             ))}
             {questions.length === 0 && (
               <tr>
-                <td colSpan={9} className="p-6 text-center text-neutral-500">
+                <td colSpan={9} className="p-6 text-center text-muted-foreground">
                   No questions match these filters.
                 </td>
               </tr>
@@ -198,14 +197,14 @@ function BulkUploadButton({ onDone }: { onDone: () => void }) {
 
   return (
     <>
-      <button onClick={() => setOpen(true)} className="rounded-lg bg-neutral-800 px-4 py-2 text-sm font-semibold hover:bg-neutral-700">
+      <button onClick={() => setOpen(true)} className="rounded-lg bg-secondary px-4 py-2 text-sm font-semibold hover:bg-muted">
         Bulk Upload
       </button>
       {open && (
-        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
-          <form onSubmit={handleSubmit} className="w-full max-w-lg rounded-xl border border-neutral-800 bg-neutral-900 p-6">
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-background/70 p-4">
+          <form onSubmit={handleSubmit} className="w-full max-w-lg rounded-xl border border-border bg-card p-6">
             <h2 className="mb-3 text-lg font-semibold">Bulk Upload Questions</h2>
-            <p className="mb-3 text-xs text-neutral-500">
+            <p className="mb-3 text-xs text-muted-foreground">
               Select images in the exact order you list them in the meta JSON below (image #1 ↔ meta entry #1, etc).
             </p>
             <input type="file" name="images" accept="image/*" multiple required className="mb-3 w-full text-sm" />
@@ -213,10 +212,10 @@ function BulkUploadButton({ onDone }: { onDone: () => void }) {
               value={metaJson}
               onChange={(e) => setMetaJson(e.target.value)}
               rows={8}
-              className="w-full rounded-md bg-neutral-800 p-3 font-mono text-xs"
+              className="w-full rounded-md bg-secondary p-3 font-mono text-xs"
             />
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setOpen(false)} className="rounded-lg bg-neutral-800 px-4 py-2 text-sm">
+              <button type="button" onClick={() => setOpen(false)} className="rounded-lg bg-secondary px-4 py-2 text-sm">
                 Cancel
               </button>
               <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold">
@@ -233,7 +232,7 @@ function BulkUploadButton({ onDone }: { onDone: () => void }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block text-sm">
-      <span className="mb-1 block text-neutral-400">{label}</span>
+      <span className="mb-1 block text-muted-foreground">{label}</span>
       {children}
     </label>
   );
@@ -241,7 +240,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Select({ name, options }: { name: string; options: string[] }) {
   return (
-    <select name={name} className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm" required>
+    <select name={name} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" required>
       {options.map((o) => (
         <option key={o} value={o}>
           {o.replace(/-/g, ' ')}
@@ -263,7 +262,7 @@ function FilterSelect({
   placeholder: string;
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-md bg-neutral-800 px-3 py-2 text-sm">
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-md bg-secondary px-3 py-2 text-sm">
       <option value="">{placeholder}</option>
       {options.map((o) => (
         <option key={o} value={o}>

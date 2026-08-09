@@ -16,6 +16,8 @@ import paymentRoutes from './routes/payment';
 import practiceRoutes from './routes/practice';
 import schedulingRoutes from './routes/scheduling';
 import healthRoutes from './routes/health';
+import aptitudeAdminRoutes from './routes/aptitudeAdmin.routes';
+import aptitudeStudentRoutes from './routes/aptitudeStudent.routes';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -162,6 +164,8 @@ export function createApp(): Application {
   app.use('/api/practice', apiLimiter, authenticateToken, practiceRoutes);
   app.use('/api/scheduling', apiLimiter, authenticateToken, schedulingRoutes);
   app.use('/api/health', healthRoutes); // no auth — public health check
+  app.use('/api/admin/aptitude', apiLimiter, aptitudeAdminRoutes); // auth+admin check happens inside the router
+  app.use('/api/aptitude', apiLimiter, aptitudeStudentRoutes); // auth check happens inside the router// no auth — public health check
 
   // Error handling middleware (must be last)
   app.use(notFound);

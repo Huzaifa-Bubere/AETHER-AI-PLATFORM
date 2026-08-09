@@ -30,7 +30,7 @@ export default function Timer({ deadline, onExpire }: TimerProps) {
   return (
     <div
       className={`flex items-center gap-2 rounded-lg px-4 py-2 font-mono text-lg font-semibold tabular-nums ${
-        isCritical ? 'bg-red-950 text-red-400 animate-pulse' : 'bg-neutral-800 text-neutral-100'
+        isCritical ? 'bg-red-50 text-destructive animate-pulse' : 'bg-secondary text-foreground'
       }`}
       role="timer"
       aria-live="polite"

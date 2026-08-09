@@ -1,9 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
-
-// ADAPT: reuse your existing configured axios instance (with baseURL + auth
-// interceptor) instead of raw axios, e.g. `import api from '../lib/api'`.
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL });
+import api from '../lib/aptitudeApi';
 
 export type OptionKey = 'A' | 'B' | 'C' | 'D';
 export type PaletteStatus = 'not-visited' | 'not-answered' | 'answered' | 'marked-for-review' | 'answered-marked-for-review';

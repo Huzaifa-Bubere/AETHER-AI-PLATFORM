@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import * as ctrl from '../controllers/studentAptitude.controller';
-// ADAPT: import your existing JWT auth middleware, e.g.:
-// import { authenticate } from '../middleware/auth.middleware';
+import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 
-// router.use(authenticate); // uncomment once wired to your real middleware
+router.use(authenticateToken);
 
 router.get('/tests', ctrl.listPublishedTests);
 router.post('/tests/:testId/start', ctrl.startAttempt);

@@ -27,6 +27,15 @@ const HistoryPage = lazy(() => import('./pages/HistoryPage').then(m => ({ defaul
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage'));
 
+// Aptitude module
+const AptitudeTestSelection = lazy(() => import('../pages/aptitude/TestSelection'));
+const AptitudeExamRoom = lazy(() => import('../pages/aptitude/ExamRoom'));
+const AptitudeResultsDashboard = lazy(() => import('../pages/aptitude/ResultsDashboard'));
+const AptitudeAdminDashboard = lazy(() => import('../pages/admin/aptitude/AdminDashboard'));
+const AptitudeQuestionManager = lazy(() => import('../pages/admin/aptitude/QuestionManager'));
+const AptitudeTestManager = lazy(() => import('../pages/admin/aptitude/TestManager'));
+const AptitudeStudentManager = lazy(() => import('../pages/admin/aptitude/StudentManager'));
+
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center">
     <LoadingSpinner size="lg" />
@@ -190,7 +199,56 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
-        <Route path="/admin" element={
+        <Route path="/aptitude" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AptitudeTestSelection />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/aptitude/attempts/:attemptId" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AptitudeExamRoom />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/aptitude/attempts/:attemptId/result" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AptitudeResultsDashboard />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/aptitude" element={
+          <AdminRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AptitudeAdminDashboard />
+            </Suspense>
+          </AdminRoute>
+        } />
+        <Route path="/admin/aptitude/questions" element={
+          <AdminRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AptitudeQuestionManager />
+            </Suspense>
+          </AdminRoute>
+        } />
+        <Route path="/admin/aptitude/tests" element={
+          <AdminRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AptitudeTestManager />
+            </Suspense>
+          </AdminRoute>
+        } />
+        <Route path="/admin/aptitude/students" element={
+          <AdminRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AptitudeStudentManager />
+            </Suspense>
+          </AdminRoute>
+        } />
+        <Route path="/admin" element={  
           <AdminRoute>
             <Suspense fallback={<PageLoader />}>
               <AdminDashboardPage />

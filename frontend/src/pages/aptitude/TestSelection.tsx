@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../lib/aptitudeApi';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL });
 
 interface TestSummary {
   _id: string;
@@ -37,32 +36,32 @@ export default function TestSelection() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 px-6 py-10 text-neutral-100">
+    <div className="min-h-screen bg-background px-6 py-20 text-foreground">
       <div className="mx-auto max-w-4xl">
         <h1 className="text-2xl font-bold">Aptitude & Technical Tests</h1>
-        <p className="mt-1 text-neutral-400">Timed, randomized tests — every attempt gets a fresh question set.</p>
+        <p className="mt-1 text-muted-foreground">Timed, randomized tests — every attempt gets a fresh question set.</p>
 
         {loading ? (
-          <p className="mt-8 text-neutral-500">Loading tests…</p>
+          <p className="mt-8 text-muted-foreground">Loading tests…</p>
         ) : tests.length === 0 ? (
-          <p className="mt-8 text-neutral-500">No tests are published yet. Check back soon.</p>
+          <p className="mt-8 text-muted-foreground">No tests are published yet. Check back soon.</p>
         ) : (
           <div className="mt-8 grid gap-4">
             {tests.map((t) => (
-              <div key={t._id} className="flex items-center justify-between rounded-xl border border-neutral-800 bg-neutral-900 p-5">
+              <div key={t._id} className="flex items-center justify-between rounded-xl border border-border bg-card p-5">
                 <div>
                   <h2 className="font-semibold">{t.title}</h2>
-                  <p className="mt-1 text-sm text-neutral-400">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {t.categories.map((c) => c.replace(/-/g, ' ')).join(', ')} · {t.durationMinutes} min · {t.totalMarks} marks
                   </p>
-                  <span className="mt-2 inline-block rounded-full bg-neutral-800 px-2.5 py-0.5 text-xs uppercase text-neutral-400">
+                  <span className="mt-2 inline-block rounded-full bg-secondary px-2.5 py-0.5 text-xs uppercase text-muted-foreground">
                     {t.roundType}
                   </span>
                 </div>
                 <button
                   onClick={() => handleStart(t._id)}
                   disabled={startingId === t._id}
-                  className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold hover:bg-blue-500 disabled:opacity-50"
+                  className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
                   {startingId === t._id ? 'Starting…' : 'Start Test'}
                 </button>

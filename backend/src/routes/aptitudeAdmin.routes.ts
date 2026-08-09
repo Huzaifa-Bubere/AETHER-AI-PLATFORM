@@ -1,13 +1,12 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as ctrl from '../controllers/adminAptitude.controller';
-// ADAPT: import your existing auth + admin-role middleware, e.g.:
-// import { authenticate, requireAdmin } from '../middleware/auth.middleware';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const router = Router();
 
-// router.use(authenticate, requireAdmin); // uncomment once wired to your real middleware
+router.use(authenticateToken, requireAdmin);
 
 // Questions
 router.post('/questions', upload.single('image'), ctrl.createQuestion);

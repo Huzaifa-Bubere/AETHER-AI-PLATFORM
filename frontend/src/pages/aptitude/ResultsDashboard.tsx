@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../lib/aptitudeApi';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL });
 
 interface ReviewItem {
   questionImageUrl: string;
@@ -57,7 +56,7 @@ export default function ResultsDashboard() {
 
   if (!result) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-neutral-400">Loading results…</div>
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">Loading results…</div>
     );
   }
 
@@ -68,10 +67,10 @@ export default function ResultsDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-neutral-950 px-6 py-10 text-neutral-100">
+    <div className="min-h-screen bg-background px-6 py-20 text-foreground">
       <div className="mx-auto max-w-5xl space-y-8">
         {/* Score header */}
-        <section className="flex flex-col items-center gap-6 rounded-xl border border-neutral-800 bg-neutral-900 p-8 sm:flex-row sm:justify-between">
+        <section className="flex flex-col items-center gap-6 rounded-xl border border-border bg-card p-8 sm:flex-row sm:justify-between">
           <ScoreMeter percent={result.scorePercent} />
           <div className="grid flex-1 grid-cols-2 gap-4 text-center sm:grid-cols-4">
             <Stat label="Score" value={`${result.score}/${result.totalMarks}`} />
@@ -80,7 +79,7 @@ export default function ResultsDashboard() {
             <Stat
               label="Result"
               value={result.passStatus.toUpperCase()}
-              accent={result.passStatus === 'pass' ? 'text-emerald-400' : 'text-red-400'}
+              accent={result.passStatus === 'pass' ? 'text-emerald-700' : 'text-destructive'}
             />
           </div>
         </section>
@@ -128,12 +127,12 @@ export default function ResultsDashboard() {
           <h2 className="mb-4 text-lg font-semibold">Question-wise Review</h2>
           <div className="space-y-4">
             {result.review.map((item, i) => (
-              <div key={i} className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+              <div key={i} className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-neutral-400">
+                  <span className="text-muted-foreground">
                     Q{i + 1} · {item.category.replace(/-/g, ' ')} · {item.difficulty}
                   </span>
-                  <span className={item.isCorrect ? 'font-semibold text-emerald-400' : 'font-semibold text-red-400'}>
+                  <span className={item.isCorrect ? 'font-semibold text-emerald-700' : 'font-semibold text-destructive'}>
                     {item.isCorrect ? 'Correct' : item.selectedOption ? 'Incorrect' : 'Not Answered'}
                   </span>
                 </div>
@@ -143,10 +142,10 @@ export default function ResultsDashboard() {
                     Your answer: <strong>{item.selectedOption ?? '—'}</strong>
                   </span>
                   <span>
-                    Correct answer: <strong className="text-emerald-400">{item.correctOption}</strong>
+                    Correct answer: <strong className="text-emerald-700">{item.correctOption}</strong>
                   </span>
                 </div>
-                {item.explanation && <p className="mt-2 text-sm text-neutral-400">{item.explanation}</p>}
+                {item.explanation && <p className="mt-2 text-sm text-muted-foreground">{item.explanation}</p>}
               </div>
             ))}
           </div>
@@ -179,7 +178,7 @@ function ScoreMeter({ percent }: { percent: number }) {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-2xl font-bold">{percent}%</span>
-        <span className="text-xs text-neutral-500">Score</span>
+        <span className="text-xs text-muted-foreground">Score</span>
       </div>
     </div>
   );
@@ -189,15 +188,15 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   return (
     <div>
       <p className={`text-xl font-bold ${accent ?? ''}`}>{value}</p>
-      <p className="text-xs text-neutral-500">{label}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-      <h3 className="mb-2 text-sm font-semibold text-neutral-300">{title}</h3>
+    <div className="rounded-xl border border-border bg-card p-4">
+      <h3 className="mb-2 text-sm font-semibold text-foreground">{title}</h3>
       {children}
     </div>
   );
@@ -205,23 +204,23 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 
 function AIFeedbackPanel({ analysis }: { analysis: AIAnalysis }) {
   return (
-    <section className="rounded-xl border border-blue-900/50 bg-blue-950/20 p-6">
+    <section className="rounded-xl border border-primary/20 bg-primary/10 p-6">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-blue-300">AI Performance Analysis</h2>
-        <span className="rounded-full bg-blue-900/50 px-3 py-1 text-sm font-medium text-blue-300">
+        <h2 className="text-lg font-semibold text-primary">AI Performance Analysis</h2>
+        <span className="rounded-full bg-primary/20 px-3 py-1 text-sm font-medium text-primary">
           Placement Readiness: {analysis.placementReadinessScore}%
         </span>
       </div>
 
-      <p className="mb-4 text-sm italic text-neutral-300">"{analysis.motivationalFeedback}"</p>
+      <p className="mb-4 text-sm italic text-foreground">"{analysis.motivationalFeedback}"</p>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <TagList label="Strong Topics" items={analysis.strongTopics} color="emerald" />
         <TagList label="Weak Topics" items={analysis.weakTopics} color="red" />
         <TagList label="Recommended Practice" items={analysis.recommendedPracticeAreas} color="amber" />
         <div>
-          <h4 className="mb-2 text-sm font-medium text-neutral-400">Study Plan</h4>
-          <ol className="list-decimal space-y-1 pl-4 text-sm text-neutral-300">
+          <h4 className="mb-2 text-sm font-medium text-muted-foreground">Study Plan</h4>
+          <ol className="list-decimal space-y-1 pl-4 text-sm text-foreground">
             {analysis.studyPlan.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
@@ -229,10 +228,10 @@ function AIFeedbackPanel({ analysis }: { analysis: AIAnalysis }) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 border-t border-blue-900/30 pt-4 text-sm text-neutral-400 sm:grid-cols-3">
-        <p><strong className="text-neutral-300">Speed:</strong> {analysis.speedAnalysis}</p>
-        <p><strong className="text-neutral-300">Time management:</strong> {analysis.timeManagement}</p>
-        <p><strong className="text-neutral-300">Guessing:</strong> {analysis.guessingBehaviorNote}</p>
+      <div className="mt-4 grid gap-2 border-t border-blue-900/30 pt-4 text-sm text-muted-foreground sm:grid-cols-3">
+        <p><strong className="text-foreground">Speed:</strong> {analysis.speedAnalysis}</p>
+        <p><strong className="text-foreground">Time management:</strong> {analysis.timeManagement}</p>
+        <p><strong className="text-foreground">Guessing:</strong> {analysis.guessingBehaviorNote}</p>
       </div>
     </section>
   );
@@ -240,14 +239,14 @@ function AIFeedbackPanel({ analysis }: { analysis: AIAnalysis }) {
 
 function TagList({ label, items, color }: { label: string; items: string[]; color: 'emerald' | 'red' | 'amber' }) {
   const colorClasses = {
-    emerald: 'bg-emerald-950 text-emerald-300',
-    red: 'bg-red-950 text-red-300',
+    emerald: 'bg-emerald-50 text-emerald-700',
+    red: 'bg-red-50 text-destructive',
     amber: 'bg-amber-950 text-amber-300',
   }[color];
 
   return (
     <div>
-      <h4 className="mb-2 text-sm font-medium text-neutral-400">{label}</h4>
+      <h4 className="mb-2 text-sm font-medium text-muted-foreground">{label}</h4>
       <div className="flex flex-wrap gap-1.5">
         {items.map((item, i) => (
           <span key={i} className={`rounded-full px-2.5 py-0.5 text-xs ${colorClasses}`}>

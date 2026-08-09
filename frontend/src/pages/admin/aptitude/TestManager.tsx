@@ -1,7 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react';
-import axios from 'axios';
+import api from '../../../lib/aptitudeApi';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL });
 
 const CATEGORIES = [
   'quantitative-aptitude',
@@ -63,36 +62,36 @@ export default function TestManager() {
   };
 
   return (
-    <div className="text-neutral-100">
+    <div className="min-h-screen bg-background px-6 py-20 text-foreground">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-bold">Test Management</h1>
-        <button onClick={() => setShowForm((v) => !v)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold hover:bg-blue-500">
+        <button onClick={() => setShowForm((v) => !v)} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
           + Create Test
         </button>
       </div>
 
       {showForm && (
-        <form onSubmit={handleCreate} className="mb-6 grid gap-4 rounded-xl border border-neutral-800 bg-neutral-900 p-5">
+        <form onSubmit={handleCreate} className="mb-6 grid gap-4 rounded-xl border border-border bg-card p-5">
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-sm">
-              <span className="mb-1 block text-neutral-400">Title</span>
-              <input name="title" required className="w-full rounded-md bg-neutral-800 px-3 py-2" placeholder="Round 1: Aptitude" />
+              <span className="mb-1 block text-muted-foreground">Title</span>
+              <input name="title" required className="w-full rounded-md bg-secondary px-3 py-2" placeholder="Round 1: Aptitude" />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-neutral-400">Round Type</span>
-              <select name="roundType" className="w-full rounded-md bg-neutral-800 px-3 py-2">
+              <span className="mb-1 block text-muted-foreground">Round Type</span>
+              <select name="roundType" className="w-full rounded-md bg-secondary px-3 py-2">
                 <option value="aptitude">Aptitude</option>
                 <option value="technical">Technical Quiz</option>
               </select>
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-neutral-400">Duration (minutes)</span>
-              <input name="durationMinutes" type="number" defaultValue={45} className="w-full rounded-md bg-neutral-800 px-3 py-2" />
+              <span className="mb-1 block text-muted-foreground">Duration (minutes)</span>
+              <input name="durationMinutes" type="number" defaultValue={45} className="w-full rounded-md bg-secondary px-3 py-2" />
             </label>
           </div>
 
           <div>
-            <span className="mb-2 block text-sm text-neutral-400">Categories</span>
+            <span className="mb-2 block text-sm text-muted-foreground">Categories</span>
             <div className="flex flex-wrap gap-3">
               {CATEGORIES.map((c) => (
                 <label key={c} className="flex items-center gap-1.5 text-sm">
@@ -115,9 +114,9 @@ export default function TestManager() {
         </form>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-neutral-800">
+      <div className="overflow-hidden rounded-xl border border-border">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-900 text-neutral-400">
+          <thead className="bg-card text-muted-foreground">
             <tr>
               <th className="p-3 text-left">Title</th>
               <th className="p-3 text-left">Round</th>
@@ -129,18 +128,18 @@ export default function TestManager() {
           </thead>
           <tbody>
             {tests.map((t) => (
-              <tr key={t._id} className="border-t border-neutral-800">
+              <tr key={t._id} className="border-t border-border">
                 <td className="p-3 font-medium">{t.title}</td>
                 <td className="p-3">{t.roundType}</td>
                 <td className="p-3">{t.durationMinutes} min</td>
                 <td className="p-3">{t.totalMarks}</td>
                 <td className="p-3">
-                  <span className={t.isPublished ? 'text-emerald-400' : 'text-neutral-500'}>
+                  <span className={t.isPublished ? 'text-emerald-700' : 'text-muted-foreground'}>
                     {t.isPublished ? 'Published' : 'Draft'}
                   </span>
                 </td>
                 <td className="p-3">
-                  <button onClick={() => togglePublish(t._id, t.isPublished)} className="text-blue-400 hover:underline">
+                  <button onClick={() => togglePublish(t._id, t.isPublished)} className="text-primary hover:underline">
                     {t.isPublished ? 'Unpublish' : 'Publish'}
                   </button>
                 </td>
@@ -148,7 +147,7 @@ export default function TestManager() {
             ))}
             {tests.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-neutral-500">
+                <td colSpan={6} className="p-6 text-center text-muted-foreground">
                   No tests created yet.
                 </td>
               </tr>
@@ -162,15 +161,15 @@ export default function TestManager() {
 
 function DifficultyBlock({ level, defaultCount, defaultMarks }: { level: string; defaultCount: number; defaultMarks: number }) {
   return (
-    <div className="rounded-lg border border-neutral-800 p-3">
-      <p className="mb-2 text-sm font-medium uppercase text-neutral-400">{level}</p>
+    <div className="rounded-lg border border-border p-3">
+      <p className="mb-2 text-sm font-medium uppercase text-muted-foreground">{level}</p>
       <label className="mb-2 block text-xs">
         Question count
-        <input name={`${level}Count`} type="number" defaultValue={defaultCount} className="mt-1 w-full rounded-md bg-neutral-800 px-2 py-1.5 text-sm" />
+        <input name={`${level}Count`} type="number" defaultValue={defaultCount} className="mt-1 w-full rounded-md bg-secondary px-2 py-1.5 text-sm" />
       </label>
       <label className="block text-xs">
         Marks per question
-        <input name={`${level}Marks`} type="number" defaultValue={defaultMarks} className="mt-1 w-full rounded-md bg-neutral-800 px-2 py-1.5 text-sm" />
+        <input name={`${level}Marks`} type="number" defaultValue={defaultMarks} className="mt-1 w-full rounded-md bg-secondary px-2 py-1.5 text-sm" />
       </label>
     </div>
   );

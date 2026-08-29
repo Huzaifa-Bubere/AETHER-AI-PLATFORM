@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, Loader2, Upload, X, FileText, Cpu, Code2, Users, Layout, CheckCircle2, Clock, Zap, BarChart2 } from 'lucide-react';
+import { ChevronRight, Loader2, Upload, X, FileText, Cpu, Code2, Users, Layout, CheckCircle2, Clock, Zap, BarChart2, ClipboardList } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useInterviewStore } from '../stores/interviewStore';
 import { apiService } from '../services/api';
@@ -55,6 +55,17 @@ const interviewTypes = [
     accent: '#a855f7',
     bg: 'rgba(168,85,247,0.08)',
     border: 'rgba(168,85,247,0.3)',
+  },
+  {
+    id: 'aptitude',
+    label: 'Aptitude Test',
+    sub: 'Timed MCQ rounds',
+    icon: ClipboardList,
+    accent: '#0ea5e9',
+    bg: 'rgba(14,165,233,0.08)',
+    border: 'rgba(14,165,233,0.3)',
+    isExternal: true,
+    to: '/aptitude',
   },
 ];
 
@@ -185,7 +196,10 @@ export function InterviewSetupPage() {
             return (
               <button
                 key={type.id}
-                onClick={() => { setSelectedType(type.id); setSelectedDomain(''); setResumeFile(null); }}
+                onClick={() => {
+                  if ((type as any).isExternal) { navigate((type as any).to); return; }
+                  setSelectedType(type.id); setSelectedDomain(''); setResumeFile(null);
+                }}
                 style={{
                   all: 'unset', cursor: 'pointer', display: 'block',
                   background: active ? type.bg : '#ffffff',

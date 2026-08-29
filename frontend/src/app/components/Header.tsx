@@ -7,24 +7,28 @@ import { Button } from './Button';
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
-  const { logout, isAuthenticated } = useAuthStore();
+  const { logout, isAuthenticated, user } = useAuthStore();
   const isLoggedIn = isAuthenticated || location.pathname.includes('/dashboard') || location.pathname.includes('/interview') || location.pathname.includes('/admin');
+  const isAdmin = user?.auth?.role === 'admin';
 
   const handleLogout = () => {
     logout();
     window.location.href = '/';
   };
 
-  const navItems = isLoggedIn ? [
+  const navItems = !isLoggedIn ? [
+    { name: 'Features', path: '#features' },
+    { name: 'How it Works', path: '#how-it-works' },
+    { name: 'Pricing', path: '#pricing' },
+  ] : isAdmin ? [
+    { name: 'Admin Dashboard', path: '/admin' },
+    { name: 'Aptitude Admin', path: '/admin/aptitude' },
+  ] : [
     { name: 'Dashboard', path: '/dashboard' },
     { name: 'Resume', path: '/resume' },
     { name: 'Aptitude', path: '/aptitude' },
     { name: 'History', path: '/history' },
     { name: 'Pricing', path: '/subscription' },
-  ] : [
-    { name: 'Features', path: '#features' },
-    { name: 'How it Works', path: '#how-it-works' },
-    { name: 'Pricing', path: '#pricing' },
   ];
 
   return (

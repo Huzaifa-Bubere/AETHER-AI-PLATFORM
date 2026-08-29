@@ -11,6 +11,10 @@ const CATEGORIES = [
   'technical-quiz',
 ];
 
+function extractErrorMessage(err: any): string {
+  return err?.response?.data?.message || err?.message || 'Something went wrong. Please try again.';
+}
+
 interface TestRow {
   _id: string;
   title: string;
@@ -24,10 +28,16 @@ interface TestRow {
 export default function TestManager() {
   const [tests, setTests] = useState<TestRow[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const fetchTests = async () => {
-    const { data } = await api.get('/api/admin/aptitude/tests');
-    setTests(data.tests);
+    try {
+      const { data } = await api.get('/api/admin/aptitude/tests');
+      setTests(data.tests);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
   };
 
   useEffect(() => {
@@ -36,8 +46,15 @@ export default function TestManager() {
 
   const handleCreate = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setError(null);
+
     const form = new FormData(e.currentTarget);
     const categories = form.getAll('categories') as string[];
+
+    if (categories.length === 0) {
+      setError('Select at least one category — a test with no categories has no questions to pull from.');
+      return;
+    }
 
     const payload = {
       title: form.get('title'),
@@ -51,14 +68,25 @@ export default function TestManager() {
       },
     };
 
-    await api.post('/api/admin/aptitude/tests', payload);
-    setShowForm(false);
-    fetchTests();
+    setSaving(true);
+    try {
+      await api.post('/api/admin/aptitude/tests', payload);
+      setShowForm(false);
+      await fetchTests();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const togglePublish = async (id: string, isPublished: boolean) => {
-    await api.patch(`/api/admin/aptitude/tests/${id}/publish`, { isPublished: !isPublished });
-    fetchTests();
+    try {
+      await api.patch(`/api/admin/aptitude/tests/${id}/publish`, { isPublished: !isPublished });
+      await fetchTests();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
   };
 
   return (
@@ -69,6 +97,22 @@ export default function TestManager() {
           + Create Test
         </button>
       </div>
+
+      {error && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-red-50 p-3 text-sm text-destructive">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="shrink-0 font-semibold hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      <p className="mb-4 rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-primary">
+        Note: a test doesn't include questions directly — it pulls a random set from your Question Bank
+        matching the categories and difficulty counts you set below. Make sure you have enough <strong>active</strong> questions
+        in each selected category/difficulty before publishing, or students will hit an error when they try to start it.
+        Also remember: after creating a test, you still need to click <strong>Publish</strong> below — drafts are never shown to students.
+      </p>
 
       {showForm && (
         <form onSubmit={handleCreate} className="mb-6 grid gap-4 rounded-xl border border-border bg-card p-5">
@@ -108,8 +152,12 @@ export default function TestManager() {
             <DifficultyBlock level="hard" defaultCount={15} defaultMarks={3} />
           </div>
 
-          <button type="submit" className="w-fit rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold hover:bg-emerald-500">
-            Create Test
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-fit rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {saving ? 'Creating…' : 'Create Test'}
           </button>
         </form>
       )}

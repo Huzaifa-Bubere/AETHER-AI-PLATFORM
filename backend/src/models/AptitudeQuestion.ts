@@ -21,13 +21,20 @@ export interface IAptitudeQuestion extends Document {
   roundType: RoundType;
   category: Category;
   difficulty: Difficulty;
-  imageUrl: string;
-  imagePublicId: string; // cloudinary public_id, needed to delete/replace the asset
+  questionText?: string;
+  options?: {
+    A: string;
+    B: string;
+    C: string;
+    D: string;
+  };
+  imageUrl?: string;
+  imagePublicId?: string; // cloudinary public_id, needed to delete/replace the asset
   correctOption: OptionKey;
   marks: number;
   explanation: string;
   status: QuestionStatus;
-  createdBy: Types.ObjectId;
+  createdBy?: Types.ObjectId;
   timesUsed: number; // how many attempts have included this question (for rotation)
   createdAt: Date;
   updatedAt: Date;
@@ -61,13 +68,20 @@ const AptitudeQuestionSchema = new Schema<IAptitudeQuestion>(
       required: true,
       index: true,
     },
-    imageUrl: { type: String, required: true },
-    imagePublicId: { type: String, required: true },
+    questionText: { type: String, default: '' },
+    options: {
+      A: { type: String, default: '' },
+      B: { type: String, default: '' },
+      C: { type: String, default: '' },
+      D: { type: String, default: '' },
+    },
+    imageUrl: { type: String, default: '' },
+    imagePublicId: { type: String, default: '' },
     correctOption: { type: String, enum: ['A', 'B', 'C', 'D'], required: true },
     marks: { type: Number, required: true, default: 1, min: 0 },
     explanation: { type: String, default: '' },
     status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
-    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: false },
     timesUsed: { type: Number, default: 0 },
   },
   { timestamps: true }

@@ -72,7 +72,7 @@ const connectDB = async () => {
 
     mongoose.connection.on('error', (err) => {
       logger.error('❌ Mongoose connection error:', err);
-      
+
       // Check for specific error types
       if (err.message.includes('ENOTFOUND')) {
         logger.error('🌐 DNS Resolution Error: Check your internet connection');
@@ -114,11 +114,11 @@ const connectDB = async () => {
       } catch (error: any) {
         retries--;
         logger.error(`❌ Connection attempt failed. Retries left: ${retries}`);
-        
+
         if (retries === 0) {
           throw error;
         }
-        
+
         // Wait 5 seconds before retry
         await new Promise(resolve => setTimeout(resolve, 5000));
       }
@@ -126,7 +126,7 @@ const connectDB = async () => {
 
   } catch (error: any) {
     logger.error('💥 MongoDB connection error:', error.message);
-    
+
     // Detailed error analysis
     if (error.message.includes('IP') || error.message.includes('whitelist') || error.message.includes('not authorized')) {
       logger.error('🚨 IP WHITELISTING ISSUE DETECTED 🚨');
@@ -139,7 +139,7 @@ const connectDB = async () => {
       logger.error('🌐 DNS/NETWORK ISSUE DETECTED 🌐');
       logger.error('SOLUTION: Check your internet connection and cluster URL');
     }
-    
+
     // In development, continue without database
     if (process.env.NODE_ENV !== 'production') {
       logger.warn('🔧 Continuing in development mode without database connection');
@@ -185,10 +185,10 @@ const initializeServices = async () => {
 // Graceful shutdown
 const gracefulShutdown = (signal: string) => {
   logger.info(`Received ${signal}. Starting graceful shutdown...`);
-  
+
   server.close(() => {
     logger.info('HTTP server closed');
-    
+
     mongoose.connection.close().then(() => {
       logger.info('MongoDB connection closed');
       process.exit(0);
@@ -214,7 +214,7 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  
+
   // Don't exit on unhandled rejections in development
   if (process.env.NODE_ENV === 'production') {
     process.exit(1);

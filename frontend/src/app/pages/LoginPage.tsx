@@ -27,9 +27,13 @@ export function LoginPage() {
     }
 
     try {
-      await login(email, password);
+      const result = await login(email, password);
       toast.success('Login successful!');
-      navigate('/dashboard');
+      if (result?.user?.auth?.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (error: any) {
       toast.error(error.message || 'Login failed');
     }

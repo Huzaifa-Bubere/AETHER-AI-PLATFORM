@@ -13,6 +13,10 @@ const CATEGORIES = [
 const DIFFICULTIES = ['easy', 'medium', 'hard'];
 const ROUND_TYPES = ['aptitude', 'technical', 'coding'];
 
+function extractErrorMessage(err: any): string {
+  return err?.response?.data?.message || err?.message || 'Something went wrong. Please try again.';
+}
+
 interface QuestionRow {
   _id: string;
   imageUrl: string;
@@ -30,11 +34,17 @@ export default function QuestionManager() {
   const [filters, setFilters] = useState({ roundType: '', category: '', difficulty: '', status: '' });
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const fetchQuestions = async () => {
-    const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
-    const { data } = await api.get('/api/admin/aptitude/questions', { params });
-    setQuestions(data.questions);
+    try {
+      const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
+      const { data } = await api.get('/api/admin/aptitude/questions', { params });
+      setQuestions(data.questions);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
   };
 
   useEffect(() => {
@@ -44,22 +54,38 @@ export default function QuestionManager() {
 
   const handleUpload = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    await api.post('/api/admin/aptitude/questions', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-    setShowUploadForm(false);
-    setPreview(null);
-    fetchQuestions();
+    setError(null);
+    setSaving(true);
+    try {
+      const form = new FormData(e.currentTarget);
+      await api.post('/api/admin/aptitude/questions', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setShowUploadForm(false);
+      setPreview(null);
+      await fetchQuestions();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleStatus = async (id: string, status: 'active' | 'inactive') => {
-    await api.patch(`/api/admin/aptitude/questions/${id}/status`, { status: status === 'active' ? 'inactive' : 'active' });
-    fetchQuestions();
+    try {
+      await api.patch(`/api/admin/aptitude/questions/${id}/status`, { status: status === 'active' ? 'inactive' : 'active' });
+      await fetchQuestions();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
   };
 
   const remove = async (id: string) => {
     if (!confirm('Delete this question? This cannot be undone.')) return;
-    await api.delete(`/api/admin/aptitude/questions/${id}`);
-    fetchQuestions();
+    try {
+      await api.delete(`/api/admin/aptitude/questions/${id}`);
+      await fetchQuestions();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
   };
 
   return (
@@ -67,7 +93,7 @@ export default function QuestionManager() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-bold">Question Bank</h1>
         <div className="flex gap-2">
-          <BulkUploadButton onDone={fetchQuestions} />
+          <BulkUploadButton onDone={fetchQuestions} onError={setError} />
           <button
             onClick={() => setShowUploadForm((v) => !v)}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
@@ -76,6 +102,15 @@ export default function QuestionManager() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-red-50 p-3 text-sm text-destructive">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="shrink-0 font-semibold hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {showUploadForm && (
         <form onSubmit={handleUpload} className="mb-6 grid gap-3 rounded-xl border border-border bg-card p-5 sm:grid-cols-2">
@@ -111,8 +146,12 @@ export default function QuestionManager() {
           </div>
           {preview && <img src={preview} alt="preview" className="max-h-40 rounded-lg sm:col-span-2" />}
           <div className="sm:col-span-2">
-            <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold hover:bg-emerald-500">
-              Save Question
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save Question'}
             </button>
           </div>
         </form>
@@ -180,19 +219,35 @@ export default function QuestionManager() {
   );
 }
 
-function BulkUploadButton({ onDone }: { onDone: () => void }) {
+function BulkUploadButton({ onDone, onError }: { onDone: () => void; onError: (msg: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [metaJson, setMetaJson] = useState(
     '[\n  { "roundType": "aptitude", "category": "quantitative-aptitude", "difficulty": "easy", "correctOption": "A", "marks": 1, "explanation": "" }\n]'
   );
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    form.set('meta', metaJson);
-    await api.post('/api/admin/aptitude/questions/bulk', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-    setOpen(false);
-    onDone();
+    setLocalError(null);
+    setSaving(true);
+    try {
+      const form = new FormData(e.currentTarget);
+      form.set('meta', metaJson);
+      const { data } = await api.post('/api/admin/aptitude/questions/bulk', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      if (data.failedCount > 0) {
+        setLocalError(`${data.createdCount} succeeded, ${data.failedCount} failed: ${JSON.stringify(data.failed)}`);
+      } else {
+        setOpen(false);
+      }
+      onDone();
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Bulk upload failed.';
+      setLocalError(msg);
+      onError(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -206,7 +261,11 @@ function BulkUploadButton({ onDone }: { onDone: () => void }) {
             <h2 className="mb-3 text-lg font-semibold">Bulk Upload Questions</h2>
             <p className="mb-3 text-xs text-muted-foreground">
               Select images in the exact order you list them in the meta JSON below (image #1 ↔ meta entry #1, etc).
+              Make sure the array length matches the number of images you select.
             </p>
+            {localError && (
+              <div className="mb-3 rounded-lg border border-destructive/30 bg-red-50 p-2 text-xs text-destructive">{localError}</div>
+            )}
             <input type="file" name="images" accept="image/*" multiple required className="mb-3 w-full text-sm" />
             <textarea
               value={metaJson}
@@ -218,8 +277,8 @@ function BulkUploadButton({ onDone }: { onDone: () => void }) {
               <button type="button" onClick={() => setOpen(false)} className="rounded-lg bg-secondary px-4 py-2 text-sm">
                 Cancel
               </button>
-              <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold">
-                Upload All
+              <button type="submit" disabled={saving} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                {saving ? 'Uploading…' : 'Upload All'}
               </button>
             </div>
           </form>

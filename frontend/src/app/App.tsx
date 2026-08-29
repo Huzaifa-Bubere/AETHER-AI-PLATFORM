@@ -43,8 +43,8 @@ const PageLoader = () => (
 );
 
 // Protected route wrapper
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuthStore();
+function ProtectedRoute({ children, allowAdmin = false }: { children: React.ReactNode; allowAdmin?: boolean }) {
+  const { isAuthenticated, isLoading, user } = useAuthStore();
 
   if (isLoading) {
     return <PageLoader />;
@@ -52,6 +52,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Admin accounts manage the platform, they don't take candidate assessments —
+  // send them to the admin panel instead of the candidate dashboard/interview flow.
+  if (user?.auth?.role === 'admin' && !allowAdmin) {
+    return <Navigate to="/admin" replace />;
   }
 
   return <>{children}</>;
@@ -137,7 +143,7 @@ function AppContent() {
           </ProtectedRoute>
         } />
         <Route path="/profile" element={
-          <ProtectedRoute>
+          <ProtectedRoute allowAdmin>
             <Suspense fallback={<PageLoader />}>
               <ProfilePage />
             </Suspense>

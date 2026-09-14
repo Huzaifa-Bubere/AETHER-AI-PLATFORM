@@ -60,6 +60,42 @@ class CodeExecutionService {
     this.useJudge0 = process.env.CODE_EXECUTION_SERVICE === 'judge0';
   }
 
+  // Locates javac/java without relying on PATH: checks JAVA_HOME first, then
+  // scans the common Windows install roots for JDK distributions (Microsoft,
+  // Eclipse Adoptium/Temurin, Oracle). Falls back to the bare command name so
+  // it still works wherever PATH resolution is fine (Linux/Mac dev, CI, etc).
+  private async resolveJavaBinary(name: 'javac' | 'java'): Promise<string> {
+    const exe = process.platform === 'win32' ? `${name}.exe` : name;
+
+    const javaHome = process.env.JAVA_HOME;
+    if (javaHome) {
+      const candidate = path.join(javaHome, 'bin', exe);
+      try { await fs.access(candidate); return candidate; } catch { /* keep looking */ }
+    }
+
+    if (process.platform === 'win32') {
+      const roots = [
+        'C:\\Program Files\\Microsoft',
+        'C:\\Program Files\\Eclipse Adoptium',
+        'C:\\Program Files\\Java',
+        'C:\\Program Files\\AdoptOpenJDK',
+        'C:\\Program Files (x86)\\Java',
+      ];
+      for (const root of roots) {
+        try {
+          const entries = await fs.readdir(root);
+          // Prefer the lexicographically-last entry (newest version string sorts last, e.g. jdk-21 > jdk-17)
+          for (const entry of entries.sort().reverse()) {
+            const candidate = path.join(root, entry, 'bin', exe);
+            try { await fs.access(candidate); return candidate; } catch { /* try next */ }
+          }
+        } catch { /* root doesn't exist on this machine — skip */ }
+      }
+    }
+
+    return name; // last resort: hope it's on PATH
+  }
+
   // ── Local execution fallback ────────────────────────────────────────────────
   private async executeLocally(request: CodeExecutionRequest): Promise<CodeExecutionResult> {
     if (process.env.NODE_ENV === 'production' || process.env.ALLOW_UNSAFE_LOCAL_CODE_EXECUTION !== 'true') {
@@ -71,10 +107,16 @@ class CodeExecutionService {
     const filePath = path.join(tmpDir, fileName);
     await fs.writeFile(filePath, request.code, 'utf8');
 
+    // Plain spawn() (no shell) already handles absolute paths containing spaces
+    // correctly on Windows — using shell:true here would be counterproductive,
+    // since shell mode concatenates args without escaping (see Node's DEP0190),
+    // which corrupts a spaced path instead of fixing it.
+    const spawnOpts = { cwd: tmpDir, windowsHide: true };
+
     const run = (command: string, args: string[]) =>
       new Promise<CodeExecutionResult>((resolve) => {
         const start = Date.now();
-        const proc = spawn(command, args, { cwd: tmpDir, windowsHide: true });
+        const proc = spawn(command, args, spawnOpts);
         let stdout = '';
         let stderr = '';
         const timer = setTimeout(() => {
@@ -99,6 +141,27 @@ class CodeExecutionService {
         });
       });
 
+    // Compile-only runner: success is based on exit code, since compilers
+    // (javac/g++/gcc) commonly print warnings to stderr even on a clean build.
+    const compile = (command: string, args: string[]) =>
+      new Promise<{ success: boolean; error?: string }>((resolve) => {
+        const proc = spawn(command, args, spawnOpts);
+        let stderr = '';
+        const timer = setTimeout(() => {
+          try { proc.kill(); } catch { /* ignore */ }
+          resolve({ success: false, error: 'Compilation timeout' });
+        }, 15000);
+        proc.stderr.on('data', (d) => { stderr += String(d); });
+        proc.on('error', (err) => {
+          clearTimeout(timer);
+          resolve({ success: false, error: err.message });
+        });
+        proc.on('close', (code) => {
+          clearTimeout(timer);
+          resolve({ success: code === 0, error: code === 0 ? undefined : (stderr.trim() || `Compilation failed with exit code ${code}`) });
+        });
+      });
+
     try {
       if (language === 'python') {
         const py = await run('python', [filePath]);
@@ -106,6 +169,39 @@ class CodeExecutionService {
         return run('py', ['-3', filePath]);
       }
       if (language === 'javascript') return run('node', [filePath]);
+
+      // Java: compile with javac, then run the generated .class with java
+      if (language === 'java') {
+        const javacPath = await this.resolveJavaBinary('javac');
+        const javaPath = await this.resolveJavaBinary('java');
+        const compileResult = await compile(javacPath, [fileName]);
+        if (!compileResult.success) {
+          return { success: false, error: compileResult.error || 'Compilation failed' };
+        }
+        const className = path.basename(fileName, '.java'); // matches getFileName() -> "Main.java"
+        return run(javaPath, ['-cp', tmpDir, className]);
+      }
+
+      // C++: compile with g++, then run the produced binary
+      if (language === 'cpp') {
+        const binPath = path.join(tmpDir, process.platform === 'win32' ? 'a.exe' : 'a.out');
+        const compileResult = await compile('g++', ['-O2', '-std=c++17', fileName, '-o', binPath]);
+        if (!compileResult.success) {
+          return { success: false, error: compileResult.error || 'Compilation failed' };
+        }
+        return run(binPath, []);
+      }
+
+      // C: compile with gcc, then run the produced binary
+      if (language === 'c') {
+        const binPath = path.join(tmpDir, process.platform === 'win32' ? 'a.exe' : 'a.out');
+        const compileResult = await compile('gcc', ['-O2', fileName, '-o', binPath]);
+        if (!compileResult.success) {
+          return { success: false, error: compileResult.error || 'Compilation failed' };
+        }
+        return run(binPath, []);
+      }
+
       return { success: false, error: `Local execution not supported for '${language}'` };
     } finally {
       try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -541,17 +637,18 @@ else:
       }
 
       // ── Java ─────────────────────────────────────────────────────────────────
+      // Generic like the Python/JS harnesses: finds the submitted method via
+      // reflection instead of assuming a hardcoded name like "twoSum". This
+      // supports both classic signatures (e.g. `int[] twoSum(int[], int)`)
+      // and the generic `Object solve(Object... args)` template.
       case 'java': {
-        const argParsers = inputLines.map((line, i) => {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('[')) {
-            return `        int[] arg${i} = parseIntArray("${trimmed.replace(/"/g, '\\"')}");`;
-          }
-          return `        int arg${i} = Integer.parseInt("${trimmed}");`;
-        }).join('\n');
-        const argList = inputLines.map((_, i) => `arg${i}`).join(', ');
+        const rawInputsJavaArray = inputLines
+          .map((l) => `"${l.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+          .join(', ');
+        const preferredFn = (functionName || '').replace(/[^a-zA-Z0-9_]/g, '');
 
         return `import java.util.*;
+import java.lang.reflect.*;
 
 ${userCode}
 
@@ -565,15 +662,97 @@ public class Main {
         return arr;
     }
 
-    public static void main(String[] args) {
-        Solution sol = new Solution();
-${argParsers}
-        Object result = sol.twoSum(${argList});
-        if (result instanceof int[]) {
-            System.out.println(Arrays.toString((int[]) result).replace(", ", ",").replace(" ", ""));
-        } else {
-            System.out.println(result);
+    // Best-effort parse of a raw input line into an Object (int[], Integer, Long, Double, Boolean, or String)
+    static Object parseArg(String raw) {
+        String t = raw.trim();
+        if (t.startsWith("[")) return parseIntArray(t);
+        if (t.length() >= 2 && t.startsWith("\\"") && t.endsWith("\\"")) return t.substring(1, t.length() - 1);
+        if (t.equalsIgnoreCase("true") || t.equalsIgnoreCase("false")) return Boolean.parseBoolean(t);
+        try { return Integer.parseInt(t); } catch (NumberFormatException ignored) {}
+        try { return Long.parseLong(t); } catch (NumberFormatException ignored) {}
+        try { return Double.parseDouble(t); } catch (NumberFormatException ignored) {}
+        return t;
+    }
+
+    // Coerce a parsed argument to the exact type a reflected method parameter expects
+    static Object coerce(Object value, Class<?> type) {
+        if (value == null || type.isInstance(value)) return value;
+        if (value instanceof Number) {
+            Number n = (Number) value;
+            if (type == int.class || type == Integer.class) return n.intValue();
+            if (type == long.class || type == Long.class) return n.longValue();
+            if (type == double.class || type == Double.class) return n.doubleValue();
+            if (type == float.class || type == Float.class) return n.floatValue();
+            if (type == short.class || type == Short.class) return n.shortValue();
         }
+        return value;
+    }
+
+    static String formatResult(Object result) {
+        if (result == null) return "";
+        if (result instanceof int[]) return Arrays.toString((int[]) result).replace(", ", ",");
+        if (result instanceof long[]) return Arrays.toString((long[]) result).replace(", ", ",");
+        if (result instanceof double[]) return Arrays.toString((double[]) result).replace(", ", ",");
+        if (result instanceof boolean[]) return Arrays.toString((boolean[]) result).replace(", ", ",");
+        if (result instanceof Object[]) return Arrays.deepToString((Object[]) result).replace(", ", ",");
+        return String.valueOf(result);
+    }
+
+    public static void main(String[] args) throws Exception {
+        Object[] rawInputs = new Object[] { ${rawInputsJavaArray} };
+        Object[] parsedArgs = new Object[rawInputs.length];
+        for (int i = 0; i < rawInputs.length; i++) parsedArgs[i] = parseArg((String) rawInputs[i]);
+
+        String preferred = "${preferredFn}";
+        Method target = null;
+
+        // 1) explicit function name from the request, if it exists on Solution
+        if (!preferred.isEmpty()) {
+            for (Method m : Solution.class.getDeclaredMethods()) {
+                if (Modifier.isPublic(m.getModifiers()) && !m.isSynthetic() && !m.isBridge() && m.getName().equals(preferred)) {
+                    target = m;
+                    break;
+                }
+            }
+        }
+        // 2) conventional "solve" entry point (matches the generic problem template)
+        if (target == null) {
+            for (Method m : Solution.class.getDeclaredMethods()) {
+                if (Modifier.isPublic(m.getModifiers()) && !m.isSynthetic() && !m.isBridge() && m.getName().equals("solve")) {
+                    target = m;
+                    break;
+                }
+            }
+        }
+        // 3) fall back to the only (or first) public declared method, e.g. twoSum(int[], int)
+        if (target == null) {
+            for (Method m : Solution.class.getDeclaredMethods()) {
+                if (Modifier.isPublic(m.getModifiers()) && !m.isSynthetic() && !m.isBridge()) {
+                    target = m;
+                    break;
+                }
+            }
+        }
+        if (target == null) {
+            System.err.println("ERROR: No public method found on Solution");
+            System.exit(1);
+        }
+
+        target.setAccessible(true);
+        Solution sol = new Solution();
+        Object result;
+        if (target.isVarArgs()) {
+            // e.g. Object solve(Object... args) — pass the whole array as the single varargs param
+            result = target.invoke(sol, (Object) parsedArgs);
+        } else {
+            Class<?>[] paramTypes = target.getParameterTypes();
+            Object[] callArgs = new Object[paramTypes.length];
+            for (int i = 0; i < paramTypes.length && i < parsedArgs.length; i++) {
+                callArgs[i] = coerce(parsedArgs[i], paramTypes[i]);
+            }
+            result = target.invoke(sol, callArgs);
+        }
+        System.out.println(formatResult(result));
     }
 }`;
       }
@@ -777,7 +956,11 @@ fn main() {
       return { success: false, error: 'The isolated code execution service is unavailable. Please try again later.' };
     }
     logger.warn(`All execution paths failed for ${request.language}, trying explicitly enabled local execution`);
-    return await this.executeLocally(request);
+    const lastResortResult = await this.executeLocally(request);
+    if (!lastResortResult.success) {
+      logger.error(`Local execution failed for ${request.language}: ${lastResortResult.error || '(no error message — check that the compiler/runtime is installed and on PATH)'}`);
+    }
+    return lastResortResult;
   }
 
   async getSupportedLanguages(): Promise<string[]> {

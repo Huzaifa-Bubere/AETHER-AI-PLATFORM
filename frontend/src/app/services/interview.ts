@@ -18,11 +18,11 @@ class InterviewService {
   }
 
   async startInterview(interviewId: string): Promise<APIResponse<InterviewSession>> {
-    return apiService.post<InterviewSession>(`/interview/${interviewId}/start`);
+    return apiService.post<InterviewSession>(`/interview/${interviewId}/start`, {});
   }
 
   async endInterview(interviewId: string): Promise<APIResponse<Interview>> {
-    return apiService.post<Interview>(`/interview/${interviewId}/end`);
+    return apiService.post<Interview>(`/interview/${interviewId}/end`, {});
   }
 
   async getInterview(interviewId: string): Promise<APIResponse<Interview>> {

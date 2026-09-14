@@ -311,8 +311,8 @@ router.post(
       interview.session.startTime = new Date();
       interview.session.metadata = {
         browserInfo: req.headers["user-agent"] || "Unknown",
-        deviceInfo: req.body.deviceInfo || "Unknown",
-        networkQuality: req.body.networkQuality || "Unknown",
+        deviceInfo: req.body?.deviceInfo || "Unknown",
+        networkQuality: req.body?.networkQuality || "Unknown",
       };
 
       await interview.save();

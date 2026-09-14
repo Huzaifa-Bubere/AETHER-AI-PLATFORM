@@ -393,9 +393,9 @@ export const DashboardPage = memo(function DashboardPage() {
             )}
 
             {/* Quick Actions */}
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-2 gap-4">
               <Link to="/interview-setup">
-                <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6">
+                <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6 h-full">
                   <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center mb-4">
                     <Play className="w-6 h-6 text-white" />
                   </div>
@@ -404,12 +404,30 @@ export const DashboardPage = memo(function DashboardPage() {
                 </Card>
               </Link>
               <Link to="/interview-setup?type=coding">
-                <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6">
+                <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6 h-full">
                   <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center mb-4">
                     <Code className="w-6 h-6 text-white" />
                   </div>
                   <h3 className="text-xl font-semibold mb-2">Coding Challenge</h3>
                   <p className="text-muted-foreground text-sm">Solve algorithmic problems with AI feedback</p>
+                </Card>
+              </Link>
+              <Link to="/aptitude">
+                <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6 h-full">
+                  <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center mb-4">
+                    <Brain className="w-6 h-6 text-white" />
+                  </div>
+                  <h3 className="text-xl font-semibold mb-2">Aptitude Test</h3>
+                  <p className="text-muted-foreground text-sm">Timed quantitative, verbal & logical reasoning rounds</p>
+                </Card>
+              </Link>
+              <Link to="/resume">
+                <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6 h-full">
+                  <div className="w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center mb-4">
+                    <FileText className="w-6 h-6 text-white" />
+                  </div>
+                  <h3 className="text-xl font-semibold mb-2">Resume Analyzer</h3>
+                  <p className="text-muted-foreground text-sm">Get AI feedback and upload your resume for interviews</p>
                 </Card>
               </Link>
             </div>

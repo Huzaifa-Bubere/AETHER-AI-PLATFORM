@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useEffect, useState, useRef } from 'react';
 import api from '../../../lib/aptitudeApi';
 
 
@@ -15,16 +16,22 @@ interface StudentRow {
 export default function StudentManager() {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState<string | null>(null);
+  const requestId = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   const fetchStudents = async () => {
+    const current = ++requestId.current;
+    setLoading(true);
     try {
       const { data } = await api.get('/api/admin/aptitude/students', { params: { search } });
+      if (current !== requestId.current) return;
       setStudents(data.students);
       setError(null);
     } catch (error: any) {
-      setError(error?.response?.data?.message || 'Could not load students. Please retry.');
-    }
+      if (current === requestId.current) setError(error?.response?.data?.message || error?.response?.data?.error || 'Could not load students. Please retry.');
+    } finally { if (current === requestId.current) setLoading(false); }
   };
 
   useEffect(() => {
@@ -34,18 +41,21 @@ export default function StudentManager() {
   }, [search]);
 
   const toggleBlock = async (userId: string, isBlocked: boolean) => {
+    if (updating) return;
+    setUpdating(userId);
     try {
       await api.patch(`/api/admin/aptitude/students/${userId}/block`, { isBlocked: !isBlocked });
       await fetchStudents();
     } catch (error: any) {
       setError(error?.response?.data?.message || 'Could not update the student. Please retry.');
-    }
+    } finally { setUpdating(null); }
   };
 
   return (
     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
       {error && <p role="alert" className="my-4 text-destructive">{error}</p>}
-      <div className="mb-6 flex items-center justify-between">
+      <Link to="/admin/aptitude" className="mb-4 inline-block text-sm text-primary">Back to Aptitude Admin</Link>
+      <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
         <h1 className="text-xl font-bold">Students</h1>
         <input
           value={search}
@@ -55,7 +65,8 @@ export default function StudentManager() {
         />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border">
+      <p className="mb-4 text-sm text-muted-foreground">Blocking prevents this student from signing in across the platform. Unblocked students can sign in again.</p>
+      <div className="overflow-x-auto rounded-xl border border-border">
         <table className="w-full text-sm">
           <thead className="bg-card text-muted-foreground">
             <tr>
@@ -80,7 +91,7 @@ export default function StudentManager() {
                   <span className={s.isBlocked ? 'text-destructive' : 'text-emerald-700'}>{s.isBlocked ? 'Blocked' : 'Active'}</span>
                 </td>
                 <td className="p-3">
-                  <button onClick={() => toggleBlock(s.userId, s.isBlocked)} className="text-primary hover:underline">
+                  <button disabled={!!updating} onClick={() => toggleBlock(s.userId, s.isBlocked)} className="text-primary hover:underline">
                     {s.isBlocked ? 'Unblock' : 'Block'}
                   </button>
                 </td>
@@ -89,7 +100,7 @@ export default function StudentManager() {
             {students.length === 0 && (
               <tr>
                 <td colSpan={7} className="p-6 text-center text-muted-foreground">
-                  No students found.
+                  {loading ? 'Loading students...' : 'No students with completed attempts found.'}
                 </td>
               </tr>
             )}

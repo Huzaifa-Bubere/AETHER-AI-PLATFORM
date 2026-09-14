@@ -6,3 +6,8 @@ export default attachAuthentication(axios.create({
   baseURL: apiBaseURL.replace(/\/api$/, ''),
   timeout: 60000,
 }));
+
+export function aptitudeImageUrl(url?: string): string {
+  if (!url) return '';
+  return url.startsWith('/api/') ? `${apiBaseURL.replace(/\/api$/, '')}${url}` : url;
+}

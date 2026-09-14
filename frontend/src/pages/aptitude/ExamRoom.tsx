@@ -1,3 +1,4 @@
+import { aptitudeImageUrl } from '../../lib/aptitudeApi';
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAptitudeStore } from '../../store/aptitudeStore';
@@ -17,6 +18,9 @@ export default function ExamRoom() {
     submitted,
     submitting,
     saving,
+    navigating,
+    flushCurrent,
+    reset,
     attemptId: loadedAttemptId,
     loadAttempt,
     goTo,
@@ -34,7 +38,14 @@ export default function ExamRoom() {
 
   useEffect(() => {
     if (attemptId) loadAttempt(attemptId);
-  }, [attemptId, loadAttempt]);
+    return reset;
+  }, [attemptId, loadAttempt, reset]);
+
+  useEffect(() => {
+    if (loading || submitted || !questions.length) return;
+    const interval = setInterval(() => { if (!useAptitudeStore.getState().submitting) void flushCurrent(); }, 15000);
+    return () => clearInterval(interval);
+  }, [loading, submitted, questions.length, flushCurrent]);
 
   useEffect(() => {
     if (submitted && loadedAttemptId === attemptId && !loading) navigate(`/aptitude/attempts/${attemptId}/result`, { replace: true });
@@ -77,7 +88,7 @@ export default function ExamRoom() {
   }, [submit]);
 
   if (loading) return <CenteredMessage text="Loading your exam…" />;
-  if (error && !questions.length) return <CenteredMessage text={error} isError />;
+  if (error && !questions.length) return <div className="px-6 pt-32"><p role="alert">{error}</p><button onClick={() => attemptId && loadAttempt(attemptId)} className="mt-4 text-primary underline">Retry loading exam</button></div>;
   if (!questions.length) return <CenteredMessage text="No questions loaded." isError />;
 
   const q = questions[currentIndex];
@@ -86,10 +97,10 @@ export default function ExamRoom() {
 
   return (
     <div ref={containerRef} className="min-h-screen bg-background pt-16 text-foreground">
-      {error && <p role="alert" className="bg-red-50 p-4 text-red-700">{error}</p>}
+      {error && <p role="alert" className="bg-red-50 p-4 text-red-700">{error} <button disabled={submitting || navigating} onClick={() => { setConfirmSubmitOpen(false); void submit(deadline ? Date.now() >= deadline.getTime() : false); }} className="underline">Retry submission</button></p>}
       <p role="status" className="px-6 text-sm text-muted-foreground">{submitting ? 'Submitting…' : saving ? 'Saving answer…' : 'Answers save automatically.'}</p>
       {/* Top bar */}
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
+      <header className="sticky top-0 z-10 flex flex-wrap gap-2 items-center justify-between border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
         <div>
           <p className="text-sm text-muted-foreground">
             Question {currentIndex + 1} of {questions.length} · {q.category.replace(/-/g, ' ')} · <span className="uppercase">{q.difficulty}</span>
@@ -98,10 +109,10 @@ export default function ExamRoom() {
         {deadline && <Timer deadline={deadline} onExpire={handleExpire} />}
       </header>
 
-      <div className="mx-auto flex max-w-7xl gap-6 p-6">
+      <div className="mx-auto flex max-w-7xl flex-col lg:flex-row gap-6 p-4 sm:p-6">
         {/* Question area */}
         <main className="flex-1">
-          <div className="rounded-xl border border-border bg-card p-4">
+          {q.imageUrl && <div className="rounded-xl border border-border bg-card p-4">
             <div className="mb-3 flex items-center justify-end gap-2">
               <button
                 onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}
@@ -122,14 +133,14 @@ export default function ExamRoom() {
 
             <div className="flex justify-center overflow-auto rounded-lg bg-white p-4" style={{ maxHeight: '60vh' }}>
               {q.imageUrl && <img
-                src={q.imageUrl}
+                src={aptitudeImageUrl(q.imageUrl)}
                 alt={`Question ${currentIndex + 1}`}
                 style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
                 className="select-none transition-transform"
                 draggable={false}
               />}
             </div>
-          </div>
+          </div>}
 
           {q.questionText && <p className="mt-4 whitespace-pre-wrap text-lg">{q.questionText}</p>}
           {/* Options */}
@@ -137,7 +148,7 @@ export default function ExamRoom() {
             {(['A', 'B', 'C', 'D'] as const).map((opt) => (
               <button
                 key={opt}
-                disabled={submitting}
+                disabled={submitting || navigating}
                 onClick={() => selectOption(opt)}
                 className={`rounded-lg border px-4 py-3 text-left font-medium transition-colors ${
                   r?.selectedOption === opt
@@ -155,38 +166,38 @@ export default function ExamRoom() {
 
           {/* Controls */}
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => goTo(currentIndex - 1)}
-                disabled={currentIndex === 0}
+                disabled={currentIndex === 0 || submitting || navigating}
                 className="rounded-lg bg-secondary px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-40"
               >
                 ← Previous
               </button>
               <button
-                onClick={clearResponse}
+                disabled={submitting || navigating} onClick={clearResponse}
                 className="rounded-lg bg-secondary px-4 py-2 text-sm font-medium hover:bg-muted"
               >
                 Clear Response
               </button>
               <button
-                onClick={toggleMarkForReview}
-                className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium hover:bg-violet-600"
+                disabled={submitting || navigating} onClick={toggleMarkForReview}
+                className="rounded-lg bg-violet-700 text-white px-4 py-2 text-sm font-medium hover:bg-violet-600"
               >
                 Mark for Review & Next
               </button>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
-                onClick={saveAndNext}
+                disabled={submitting || navigating} onClick={saveAndNext}
                 className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
               >
                 {currentIndex < questions.length - 1 ? 'Save & Next →' : 'Save'}
               </button>
               <button
-                onClick={() => setConfirmSubmitOpen(true)}
-                className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold hover:bg-emerald-500"
+                disabled={submitting || navigating} onClick={() => setConfirmSubmitOpen(true)}
+                className="rounded-lg bg-emerald-600 text-white px-5 py-2 text-sm font-semibold hover:bg-emerald-500"
               >
                 Submit Test
               </button>
@@ -194,7 +205,7 @@ export default function ExamRoom() {
           </div>
         </main>
 
-        <QuestionPalette total={questions.length} currentIndex={currentIndex} statuses={statuses} onNavigate={goTo} />
+        <QuestionPalette total={questions.length} currentIndex={currentIndex} statuses={statuses} onNavigate={goTo} disabled={submitting || navigating} />
       </div>
 
       {confirmSubmitOpen && (
@@ -202,7 +213,7 @@ export default function ExamRoom() {
           answered={statuses.filter((s) => s === 'answered' || s === 'answered-marked-for-review').length}
           total={questions.length}
           onCancel={() => setConfirmSubmitOpen(false)}
-          onConfirm={() => submit(false)}
+          onConfirm={() => { setConfirmSubmitOpen(false); void submit(false); }}
         />
       )}
     </div>
@@ -231,7 +242,7 @@ function ConfirmSubmitModal({
           <button onClick={onCancel} className="rounded-lg bg-secondary px-4 py-2 text-sm hover:bg-muted">
             Keep Reviewing
           </button>
-          <button onClick={onConfirm} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold hover:bg-emerald-500">
+          <button onClick={onConfirm} className="rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-500">
             Submit Now
           </button>
         </div>

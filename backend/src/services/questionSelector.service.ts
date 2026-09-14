@@ -13,11 +13,11 @@ import { Types } from 'mongoose';
  *  2. Prefer unseen questions first, in random order.
  *  3. Only fall back to previously-seen questions if the unseen pool is smaller
  *     than what the test requires (keeps tests runnable even with a small bank).
- *  4. `timesUsed` is incremented on selection so the admin dashboard can show
+ *  4. `timesUsed` is incremented after the attempt is created so the admin dashboard can show
  *     which questions are overused and need more bank depth.
  */
 export async function buildQuestionSet(test: IAptitudeTest, userId: Types.ObjectId) {
-  const pastAttempts = await AptitudeAttempt.find({ user: userId, test: test._id }).select('questions').lean();
+  const pastAttempts = await AptitudeAttempt.find({ user: userId, roundType: test.roundType }).select('questions').lean();
   const seenIds = new Set(pastAttempts.flatMap((a) => a.questions.map((q) => q.toString())));
 
   const selectedIds = new Set<string>();
@@ -52,8 +52,6 @@ export async function buildQuestionSet(test: IAptitudeTest, userId: Types.Object
   if (selectedIds.size === 0) throw new Error('The test must request at least one question.');
 
   const selectedObjectIds = Array.from(selectedIds).map((id) => new Types.ObjectId(id));
-
-  await AptitudeQuestion.updateMany({ _id: { $in: selectedObjectIds } }, { $inc: { timesUsed: 1 } });
 
   return shuffle(selectedObjectIds);
 }

@@ -4,7 +4,7 @@ const Attempt = require('../dist/models/AptitudeAttempt').default;
 const Test = require('../dist/models/AptitudeTest').default;
 const { buildQuestionSet } = require('../dist/services/questionSelector.service');
 const plan = { easy: { count: 15, marksPerQuestion: 1 }, medium: { count: 15, marksPerQuestion: 2 }, hard: { count: 15, marksPerQuestion: 3 } };
-const testData = () => ({ _id: new Types.ObjectId(), title: 'Audit', roundType: 'aptitude', categories: ['quantitative'], difficultyPlan: plan, createdBy: new Types.ObjectId() });
+const testData = () => ({ _id: new Types.ObjectId(), title: 'Audit', roundType: 'aptitude', categories: ['quantitative-aptitude'], difficultyPlan: plan, createdBy: new Types.ObjectId() });
 afterEach(() => jest.restoreAllMocks());
 
 test('selects 15 questions in each difficulty, without duplicates', async () => {

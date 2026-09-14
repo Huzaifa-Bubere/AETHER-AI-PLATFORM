@@ -1,9 +1,8 @@
 import { Schema, model, Document, Types } from 'mongoose';
 
-/**
- * A question is a single image containing the statement + all four options.
- * No question text is ever stored — matches the "image only" spec.
- */
+/** Questions contain either a complete image or a statement with four text options. */
+export const CATEGORIES = ['quantitative-aptitude', 'logical-reasoning', 'verbal-ability',
+  'data-interpretation', 'puzzle-solving', 'technical-quiz'] as const;
 
 export type RoundType = 'aptitude' | 'technical' | 'coding';
 export type Category =
@@ -78,7 +77,7 @@ const AptitudeQuestionSchema = new Schema<IAptitudeQuestion>(
     imageUrl: { type: String, default: '' },
     imagePublicId: { type: String, default: '' },
     correctOption: { type: String, enum: ['A', 'B', 'C', 'D'], required: true },
-    marks: { type: Number, required: true, default: 1, min: 0 },
+    marks: { type: Number, required: true, default: 1, min: 0.0001, max: 1000 },
     explanation: { type: String, default: '' },
     status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: false },
@@ -88,6 +87,15 @@ const AptitudeQuestionSchema = new Schema<IAptitudeQuestion>(
 );
 
 // Compound index used heavily by the random-question picker
+AptitudeQuestionSchema.pre('validate', function (next) {
+  if (!this.imageUrl?.trim()) {
+    if (!this.questionText?.trim()) this.invalidate('questionText', 'Provide a question statement or a complete question image.');
+    if (['A', 'B', 'C', 'D'].some(key => !this.options?.[key as OptionKey]?.trim())) {
+      this.invalidate('options', 'Text questions require all four options.');
+    }
+  }
+  next();
+});
 AptitudeQuestionSchema.index({ roundType: 1, category: 1, difficulty: 1, status: 1 });
 
 export default model<IAptitudeQuestion>('AptitudeQuestion', AptitudeQuestionSchema);

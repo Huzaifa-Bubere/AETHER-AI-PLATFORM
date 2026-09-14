@@ -10,7 +10,9 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
-    "dev:debug": "nodemon --exec ts-node --inspect src/server.ts"
+    "dev:debug": "nodemon --exec ts-node --inspect src/server.ts",
+    "test:aptitude": "npm run build && jest --runInBand aptitude",
+    "test:aptitude:integration": "npm run build && node scripts/run-aptitude-integration.cjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

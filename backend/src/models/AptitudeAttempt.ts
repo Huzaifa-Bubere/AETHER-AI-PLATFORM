@@ -16,6 +16,7 @@ export interface IResponse {
 }
 
 export interface IAIAnalysis {
+  source?: 'computed' | 'ai';
   strongTopics: string[];
   weakTopics: string[];
   categoryPerformance: { category: string; accuracy: number }[];
@@ -33,6 +34,8 @@ export interface IAIAnalysis {
 export interface IAptitudeAttempt extends Document {
   user: Types.ObjectId;
   test: Types.ObjectId;
+  testTitle: string;
+  activeKey?: string;
   roundType: string;
   questions: Types.ObjectId[]; // fixed order, generated once at start
   questionSnapshots: {
@@ -82,6 +85,7 @@ const ResponseSchema = new Schema<IResponse>(
 
 const AIAnalysisSchema = new Schema<IAIAnalysis>(
   {
+    source: { type: String, enum: ['computed', 'ai'], default: 'computed' },
     strongTopics: [String],
     weakTopics: [String],
     categoryPerformance: [{ category: String, accuracy: Number }],
@@ -102,6 +106,8 @@ const AptitudeAttemptSchema = new Schema<IAptitudeAttempt>(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     test: { type: Schema.Types.ObjectId, ref: 'AptitudeTest', required: true },
+    testTitle: { type: String, default: '' },
+    activeKey: { type: String },
     roundType: { type: String, required: true },
     questions: [{ type: Schema.Types.ObjectId, ref: 'AptitudeQuestion' }],
     questionSnapshots: [new Schema({
@@ -137,5 +143,6 @@ const AptitudeAttemptSchema = new Schema<IAptitudeAttempt>(
 );
 
 AptitudeAttemptSchema.index({ user: 1, test: 1, status: 1 });
+AptitudeAttemptSchema.index({ activeKey: 1 }, { unique: true, sparse: true });
 
 export default model<IAptitudeAttempt>('AptitudeAttempt', AptitudeAttemptSchema);

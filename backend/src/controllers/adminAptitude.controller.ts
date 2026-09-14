@@ -3,6 +3,8 @@ import AptitudeQuestion from '../models/AptitudeQuestion';
 import AptitudeTest from '../models/AptitudeTest';
 import AptitudeAttempt from '../models/AptitudeAttempt';
 import User from '../models/User';
+import { requireAvailableQuestions, testAvailability } from '../services/aptitudeAvailability.service';
+import { invalidInput } from '../middleware/aptitudeValidation';
 import { uploadQuestionImage, deleteQuestionImage } from '../utils/aptitudeImageUpload';
 
 interface AuthedRequest extends Request {
@@ -12,325 +14,147 @@ interface AuthedRequest extends Request {
 }
 
 // ---------- Questions ----------
+function questionInput(body: any, existing?: any) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) invalidInput('Question must be an object.');
+  const data: any = {};
+  for (const field of ['roundType', 'category', 'difficulty', 'correctOption', 'marks', 'explanation', 'questionText']) {
+    if (body[field] !== undefined) data[field] = body[field];
+  }
+  let options = body.options;
+  if (typeof options === 'string') {
+    try { options = JSON.parse(options); } catch { invalidInput('Options must be valid JSON.'); }
+  }
+  if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options))) invalidInput('Options must contain A, B, C and D.');
+  data.options = Object.fromEntries(['A', 'B', 'C', 'D'].map(key => [key,
+    options?.[key] ?? body[`option${key}`] ?? existing?.options?.[key] ?? '']));
+  if (body.imageUrl !== undefined) {
+    if (typeof body.imageUrl !== 'string' || (body.imageUrl && !/^https?:\/\//i.test(body.imageUrl))) invalidInput('An external image must use an HTTP or HTTPS URL.');
+    data.imageUrl = body.imageUrl;
+    data.imagePublicId = ''; // External assets are never owned or deleted by this API.
+  }
+  return data;
+}
 
-/** POST /api/admin/aptitude/questions (supports JSON or multipart) */
+async function storeQuestion(body: any, file: Express.Multer.File | undefined, userId?: string, existing?: any) {
+  const question = existing || new AptitudeQuestion({ createdBy: userId });
+  const oldPublicId = question.imagePublicId;
+  question.set(questionInput(body, existing));
+  if (file) question.imageUrl = 'pending-upload';
+  await question.validate(); // Reject malformed records before uploading any asset.
+  let uploaded;
+  try {
+    if (file) {
+      uploaded = await uploadQuestionImage(file.buffer);
+      question.imageUrl = uploaded.url;
+      question.imagePublicId = uploaded.publicId;
+    }
+    await question.save();
+  } catch (error) {
+    if (uploaded) await deleteQuestionImage(uploaded.publicId);
+    throw error;
+  }
+  if (oldPublicId && oldPublicId !== question.imagePublicId) await deleteQuestionImage(oldPublicId);
+  return question;
+}
+
 export async function createQuestion(req: AuthedRequest, res: Response): Promise<void> {
-  try {
-    const {
-      roundType = 'aptitude',
-      category,
-      difficulty = 'easy',
-      correctOption,
-      marks = 1,
-      explanation = '',
-      questionText = '',
-      optionA = '',
-      optionB = '',
-      optionC = '',
-      optionD = '',
-      options: rawOptions,
-    } = req.body;
-
-    if (!category) {
-      res.status(400).json({ message: 'Category is required.' });
-      return;
-    }
-    if (!correctOption || !['A', 'B', 'C', 'D'].includes(correctOption)) {
-      res.status(400).json({ message: 'Valid correct option (A, B, C, or D) is required.' });
-      return;
-    }
-
-    let imageUrl = '';
-    let imagePublicId = '';
-
-    if (req.file) {
-      const uploaded = await uploadQuestionImage(req.file.buffer);
-      imageUrl = uploaded.url;
-      imagePublicId = uploaded.publicId;
-    } else if (req.body.imageUrl) {
-      imageUrl = req.body.imageUrl;
-      imagePublicId = req.body.imagePublicId || `external_${Date.now()}`;
-    }
-
-    // Must have either an image OR question text
-    if (!imageUrl && !questionText) {
-      res.status(400).json({ message: 'Either a Question Statement or an Image is required.' });
-      return;
-    }
-
-    let parsedOptions = {
-      A: optionA || '',
-      B: optionB || '',
-      C: optionC || '',
-      D: optionD || '',
-    };
-
-    if (rawOptions) {
-      try {
-        const optObj = typeof rawOptions === 'string' ? JSON.parse(rawOptions) : rawOptions;
-        parsedOptions = {
-          A: optObj.A || parsedOptions.A,
-          B: optObj.B || parsedOptions.B,
-          C: optObj.C || parsedOptions.C,
-          D: optObj.D || parsedOptions.D,
-        };
-      } catch {
-        // ignore parse error and keep parsedOptions
-      }
-    }
-
-    const question = await AptitudeQuestion.create({
-      roundType,
-      category,
-      difficulty,
-      correctOption,
-      marks: Number(marks) || 1,
-      explanation: explanation || '',
-      questionText: questionText || '',
-      options: parsedOptions,
-      imageUrl,
-      imagePublicId,
-      createdBy: req.user?.userId,
-    });
-
-    res.status(201).json({ question });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Failed to create question' });
-  }
+  const question = await storeQuestion(req.body, req.file, req.user?.userId);
+  res.status(201).json({ question });
 }
 
-/**
- * POST /api/admin/aptitude/questions/bulk (supports JSON array or multipart images)
- */
 export async function bulkCreateQuestions(req: AuthedRequest, res: Response): Promise<void> {
-  try {
-    const files = req.files as Express.Multer.File[] | undefined;
-    let questionsData: any[] = [];
-
-    if (req.body.questions && Array.isArray(req.body.questions)) {
-      questionsData = req.body.questions;
-    } else if (req.body.meta) {
-      try {
-        questionsData = JSON.parse(req.body.meta);
-      } catch {
-        res.status(400).json({ message: '`meta` must be a valid JSON array.' });
-        return;
-      }
-    }
-
-    if (files && files.length > 0) {
-      if (questionsData.length !== files.length) {
-        res.status(400).json({ message: `Got ${files.length} images but ${questionsData.length} meta entries — they must match 1:1.` });
-        return;
-      }
-    } else if (questionsData.length === 0) {
-      res.status(400).json({ message: 'No questions provided.' });
-      return;
-    }
-
-    const created = [];
-    const failed: { index: number; error: string }[] = [];
-
-    for (let i = 0; i < questionsData.length; i++) {
-      try {
-        const m = questionsData[i];
-        let imageUrl = m.imageUrl || '';
-        let imagePublicId = m.imagePublicId || '';
-
-        if (files && files[i]) {
-          const uploaded = await uploadQuestionImage(files[i].buffer);
-          imageUrl = uploaded.url;
-          imagePublicId = uploaded.publicId;
-        }
-
-        const question = await AptitudeQuestion.create({
-          roundType: m.roundType || 'aptitude',
-          category: m.category,
-          difficulty: m.difficulty || 'easy',
-          correctOption: m.correctOption || 'A',
-          marks: Number(m.marks) || 1,
-          explanation: m.explanation || '',
-          questionText: m.questionText || '',
-          options: m.options || {
-            A: m.optionA || '',
-            B: m.optionB || '',
-            C: m.optionC || '',
-            D: m.optionD || '',
-          },
-          imageUrl,
-          imagePublicId,
-          createdBy: req.user?.userId,
-        });
-        created.push(question);
-      } catch (err: any) {
-        failed.push({ index: i, error: err.message });
-      }
-    }
-
-    res.status(207).json({ createdCount: created.length, failedCount: failed.length, created, failed });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Failed to bulk create questions' });
+  let data = req.body.questions;
+  if (req.body.meta !== undefined) {
+    try { data = JSON.parse(req.body.meta); } catch { invalidInput('Metadata must be a valid JSON array.'); }
   }
+  if (!Array.isArray(data) || data.length < 1 || data.length > 100) invalidInput('Provide between 1 and 100 questions.');
+  const files = req.files || [];
+  if (files.length && files.length !== data.length) invalidInput('Images and metadata entries must match in number and order.');
+  const created = [], failed = [];
+  for (let index = 0; index < data.length; index++) {
+    try { created.push(await storeQuestion(data[index], files[index], req.user?.userId)); }
+    catch (error: any) { failed.push({ index, error: error.message }); }
+  }
+  res.status(207).json({ createdCount: created.length, failedCount: failed.length, created, failed });
 }
 
-/** GET /api/admin/aptitude/questions?roundType=&category=&difficulty=&status=&page=&limit= */
+const literalSearch = (value: string) => value.slice(0, 200).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export async function listQuestions(req: Request, res: Response): Promise<void> {
   const { roundType, category, difficulty, status, page = '1', limit = '20', search = '' } = req.query as Record<string, string>;
   const filter: Record<string, any> = {};
-  if (roundType) filter.roundType = roundType;
-  if (category) filter.category = category;
-  if (difficulty) filter.difficulty = difficulty;
-  if (status) filter.status = status;
-  if (search) {
-    filter.$or = [
-      { questionText: { $regex: search, $options: 'i' } },
-      { explanation: { $regex: search, $options: 'i' } },
-    ];
-  }
-
-  const pageNum = Math.max(1, parseInt(page));
-  const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
-
+  for (const [key, value] of Object.entries({ roundType, category, difficulty, status })) if (value) filter[key] = value;
+  if (search) filter.$or = ['questionText', 'explanation'].map(key => ({ [key]: { $regex: literalSearch(search), $options: 'i' } }));
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
   const [questions, total] = await Promise.all([
-    AptitudeQuestion.find(filter)
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum),
+    AptitudeQuestion.find(filter).sort({ createdAt: -1, _id: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum),
     AptitudeQuestion.countDocuments(filter),
   ]);
-
   res.json({ questions, total, page: pageNum, pages: Math.ceil(total / limitNum) });
 }
 
-/** PUT /api/admin/aptitude/questions/:id */
 export async function updateQuestion(req: AuthedRequest, res: Response): Promise<void> {
-  const { category, difficulty, correctOption, marks, explanation, roundType, questionText, optionA, optionB, optionC, optionD, options } = req.body;
   const question = await AptitudeQuestion.findById(req.params.id);
-  if (!question) {
-    res.status(404).json({ message: 'Question not found.' });
-    return;
-  }
-
+  if (!question) { res.status(404).json({ message: 'Question not found.' }); return; }
   if (await AptitudeAttempt.exists({ questions: question._id })) {
-    res.status(409).json({ message: 'This question is used by an attempt. Deactivate it and create a replacement to preserve existing results.' });
-    return;
+    res.status(409).json({ message: 'This question has been used. Create a replacement and deactivate this one to preserve results.' }); return;
   }
-
-  if (req.file) {
-    const { url, publicId } = await uploadQuestionImage(req.file.buffer);
-    if (question.imagePublicId) {
-      await deleteQuestionImage(question.imagePublicId).catch(() => {});
-    }
-    question.imageUrl = url;
-    question.imagePublicId = publicId;
-  }
-
-  if (roundType) question.roundType = roundType;
-  if (category) question.category = category;
-  if (difficulty) question.difficulty = difficulty;
-  if (correctOption) question.correctOption = correctOption;
-  if (marks !== undefined) question.marks = Number(marks);
-  if (explanation !== undefined) question.explanation = explanation;
-  if (questionText !== undefined) question.questionText = questionText;
-
-  if (options) {
-    try {
-      const optObj = typeof options === 'string' ? JSON.parse(options) : options;
-      question.options = {
-        A: optObj.A ?? question.options?.A ?? '',
-        B: optObj.B ?? question.options?.B ?? '',
-        C: optObj.C ?? question.options?.C ?? '',
-        D: optObj.D ?? question.options?.D ?? '',
-      };
-    } catch {
-      // keep existing
-    }
-  } else if (optionA !== undefined || optionB !== undefined || optionC !== undefined || optionD !== undefined) {
-    question.options = {
-      A: optionA ?? question.options?.A ?? '',
-      B: optionB ?? question.options?.B ?? '',
-      C: optionC ?? question.options?.C ?? '',
-      D: optionD ?? question.options?.D ?? '',
-    };
-  }
-
-  await question.save();
-  res.json({ question });
+  res.json({ question: await storeQuestion(req.body, req.file, req.user?.userId, question) });
 }
 
-/** PATCH /api/admin/aptitude/questions/:id/status  { status: 'active' | 'inactive' } */
 export async function toggleQuestionStatus(req: Request, res: Response): Promise<void> {
-  const question = await AptitudeQuestion.findByIdAndUpdate(req.params.id, { status: req.body.status }, { new: true });
-  if (!question) {
-    res.status(404).json({ message: 'Question not found.' });
-    return;
-  }
+  if (!['active', 'inactive'].includes(req.body.status)) invalidInput('Status must be active or inactive.');
+  const question = await AptitudeQuestion.findByIdAndUpdate(req.params.id, { status: req.body.status }, { new: true, runValidators: true });
+  if (!question) { res.status(404).json({ message: 'Question not found.' }); return; }
   res.json({ question });
 }
 
-/** DELETE /api/admin/aptitude/questions/:id */
 export async function deleteQuestion(req: Request, res: Response): Promise<void> {
   const question = await AptitudeQuestion.findById(req.params.id);
-  if (!question) {
-    res.status(404).json({ message: 'Question not found.' });
-    return;
-  }
+  if (!question) { res.status(404).json({ message: 'Question not found.' }); return; }
   if (await AptitudeAttempt.exists({ questions: question._id })) {
-    res.status(409).json({ message: 'This question is used by an attempt. Deactivate it and create a replacement to preserve existing results.' });
-    return;
-  }
-
-  if (question.imagePublicId) {
-    await deleteQuestionImage(question.imagePublicId).catch(() => {});
+    res.status(409).json({ message: 'This question has been used. Deactivate it to preserve existing results.' }); return;
   }
   await question.deleteOne();
+  if (question.imagePublicId) await deleteQuestionImage(question.imagePublicId);
   res.json({ deleted: true });
 }
 
 // ---------- Tests ----------
 
-/** POST /api/admin/aptitude/tests */
-export async function createTest(req: AuthedRequest, res: Response): Promise<void> {
-  try {
-    const test = await AptitudeTest.create({
-      ...req.body,
-      isPublished: req.body.isPublished !== undefined ? req.body.isPublished : true,
-      createdBy: req.user?.userId,
-    });
-    res.status(201).json({ test });
-  } catch (error: any) {
-    res.status(400).json({ message: error.message || 'Failed to create test' });
-  }
+const testFields = ['title', 'roundType', 'categories', 'difficultyPlan', 'durationMinutes', 'isPublished'];
+async function applyTestInput(test: InstanceType<typeof AptitudeTest>, body: any) {
+  if (body.isPublished !== undefined && typeof body.isPublished !== 'boolean') invalidInput('Published status must be a boolean.');
+  for (const field of testFields) if (body[field] !== undefined) test.set(field, body[field]);
+  await test.validate();
+  if (test.isPublished) await requireAvailableQuestions(test);
+  await test.save();
 }
 
-/** PUT /api/admin/aptitude/tests/:id */
+export async function createTest(req: AuthedRequest, res: Response): Promise<void> {
+  const test = new AptitudeTest({ createdBy: req.user?.userId, isPublished: false });
+  await applyTestInput(test, req.body);
+  res.status(201).json({ test });
+}
+
 export async function updateTest(req: Request, res: Response): Promise<void> {
   const test = await AptitudeTest.findById(req.params.id);
-  if (!test) {
-    res.status(404).json({ message: 'Test not found.' });
-    return;
-  }
-  for (const field of ['title', 'roundType', 'categories', 'difficultyPlan', 'durationMinutes', 'isPublished']) {
-    if (req.body[field] !== undefined) test.set(field, req.body[field]);
-  }
-  await test.save(); // Runs total-marks calculation and complete plan validation.
+  if (!test) { res.status(404).json({ message: 'Test not found.' }); return; }
+  await applyTestInput(test, req.body);
   res.json({ test });
 }
 
-/** PATCH /api/admin/aptitude/tests/:id/publish  { isPublished: boolean } */
 export async function togglePublishTest(req: Request, res: Response): Promise<void> {
-  const test = await AptitudeTest.findByIdAndUpdate(req.params.id, { isPublished: req.body.isPublished }, { new: true });
-  if (!test) {
-    res.status(404).json({ message: 'Test not found.' });
-    return;
-  }
+  if (typeof req.body.isPublished !== 'boolean') invalidInput('Published status must be a boolean.');
+  const test = await AptitudeTest.findById(req.params.id);
+  if (!test) { res.status(404).json({ message: 'Test not found.' }); return; }
+  await applyTestInput(test, { isPublished: req.body.isPublished });
   res.json({ test });
 }
 
-/** GET /api/admin/aptitude/tests */
 export async function listTests(_req: Request, res: Response): Promise<void> {
   const tests = await AptitudeTest.find().sort({ createdAt: -1 });
-  res.json({ tests });
+  res.json({ tests: await Promise.all(tests.map(async test => ({ ...test.toObject(), availability: await testAvailability(test) }))) });
 }
 
 // ---------- Dashboard / Students ----------
@@ -366,7 +190,7 @@ export async function getDashboardStats(_req: Request, res: Response): Promise<v
 /** GET /api/admin/aptitude/students?search= — students with at least one attempt */
 export async function listStudentPerformance(req: Request, res: Response): Promise<void> {
   try {
-    const search = (req.query.search as string) || '';
+    const search = literalSearch((req.query.search as string) || '');
 
     const pipeline: any[] = [
       { $match: { status: 'completed' } },
@@ -415,19 +239,14 @@ export async function listStudentPerformance(req: Request, res: Response): Promi
  * PATCH /api/admin/aptitude/students/:userId/block  { isBlocked: boolean }
  */
 export async function toggleStudentBlock(req: Request, res: Response): Promise<void> {
-  try {
-    const lockUntil = req.body.isBlocked ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) : null;
-    const user = await User.findByIdAndUpdate(
-      req.params.userId,
-      { 'auth.lockUntil': lockUntil },
-      { new: true }
-    );
-    if (!user) {
-      res.status(404).json({ message: 'Student not found.' });
-      return;
-    }
-    res.json({ user });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Failed to toggle block status' });
-  }
+  if (typeof req.body.isBlocked !== 'boolean') invalidInput('Blocked status must be a boolean.');
+  const isBlocked = req.body.isBlocked;
+  const user = await User.findOneAndUpdate(
+    { _id: req.params.userId, 'auth.role': { $ne: 'admin' } },
+    { $set: { 'auth.lockUntil': isBlocked ? new Date(Date.now() + 365 * 86400000) : null },
+      ...(isBlocked ? { $inc: { 'auth.tokenVersion': 1 } } : {}) },
+    { new: true }
+  );
+  if (!user) { res.status(404).json({ message: 'Student not found. Administrator accounts cannot be blocked here.' }); return; }
+  res.json({ userId: user._id, isBlocked });
 }

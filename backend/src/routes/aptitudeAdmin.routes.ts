@@ -1,10 +1,13 @@
+import { aptitudeId, aptitudeError } from '../middleware/aptitudeValidation';
 import { Router } from 'express';
 import multer from 'multer';
 import * as ctrl from '../controllers/adminAptitude.controller';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 100, fields: 20, fieldSize: 2 * 1024 * 1024 } });
 const router = Router();
+router.param('id', aptitudeId);
+router.param('userId', aptitudeId);
 
 router.use(authenticateToken, requireAdmin);
 
@@ -27,4 +30,5 @@ router.get('/dashboard', ctrl.getDashboardStats);
 router.get('/students', ctrl.listStudentPerformance);
 router.patch('/students/:userId/block', ctrl.toggleStudentBlock);
 
+router.use(aptitudeError);
 export default router;

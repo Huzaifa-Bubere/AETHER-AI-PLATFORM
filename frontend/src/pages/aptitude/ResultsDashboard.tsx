@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import api from '../../lib/aptitudeApi';
+import { Link, useParams } from 'react-router-dom';
+import api, { aptitudeImageUrl } from '../../lib/aptitudeApi';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 
@@ -18,6 +18,7 @@ interface ReviewItem {
 }
 
 interface AIAnalysis {
+  source?: 'computed' | 'ai';
   strongTopics: string[];
   weakTopics: string[];
   categoryPerformance: { category: string; accuracy: number }[];
@@ -50,6 +51,7 @@ const PIE_COLORS = ['#10b981', '#ef4444', '#737373']; // correct, incorrect, una
 
 export default function ResultsDashboard() {
   const { attemptId } = useParams<{ attemptId: string }>();
+  const [reload, setReload] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,11 +61,11 @@ export default function ResultsDashboard() {
     let active = true;
     if (attemptId) api.get(`/api/aptitude/attempts/${attemptId}/result`)
       .then(({ data }) => { if (active) setResult(data); })
-      .catch(error => { if (active) setError(error?.response?.data?.message || 'Could not load results. Please reload to retry.'); });
+      .catch(error => { if (active) setError(error?.response?.data?.message || error?.response?.data?.error || 'Could not load results. Please reload to retry.'); });
     return () => { active = false; };
-  }, [attemptId]);
+  }, [attemptId, reload]);
 
-  if (error) return <p role="alert" className="pt-32 px-6">{error}</p>;
+  if (error) return <div className="pt-32 px-6"><p role="alert">{error}</p><button onClick={() => setReload(v => v + 1)} className="text-primary underline">Retry</button> ? <Link to="/aptitude">Back to Tests</Link></div>;
   if (!result) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">Loading results…</div>
@@ -79,6 +81,7 @@ export default function ResultsDashboard() {
   return (
     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
       <div className="mx-auto max-w-5xl space-y-8">
+        <div className="flex justify-between"><Link to="/aptitude" className="text-primary underline">Back to Tests & Attempts</Link><button onClick={() => setReload(v => v + 1)} className="text-primary underline">Refresh Analysis</button></div>
         {/* Score header */}
         <section className="flex flex-col items-center gap-6 rounded-xl border border-border bg-card p-8 sm:flex-row sm:justify-between">
           <ScoreMeter percent={result.scorePercent} />
@@ -146,9 +149,9 @@ export default function ResultsDashboard() {
                     {item.isCorrect ? 'Correct' : item.selectedOption ? 'Incorrect' : 'Not Answered'}
                   </span>
                 </div>
-                {item.questionImageUrl && <img src={item.questionImageUrl} alt={`Question ${i + 1}`} className="mt-3 max-h-64 rounded-lg bg-white" />}
+                {item.questionImageUrl && <img src={aptitudeImageUrl(item.questionImageUrl)} alt={`Question ${i + 1}`} className="mt-3 max-h-64 rounded-lg bg-white" />}
                 {item.questionText && <p className="mt-3 whitespace-pre-wrap">{item.questionText}</p>}
-                {item.options && <ul className="mt-3 space-y-1 text-sm">
+                {item.options && Object.values(item.options).some(Boolean) && <ul className="mt-3 space-y-1 text-sm">
                   {Object.entries(item.options).map(([option, text]) => <li key={option}><strong>{option}.</strong> {text}</li>)}
                 </ul>}
                 <div className="mt-3 flex gap-6 text-sm">
@@ -220,9 +223,9 @@ function AIFeedbackPanel({ analysis }: { analysis: AIAnalysis }) {
   return (
     <section className="rounded-xl border border-primary/20 bg-primary/10 p-6">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-primary">AI Performance Analysis</h2>
+        <h2 className="text-lg font-semibold text-primary">{analysis.source === 'ai' ? 'AI Performance Analysis' : 'Performance Analysis'}</h2>
         <span className="rounded-full bg-primary/20 px-3 py-1 text-sm font-medium text-primary">
-          Placement Readiness: {analysis.placementReadinessScore}%
+          Test Score: {analysis.placementReadinessScore}%
         </span>
       </div>
 

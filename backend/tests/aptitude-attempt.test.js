@@ -64,3 +64,34 @@ test('concurrent saves force grading to reload instead of overwriting new answer
   expect(update).toHaveBeenCalledTimes(2);
   expect(attempt.score).toBe(4);
 });
+
+
+test('duplicate responses are rejected instead of graded using the last duplicate', async () => {
+  const attempt = makeAttempt();
+  jest.spyOn(Attempt, 'findOne').mockResolvedValue(attempt);
+  const req = request(attempt), res = response();
+  const answer = { questionId: String(q1), selectedOption: 'A', markedForReview: false, timeSpentSeconds: 2 };
+  req.body.responses = [answer, answer];
+  await controller.submitAttempt(req, res);
+  expect(res.status).toHaveBeenCalledWith(400);
+});
+
+test('results always contain measured category feedback even when AI is disabled', async () => {
+  const attempt = makeAttempt(); attempt.status = 'completed';
+  jest.spyOn(Attempt, 'findOne').mockResolvedValue(attempt);
+  const res = response();
+  await controller.getResult(request(attempt), res);
+  const analysis = res.json.mock.calls[0][0].aiAnalysis;
+  expect(analysis.source).toBe('computed');
+  expect(analysis.categoryPerformance[0].accuracy).toBe(50);
+  expect(analysis.strongTopics).toEqual([]);
+  expect(analysis.weakTopics).toEqual([]);
+});
+
+test('rounding the displayed percentage does not turn a sub-40-percent score into a pass', () => {
+  const result = controller.gradeResponses([{ question: q1, selectedOption: 'A' }], [
+    { _id: q1, correctOption: 'A', marks: 39.6 }, { _id: q2, correctOption: 'A', marks: 60.4 }
+  ]);
+  expect(result.scorePercent).toBe(39.6);
+  expect(result.passStatus).toBe('fail');
+});

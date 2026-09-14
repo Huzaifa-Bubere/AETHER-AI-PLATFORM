@@ -1,6 +1,7 @@
 import { PaletteStatus } from '../../store/aptitudeStore';
 
 interface PaletteProps {
+  disabled?: boolean;
   total: number;
   currentIndex: number;
   statuses: PaletteStatus[];
@@ -23,11 +24,11 @@ const LEGEND: { status: PaletteStatus; label: string }[] = [
   { status: 'answered-marked-for-review', label: 'Answered & Marked' },
 ];
 
-export default function QuestionPalette({ total, currentIndex, statuses, onNavigate }: PaletteProps) {
+export default function QuestionPalette({ total, currentIndex, statuses, onNavigate, disabled }: PaletteProps) {
   const answered = statuses.filter((s) => s === 'answered' || s === 'answered-marked-for-review').length;
 
   return (
-    <aside className="w-64 shrink-0 rounded-xl border border-border bg-card p-4">
+    <aside className="w-full lg:w-64 shrink-0 rounded-xl border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between text-sm text-muted-foreground">
         <span>Answered: <span className="text-emerald-700 font-semibold">{answered}</span></span>
         <span>Remaining: <span className="text-destructive font-semibold">{total - answered}</span></span>
@@ -36,6 +37,7 @@ export default function QuestionPalette({ total, currentIndex, statuses, onNavig
       <div className="grid grid-cols-5 gap-2">
         {Array.from({ length: total }).map((_, i) => (
           <button
+            disabled={disabled}
             key={i}
             onClick={() => onNavigate(i)}
             aria-current={i === currentIndex}

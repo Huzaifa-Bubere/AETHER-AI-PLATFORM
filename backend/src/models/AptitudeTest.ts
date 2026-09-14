@@ -1,5 +1,5 @@
 import { Schema, model, Document, Types } from 'mongoose';
-import { RoundType, Category } from './AptitudeQuestion';
+import { RoundType, Category, CATEGORIES } from './AptitudeQuestion';
 
 /** How many questions of each difficulty this test should pull, and the per-level time budget.
  *  Defaults mirror the spec: 15 easy / 15 medium / 15 hard, 45 min total for aptitude+technical,
@@ -30,7 +30,7 @@ export interface IAptitudeTest extends Document {
 const DifficultyPlanSchema = new Schema<DifficultyPlan>(
   {
     count: { type: Number, required: true, min: 0, max: 100, validate: Number.isInteger },
-    marksPerQuestion: { type: Number, required: true, default: 1, min: 0.0001 },
+    marksPerQuestion: { type: Number, required: true, default: 1, min: 0.0001, max: 1000 },
   },
   { _id: false }
 );
@@ -39,7 +39,7 @@ const AptitudeTestSchema = new Schema<IAptitudeTest>(
   {
     title: { type: String, required: true, trim: true },
     roundType: { type: String, enum: ['aptitude', 'technical', 'coding'], required: true },
-    categories: [{ type: String, required: true }],
+    categories: [{ type: String, required: true, enum: CATEGORIES }],
     difficultyPlan: {
       easy: { type: DifficultyPlanSchema, required: true },
       medium: { type: DifficultyPlanSchema, required: true },

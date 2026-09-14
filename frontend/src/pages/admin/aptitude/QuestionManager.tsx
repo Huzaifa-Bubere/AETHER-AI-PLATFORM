@@ -1,5 +1,6 @@
-import { useEffect, useState, FormEvent } from 'react';
-import api from '../../../lib/aptitudeApi';
+import { Link } from 'react-router-dom';
+import { useEffect, useState, useRef, FormEvent } from 'react';
+import api, { aptitudeImageUrl } from '../../../lib/aptitudeApi';
 
 
 const CATEGORIES = [
@@ -11,15 +12,18 @@ const CATEGORIES = [
   'technical-quiz',
 ];
 const DIFFICULTIES = ['easy', 'medium', 'hard'];
-const ROUND_TYPES = ['aptitude', 'technical', 'coding'];
+const ROUND_TYPES = ['aptitude', 'technical'];
 
 function extractErrorMessage(err: any): string {
-  return err?.response?.data?.message || err?.message || 'Something went wrong. Please try again.';
+  return err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Something went wrong. Please try again.';
 }
 
 interface QuestionRow {
   _id: string;
   imageUrl: string;
+  questionText?: string;
+  options?: Record<string, string>;
+  explanation?: string;
   roundType: string;
   category: string;
   difficulty: string;
@@ -38,17 +42,25 @@ export default function QuestionManager() {
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
+  const [editing, setEditing] = useState<QuestionRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const requestId = useRef(0);
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   const fetchQuestions = async () => {
+    const current = ++requestId.current;
+    setLoading(true);
     try {
       const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
       const { data } = await api.get('/api/admin/aptitude/questions', { params: { ...params, page, limit: 20 } });
+      if (current !== requestId.current) return;
+      setError(null);
       setQuestions(data.questions);
       setPages(Math.max(1, data.pages));
       if (page > Math.max(1, data.pages)) setPage(Math.max(1, data.pages));
     } catch (err) {
-      setError(extractErrorMessage(err));
-    }
+      if (current === requestId.current) setError(extractErrorMessage(err));
+    } finally { if (current === requestId.current) setLoading(false); }
   };
 
   useEffect(() => {
@@ -63,8 +75,12 @@ export default function QuestionManager() {
     setSaving(true);
     try {
       const form = new FormData(e.currentTarget);
-      await api.post('/api/admin/aptitude/questions', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const file = form.get('image') as File;
+      if (!file?.size) form.delete('image');
+      if (editing) await api.put(`/api/admin/aptitude/questions/${editing._id}`, form);
+      else await api.post('/api/admin/aptitude/questions', form);
       setShowUploadForm(false);
+      setEditing(null);
       setPreview(null);
       await fetchQuestions();
     } catch (err) {
@@ -95,7 +111,8 @@ export default function QuestionManager() {
 
   return (
     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
-      <div className="mb-6 flex items-center justify-between">
+      <Link to="/admin/aptitude" className="mb-4 inline-block text-sm text-primary">Back to Aptitude Admin</Link>
+      <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
         <h1 className="text-xl font-bold">Question Bank</h1>
         <div className="flex items-center gap-3 text-sm">
           <button disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
@@ -105,7 +122,7 @@ export default function QuestionManager() {
         <div className="flex gap-2">
           <BulkUploadButton onDone={fetchQuestions} onError={setError} />
           <button
-            onClick={() => setShowUploadForm((v) => !v)}
+            onClick={() => { setEditing(null); setPreview(null); setShowUploadForm(v => !v); }}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
           >
             + Add Question
@@ -123,35 +140,42 @@ export default function QuestionManager() {
       )}
 
       {showUploadForm && (
-        <form onSubmit={handleUpload} className="mb-6 grid gap-3 rounded-xl border border-border bg-card p-5 sm:grid-cols-2">
-          <Field label="Question Image">
+        <form key={editing?._id || 'new'} onSubmit={handleUpload} className="mb-6 grid gap-3 rounded-xl border border-border bg-card p-5 sm:grid-cols-2">
+          <p className="text-sm text-muted-foreground sm:col-span-2">Use a complete question image, or enter a statement and all four options. Test difficulty weights determine the exam marks.</p>
+          <Field label="Question Image (optional)">
             <input
               type="file"
               name="image"
-              accept="image/*"
-              required
+              accept="image/png,image/jpeg,image/webp,image/gif"
               onChange={(e) => setPreview(e.target.files?.[0] ? URL.createObjectURL(e.target.files[0]) : null)}
               className="w-full text-sm"
             />
           </Field>
           <Field label="Round Type">
-            <Select name="roundType" options={ROUND_TYPES} />
+            <Select name="roundType" options={ROUND_TYPES} defaultValue={editing?.roundType} />
           </Field>
           <Field label="Category">
-            <Select name="category" options={CATEGORIES} />
+            <Select name="category" options={CATEGORIES} defaultValue={editing?.category} />
           </Field>
           <Field label="Difficulty">
-            <Select name="difficulty" options={DIFFICULTIES} />
+            <Select name="difficulty" options={DIFFICULTIES} defaultValue={editing?.difficulty} />
           </Field>
           <Field label="Correct Option">
-            <Select name="correctOption" options={['A', 'B', 'C', 'D']} />
+            <Select name="correctOption" options={['A', 'B', 'C', 'D']} defaultValue={editing?.correctOption} />
           </Field>
           <Field label="Marks">
-            <input name="marks" type="number" defaultValue={1} min={0} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
+            <input name="marks" type="number" defaultValue={editing?.marks ?? 1} min={0.01} max={1000} step="any" required className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
           </Field>
           <div className="sm:col-span-2">
+            <Field label="Question statement"><textarea name="questionText" defaultValue={editing?.questionText} rows={3} className="w-full rounded-md bg-secondary px-3 py-2" /></Field>
+          </div>
+          {['A', 'B', 'C', 'D'].map(option => <Field key={option} label={`Option ${option}`}>
+            <input name={`option${option}`} defaultValue={editing?.options?.[option]} className="w-full rounded-md bg-secondary px-3 py-2" />
+          </Field>)}
+          {editing?.imageUrl && !preview && <img src={aptitudeImageUrl(editing.imageUrl)} alt="Current question" className="max-h-40 sm:col-span-2" />}
+          <div className="sm:col-span-2">
             <Field label="Explanation">
-              <textarea name="explanation" rows={2} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
+              <textarea name="explanation" defaultValue={editing?.explanation} rows={2} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
             </Field>
           </div>
           {preview && <img src={preview} alt="preview" className="max-h-40 rounded-lg sm:col-span-2" />}
@@ -175,11 +199,11 @@ export default function QuestionManager() {
         <FilterSelect value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })} options={['active', 'inactive']} placeholder="All statuses" />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border">
+      <div className="overflow-x-auto rounded-xl border border-border">
         <table className="w-full text-sm">
           <thead className="bg-card text-muted-foreground">
             <tr>
-              <th className="p-3 text-left">Image</th>
+              <th className="p-3 text-left">Question</th>
               <th className="p-3 text-left">Round</th>
               <th className="p-3 text-left">Category</th>
               <th className="p-3 text-left">Difficulty</th>
@@ -194,7 +218,8 @@ export default function QuestionManager() {
             {questions.map((q) => (
               <tr key={q._id} className="border-t border-border">
                 <td className="p-3">
-                  <img src={q.imageUrl} alt="" className="h-12 w-16 rounded object-cover" />
+                  {q.imageUrl && <img src={aptitudeImageUrl(q.imageUrl)} alt="Question" className="h-12 w-16 rounded object-cover" />}
+                  <p className="max-w-xs line-clamp-3 whitespace-pre-wrap">{q.questionText}</p>
                 </td>
                 <td className="p-3">{q.roundType}</td>
                 <td className="p-3">{q.category.replace(/-/g, ' ')}</td>
@@ -206,6 +231,7 @@ export default function QuestionManager() {
                   <span className={q.status === 'active' ? 'text-emerald-700' : 'text-muted-foreground'}>{q.status}</span>
                 </td>
                 <td className="p-3">
+                  <button disabled={q.timesUsed > 0} title={q.timesUsed > 0 ? 'Used questions are preserved for results.' : 'Edit question'} onClick={() => { setEditing(q); setPreview(null); setShowUploadForm(true); window.scrollTo(0, 0); }} className="mr-3 text-primary disabled:opacity-40">Edit</button>
                   <button onClick={() => toggleStatus(q._id, q.status)} className="mr-3 text-primary hover:underline">
                     {q.status === 'active' ? 'Deactivate' : 'Activate'}
                   </button>
@@ -218,7 +244,7 @@ export default function QuestionManager() {
             {questions.length === 0 && (
               <tr>
                 <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                  No questions match these filters.
+                  {loading ? 'Loading questions...' : 'No questions match these filters.'}
                 </td>
               </tr>
             )}
@@ -231,6 +257,7 @@ export default function QuestionManager() {
 
 function BulkUploadButton({ onDone, onError }: { onDone: () => void; onError: (msg: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [metaJson, setMetaJson] = useState(
@@ -242,17 +269,24 @@ function BulkUploadButton({ onDone, onError }: { onDone: () => void; onError: (m
     setLocalError(null);
     setSaving(true);
     try {
-      const form = new FormData(e.currentTarget);
+      const metadata = JSON.parse(metaJson);
+      if (!Array.isArray(metadata)) throw new Error('Metadata must be a JSON array.');
+      const form = new FormData();
       form.set('meta', metaJson);
-      const { data } = await api.post('/api/admin/aptitude/questions/bulk', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      selectedFiles.forEach(file => form.append('images', file));
+      const { data } = await api.post('/api/admin/aptitude/questions/bulk', form);
       if (data.failedCount > 0) {
-        setLocalError(`${data.createdCount} succeeded, ${data.failedCount} failed: ${JSON.stringify(data.failed)}`);
+        const failedIndices = new Set<number>(data.failed.map((failure: { index: number }) => failure.index));
+        setMetaJson(JSON.stringify(metadata.filter((_, index) => failedIndices.has(index)), null, 2));
+        setSelectedFiles(selectedFiles.filter((_, index) => failedIndices.has(index)));
+        setLocalError(`${data.createdCount} saved. Only the ${data.failedCount} failed entries remain below; correct them and retry. ${data.failed.map((failure: { error: string }) => failure.error).join(' ')}`);
       } else {
+        setSelectedFiles([]);
         setOpen(false);
       }
       onDone();
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Bulk upload failed.';
+      const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Bulk upload failed.';
       setLocalError(msg);
       onError(msg);
     } finally {
@@ -271,12 +305,13 @@ function BulkUploadButton({ onDone, onError }: { onDone: () => void; onError: (m
             <h2 className="mb-3 text-lg font-semibold">Bulk Upload Questions</h2>
             <p className="mb-3 text-xs text-muted-foreground">
               Select images in the exact order you list them in the meta JSON below (image #1 ↔ meta entry #1, etc).
-              Make sure the array length matches the number of images you select.
+              The array length must match the image count. Images are optional when every entry has questionText and all four options (A, B, C, D).
             </p>
             {localError && (
               <div className="mb-3 rounded-lg border border-destructive/30 bg-red-50 p-2 text-xs text-destructive">{localError}</div>
             )}
-            <input type="file" name="images" accept="image/*" multiple required className="mb-3 w-full text-sm" />
+            <input type="file" name="images" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={e => setSelectedFiles(Array.from(e.target.files || []))} className="mb-3 w-full text-sm" />
+            <p className="mb-3 text-xs text-muted-foreground">Queued images: {selectedFiles.length ? selectedFiles.map(file => file.name).join(', ') : 'None (text questions)'}</p>
             <textarea
               value={metaJson}
               onChange={(e) => setMetaJson(e.target.value)}
@@ -307,9 +342,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Select({ name, options }: { name: string; options: string[] }) {
+function Select({ name, options, defaultValue }: { name: string; options: string[]; defaultValue?: string }) {
   return (
-    <select name={name} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" required>
+    <select name={name} defaultValue={defaultValue} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" required>
       {options.map((o) => (
         <option key={o} value={o}>
           {o.replace(/-/g, ' ')}

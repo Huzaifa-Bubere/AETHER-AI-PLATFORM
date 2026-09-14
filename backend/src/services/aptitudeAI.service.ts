@@ -7,9 +7,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { IAptitudeAttempt, IResponse } from '../models/AptitudeAttempt';
 import { IAptitudeQuestion } from '../models/AptitudeQuestion';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
-
 interface PerCategoryStat {
   category: string;
   correct: number;
@@ -102,20 +99,27 @@ Guidance:
 - Be specific to the categories/difficulties actually present in the data — do not invent topics not listed.
 `.trim();
 
-  const result = await model.generateContent(prompt, { timeout: 10000 });
-  const text = result.response.text().trim();
-  const jsonText = text.replace(/^```json\s*|```\s*$/g, '').trim();
-
-  let parsed;
+  const fallback = performanceAnalysis(attempt, questions);
+  if (!process.env.GEMINI_API_KEY) return fallback;
   try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    // Fallback: deterministic analysis if Gemini returns malformed JSON,
-    // so results are never blocked on the AI call.
-    parsed = buildFallbackAnalysis(attempt, stats);
-  }
+    const model = new GoogleGenerativeAI(process.env.GEMINI_API_KEY).getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+    const result = await model.generateContent(prompt, { timeout: 10000 });
+    const parsed = JSON.parse(result.response.text().trim().replace(/^```(?:json)?\s*|```\s*$/g, '').trim());
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+    // Performance percentages and topic classifications always come from actual responses.
+    const commentary: Record<string, any> = {};
+    for (const key of ['speedAnalysis', 'timeManagement', 'guessingBehaviorNote', 'motivationalFeedback']) {
+      if (typeof parsed[key] === 'string' && parsed[key].trim()) commentary[key] = parsed[key].slice(0, 2000);
+    }
+    for (const key of ['recommendedPracticeAreas', 'studyPlan']) {
+      if (Array.isArray(parsed[key]) && parsed[key].every((item: unknown) => typeof item === 'string')) commentary[key] = parsed[key].slice(0, 8);
+    }
+    return { ...fallback, ...commentary, source: 'ai' as const };
+  } catch { return fallback; }
+}
 
-  return { ...parsed, generatedAt: new Date() };
+export function performanceAnalysis(attempt: IAptitudeAttempt, questions: IAptitudeQuestion[]) {
+  return { ...buildFallbackAnalysis(attempt, summarize(attempt.responses, questions)), source: 'computed' as const, generatedAt: new Date() };
 }
 
 function buildFallbackAnalysis(attempt: IAptitudeAttempt, stats: ReturnType<typeof summarize>) {
@@ -130,14 +134,14 @@ function buildFallbackAnalysis(attempt: IAptitudeAttempt, stats: ReturnType<type
   const sorted = [...categoryPerformance].sort((a, b) => b.accuracy - a.accuracy);
 
   return {
-    strongTopics: sorted.slice(0, 2).map((c) => c.category),
-    weakTopics: sorted.slice(-2).map((c) => c.category),
+    strongTopics: sorted.filter(c => c.accuracy >= 70).map(c => c.category),
+    weakTopics: sorted.filter(c => c.accuracy < 40).map(c => c.category),
     categoryPerformance,
     difficultyPerformance,
     speedAnalysis: 'Speed analysis unavailable — AI service did not return a valid response.',
     timeManagement: `Used ${attempt.submittedAt ? Math.round((attempt.submittedAt.getTime() - attempt.startedAt.getTime()) / 60000) : 0} of ${attempt.durationMinutes} minutes.`,
-    guessingBehaviorNote: stats.guessedFast > 0 ? `${stats.guessedFast} answers given in under 5 seconds.` : 'No fast-guessing pattern detected.',
-    recommendedPracticeAreas: sorted.slice(-2).map((c) => c.category),
+    guessingBehaviorNote: stats.guessedFast > 0 ? `${stats.guessedFast} answers given in under 5 seconds.` : 'No answers were recorded in under five seconds. Timing alone does not establish guessing.',
+    recommendedPracticeAreas: sorted.filter(c => c.accuracy < 70).map(c => c.category),
     studyPlan: ['Review incorrect questions in the weakest category.', 'Retake a timed test focused on that category.'],
     placementReadinessScore: attempt.scorePercent,
     motivationalFeedback: 'Keep practicing consistently — steady improvement beats cramming.',

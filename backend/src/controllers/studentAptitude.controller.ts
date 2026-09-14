@@ -3,26 +3,27 @@ import { Types } from 'mongoose';
 import AptitudeTest from '../models/AptitudeTest';
 import AptitudeQuestion from '../models/AptitudeQuestion';
 import AptitudeAttempt, { ResponseStatus } from '../models/AptitudeAttempt';
+import { testAvailability } from '../services/aptitudeAvailability.service';
 import { buildQuestionSet } from '../services/questionSelector.service';
-import { generateAIAnalysis } from '../services/aptitudeAI.service';
+import { generateAIAnalysis, performanceAnalysis } from '../services/aptitudeAI.service';
 
 type Attempt = InstanceType<typeof AptitudeAttempt>;
 
 export async function listPublishedTests(_req: Request, res: Response): Promise<void> {
   const tests = await AptitudeTest.find({ isPublished: true }).select('title roundType categories durationMinutes totalMarks difficultyPlan');
-  res.json({ tests });
+  res.json({ tests: await Promise.all(tests.map(async test => ({ ...test.toObject(), availability: await testAvailability(test) }))) });
 }
 
 export async function startAttempt(req: Request, res: Response): Promise<void> {
   const userId = req.user!.userId;
-  const test = await AptitudeTest.findOne({ _id: req.params.testId, isPublished: true });
-  if (!test) { res.status(404).json({ message: 'Test not found or not published.' }); return; }
-  const existing = await AptitudeAttempt.findOne({ user: userId, test: test._id, status: 'in-progress' });
+  const existing = await AptitudeAttempt.findOne({ user: userId, test: req.params.testId, status: 'in-progress' });
   if (existing) {
     if (isExpired(existing)) await finalizeSubmission(existing, true);
     res.json({ attemptId: existing._id, resumed: true });
     return;
   }
+  const test = await AptitudeTest.findOne({ _id: req.params.testId, isPublished: true });
+  if (!test) { res.status(404).json({ message: 'Test not found or not published.' }); return; }
   let ids;
   try { ids = await buildQuestionSet(test, new Types.ObjectId(userId)); }
   catch (error: any) { res.status(422).json({ message: error.message }); return; }
@@ -37,13 +38,36 @@ export async function startAttempt(req: Request, res: Response): Promise<void> {
       explanation: q.explanation, marks: test.difficultyPlan[q.difficulty].marksPerQuestion,
     };
   });
-  const attempt = await AptitudeAttempt.create({
+  // Await index readiness so even two first requests cannot create parallel attempts.
+  await AptitudeAttempt.init();
+  let attempt;
+  try { attempt = await AptitudeAttempt.create({
+    activeKey: `${userId}:${test._id}`, testTitle: test.title,
     user: userId, test: test._id, roundType: test.roundType, questions: ids,
     questionSnapshots: snapshots,
     responses: ids.map(question => ({ question, selectedOption: null, status: 'not-visited', timeSpentSeconds: 0 })),
     durationMinutes: test.durationMinutes, totalMarks: snapshots.reduce((total, q) => total + q.marks, 0),
-  });
+  }); } catch (error: any) {
+    if (error.code !== 11000) throw error;
+    const winner = await AptitudeAttempt.findOne({ activeKey: `${userId}:${test._id}` });
+    if (!winner) throw error;
+    res.json({ attemptId: winner._id, resumed: true }); return;
+  }
+  await AptitudeQuestion.updateMany({ _id: { $in: ids } }, { $inc: { timesUsed: 1 } });
   res.status(201).json({ attemptId: attempt._id, resumed: false });
+}
+
+export async function listAttempts(req: Request, res: Response): Promise<void> {
+  const page = Math.max(1, parseInt(String(req.query.page)) || 1);
+  const filter = { user: req.user!.userId };
+  const [attempts, total] = await Promise.all([
+    AptitudeAttempt.find(filter).sort({ startedAt: -1, _id: -1 }).skip((page - 1) * 20).limit(20),
+    AptitudeAttempt.countDocuments(filter),
+  ]);
+  for (const attempt of attempts) if (attempt.status === 'in-progress' && isExpired(attempt)) await finalizeSubmission(attempt, true);
+  res.json({ attempts: attempts.map(a => ({ attemptId: a._id, testId: a.test, title: a.testTitle || 'Aptitude test',
+    status: a.status, startedAt: a.startedAt, score: a.score, totalMarks: a.totalMarks, scorePercent: a.scorePercent })),
+    page, pages: Math.max(1, Math.ceil(total / 20)) });
 }
 
 async function attemptQuestions(attempt: Attempt): Promise<any[]> {
@@ -66,7 +90,7 @@ export async function getAttempt(req: Request, res: Response): Promise<void> {
   if (attempt.status === 'in-progress' && isExpired(attempt)) await finalizeSubmission(attempt, true);
   const questions = await attemptQuestions(attempt);
   res.json({
-    attemptId: attempt._id, status: attempt.status,
+    attemptId: attempt._id, status: attempt.status, serverTime: new Date(),
     deadline: new Date(attempt.startedAt.getTime() + attempt.durationMinutes * 60000),
     // Explicit allow-list: correct answers and explanations never reach an active exam.
     questions: questions.map(q => ({ _id: q._id, questionText: q.questionText, imageUrl: q.imageUrl,
@@ -78,7 +102,7 @@ export async function getAttempt(req: Request, res: Response): Promise<void> {
 function validResponse(data: any): boolean {
   return data && typeof data.questionId === 'string' &&
     [null, 'A', 'B', 'C', 'D'].includes(data.selectedOption) &&
-    typeof data.markedForReview === 'boolean' && Number.isFinite(data.timeSpentSeconds) &&
+    typeof data.markedForReview === 'boolean' && (data.visited === undefined || typeof data.visited === 'boolean') && Number.isFinite(data.timeSpentSeconds) &&
     data.timeSpentSeconds >= 0 && data.timeSpentSeconds <= 86400;
 }
 function responseStatus(selectedOption: string | null, marked: boolean): ResponseStatus {
@@ -112,6 +136,9 @@ export async function submitAttempt(req: Request, res: Response): Promise<void> 
     if (pending !== undefined && (!Array.isArray(pending) || pending.length > attempt.responses.length || pending.some(r => !validResponse(r)))) {
       res.status(400).json({ message: 'Invalid answers.' }); return;
     }
+    if (pending && new Set(pending.map(r => r.questionId)).size !== pending.length) {
+      res.status(400).json({ message: 'Duplicate question responses are not allowed.' }); return;
+    }
     if (pending?.some(r => !attempt.responses.some(existing => existing.question.toString() === r.questionId))) {
       res.status(400).json({ message: 'Question not part of this attempt.' }); return;
     }
@@ -137,7 +164,7 @@ export async function getResult(req: Request, res: Response): Promise<void> {
   res.json({ attemptId: attempt._id, score: attempt.score, totalMarks: attempt.totalMarks,
     correctCount: attempt.correctCount, incorrectCount: attempt.incorrectCount, unansweredCount: attempt.unansweredCount,
     accuracyPercent: attempt.accuracyPercent, scorePercent: attempt.scorePercent, passStatus: attempt.passStatus,
-    autoSubmitted: attempt.autoSubmitted, aiAnalysis: attempt.aiAnalysis, review,
+    autoSubmitted: attempt.autoSubmitted, aiAnalysis: attempt.aiAnalysis || performanceAnalysis(attempt, questions), review,
     timeTakenSeconds: attempt.submittedAt ? Math.min(attempt.durationMinutes * 60, Math.round((attempt.submittedAt.getTime() - attempt.startedAt.getTime()) / 1000)) : null });
 }
 
@@ -156,10 +183,10 @@ export function gradeResponses(responses: Attempt['responses'], questions: any[]
   }
   const totalMarks = questions.reduce((total, q) => total + q.marks, 0);
   const attempted = correctCount + incorrectCount;
-  const scorePercent = totalMarks ? Math.round(score / totalMarks * 100) : 0;
+  const scorePercent = totalMarks ? Math.round(score / totalMarks * 10000) / 100 : 0;
   return { score, totalMarks, correctCount, incorrectCount, unansweredCount, scorePercent,
     accuracyPercent: attempted ? Math.round(correctCount / attempted * 100) : 0,
-    passStatus: scorePercent >= 40 ? 'pass' : 'fail' };
+    passStatus: totalMarks > 0 && score / totalMarks >= 0.4 ? 'pass' : 'fail' };
 }
 
 async function finalizeSubmission(original: Attempt, auto: boolean, pending?: any[]) {
@@ -171,7 +198,7 @@ async function finalizeSubmission(original: Attempt, auto: boolean, pending?: an
       for (const data of pending) {
         const r = attempt.responses.find(existing => existing.question.toString() === data.questionId)!;
         r.selectedOption = data.selectedOption;
-        r.status = responseStatus(data.selectedOption, data.markedForReview);
+        r.status = data.visited === false && !data.selectedOption && !data.markedForReview ? 'not-visited' : responseStatus(data.selectedOption, data.markedForReview);
         r.timeSpentSeconds = Math.min(attempt.durationMinutes * 60, Math.max(r.timeSpentSeconds, data.timeSpentSeconds));
       }
     }
@@ -179,7 +206,7 @@ async function finalizeSubmission(original: Attempt, auto: boolean, pending?: an
     const updated = await AptitudeAttempt.findOneAndUpdate({ _id: attempt._id, status: 'in-progress', __v: attempt.__v ?? 0 }, {
       $set: { ...gradeResponses(attempt.responses, questions), responses: attempt.responses, status: 'completed', autoSubmitted: auto || expired,
         submittedAt: new Date(Math.min(Date.now(), attempt.startedAt.getTime() + attempt.durationMinutes * 60000)) },
-      $inc: { __v: 1 },
+      $inc: { __v: 1 }, $unset: { activeKey: 1 },
     }, { new: true });
     if (updated) {
       Object.assign(original, updated.toObject());

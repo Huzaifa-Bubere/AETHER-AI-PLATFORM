@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import uvicorn
 import os
+import base64
+from pathlib import Path
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -18,6 +20,7 @@ from services.resume_parser import ResumeParserService
 from models.analysis_models import (
     AudioAnalysisRequest,
     VideoAnalysisRequest,
+    VideoFrameAnalysisRequest,
     SpeechAnalysisRequest,
     EmotionAnalysisRequest,
     ResumeAnalysisRequest,
@@ -25,7 +28,7 @@ from models.analysis_models import (
 )
 
 # Load environment variables
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / '.env')
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -80,7 +83,7 @@ async def root():
 async def health_check():
     """Detailed health check"""
     return {
-        "status": "healthy",
+        "status": "running",
         "services": {
             "gemini": await gemini_service.health_check(),
             "audio": audio_service.health_check(),
@@ -148,6 +151,20 @@ async def analyze_video_frame(
     """Analyze a single video frame for facial features and emotions"""
     try:
         frame_data = await video_file.read()
+        result = await video_service.analyze_frame(frame_data)
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"Video frame analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/video/analyze-frame-json")
+async def analyze_video_frame_json(
+    request: VideoFrameAnalysisRequest,
+    token: str = Depends(verify_token)
+):
+    """Analyze a single video frame (base64 image data) for facial features and emotions"""
+    try:
+        frame_data = base64.b64decode(request.frame_data)
         result = await video_service.analyze_frame(frame_data)
         return {"success": True, "data": result}
     except Exception as e:

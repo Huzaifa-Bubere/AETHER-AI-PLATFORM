@@ -4,7 +4,7 @@ import User from '../models/User';
 import { extractTokenFromRequest, verifyToken } from '../utils/auth';
 import logger from '../utils/logger';
 
-// Extend Request interface to include user
+// Extend Request interface to include user - compatible with passport types
 declare global {
   namespace Express {
     interface Request {
@@ -12,6 +12,8 @@ declare global {
         userId: string;
         email?: string;
         role?: string;
+        // Allow passport User type for compatibility
+        [key: string]: any;
       };
     }
   }
@@ -41,19 +43,12 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
     // Check DB connectivity — in production, never bypass with a mock user
     const isMongoConnected = mongoose.connection.readyState === 1;
     if (!isMongoConnected) {
-      if (process.env.NODE_ENV === 'production') {
-        res.status(503).json({ success: false, error: 'Service temporarily unavailable' });
-        return;
-      }
-      // Development only: allow request through with token payload
-      logger.warn('No DB connection — using token payload as user (dev only)');
-      req.user = { userId: decoded.userId, email: decoded.email || '', role: 'free' };
-      next();
+      res.status(503).json({ success: false, error: 'Service temporarily unavailable' });
       return;
     }
 
     const user = await User.findById(decoded.userId);
-    if (!user) {
+    if (!user || decoded.tokenVersion !== (user.auth.tokenVersion ?? 0)) {
       res.status(401).json({ success: false, error: 'User not found' });
       return;
     }
@@ -84,7 +79,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
       try {
         const decoded = verifyToken(token, process.env.JWT_ACCESS_SECRET!);
         const user = await User.findById(decoded.userId);
-        if (user && !user.isAccountLocked()) {
+        if (user && !user.isAccountLocked() && decoded.tokenVersion === (user.auth.tokenVersion ?? 0)) {
           req.user = { userId: user._id.toString(), email: user.email, role: user.subscription.plan };
         }
       } catch {

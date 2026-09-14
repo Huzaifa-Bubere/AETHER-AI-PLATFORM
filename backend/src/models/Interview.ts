@@ -7,6 +7,7 @@ export interface IInterview extends Document {
   status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
   scheduledTime?: Date;
   settings: {
+    domain?: string;
     role: string;
     difficulty: 'easy' | 'medium' | 'hard';
     duration: number; // in minutes
@@ -17,13 +18,14 @@ export interface IInterview extends Document {
   questions: Array<{
     id: string;
     text: string;
-    type: 'behavioral' | 'technical' | 'coding' | 'skill-based';
+    type: 'behavioral' | 'technical' | 'coding' | 'skill-based' | 'system-design';
     difficulty: string;
     expectedDuration: number;
     followUpQuestions?: string[];
     category?: string;
   }>;
   responses: Array<{
+    analysis?: any;
     questionId: string;
     answer: string;
     audioUrl?: string;
@@ -158,6 +160,7 @@ const interviewSchema = new Schema<IInterview>({
     index: true,
   },
   settings: {
+    domain: { type: String, default: '' },
     role: {
       type: String,
       required: true,
@@ -206,6 +209,7 @@ const interviewSchema = new Schema<IInterview>({
         'behavioral',
         'technical',
         'coding',
+        'system-design',
         'skill-based'
       ],
     },
@@ -238,6 +242,7 @@ const interviewSchema = new Schema<IInterview>({
     }],
   }],
   responses: [{
+    analysis: { type: Schema.Types.Mixed, default: null },
     questionId: {
       type: String,
       required: true,

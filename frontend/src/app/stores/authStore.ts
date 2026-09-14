@@ -12,7 +12,7 @@ interface AuthState {
   // Actions
   login: (email: string, password: string) => Promise<{ user: User; tokens: { accessToken: string; refreshToken: string } }>;
   signup: (userData: SignupForm) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   clearError: () => void;
   setUser: (user: User) => void;
   checkAuth: () => Promise<void>;
@@ -23,7 +23,7 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       isAuthenticated: false,
-      isLoading: false,
+      isLoading: true,
       error: null,
 
       login: async (email: string, password: string) => {
@@ -110,7 +110,8 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      logout: () => {
+      logout: async () => {
+        await apiService.post('/auth/logout').catch(() => undefined);
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         
@@ -122,10 +123,11 @@ export const useAuthStore = create<AuthState>()(
       },
 
       checkAuth: async () => {
+        set({ isLoading: true });
         const token = localStorage.getItem('accessToken');
         
         if (!token) {
-          set({ isAuthenticated: false, user: null });
+          set({ isAuthenticated: false, user: null, isLoading: false });
           return;
         }
 
@@ -136,14 +138,15 @@ export const useAuthStore = create<AuthState>()(
             set({
               user: response.data,
               isAuthenticated: true,
+              isLoading: false,
             });
           } else {
-            set({ isAuthenticated: false, user: null });
+            set({ isAuthenticated: false, user: null, isLoading: false });
             localStorage.removeItem('accessToken');
             localStorage.removeItem('refreshToken');
           }
         } catch (error) {
-          set({ isAuthenticated: false, user: null });
+          set({ isAuthenticated: false, user: null, isLoading: false });
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
         }

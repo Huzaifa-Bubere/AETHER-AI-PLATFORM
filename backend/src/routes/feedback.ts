@@ -437,8 +437,7 @@ router.get(
       // Generate HTML content for PDF
       const htmlContent = generateReportHTML(interview, user);
 
-      // Set headers for PDF download
-      res.setHeader("Content-Type", "application/pdf");
+      // Set headers for PDF download (currently returns HTML for client-side conversion)
       res.setHeader(
         "Content-Disposition",
         `attachment; filename="interview-report-${interviewId}.pdf"`,

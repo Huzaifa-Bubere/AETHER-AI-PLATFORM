@@ -102,7 +102,7 @@ Guidance:
 - Be specific to the categories/difficulties actually present in the data — do not invent topics not listed.
 `.trim();
 
-  const result = await model.generateContent(prompt);
+  const result = await model.generateContent(prompt, { timeout: 10000 });
   const text = result.response.text().trim();
   const jsonText = text.replace(/^```json\s*|```\s*$/g, '').trim();
 

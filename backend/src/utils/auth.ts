@@ -3,6 +3,8 @@ import { Request } from 'express';
 
 export interface TokenPayload {
   userId: string;
+  type: 'access' | 'refresh';
+  tokenVersion: number;
   email?: string;
   iat?: number;
   exp?: number;
@@ -14,17 +16,17 @@ export interface AuthTokens {
 }
 
 // Generate JWT tokens
-export function generateTokens(userId: string): AuthTokens {
-  const payload = { userId };
+export function generateTokens(userId: string, tokenVersion = 0): AuthTokens {
+  const payload = { userId, tokenVersion };
   
   const accessToken = jwt.sign(
-    payload,
+    { ...payload, type: 'access' },
     process.env.JWT_ACCESS_SECRET!,
     { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m' } as jwt.SignOptions
   );
 
   const refreshToken = jwt.sign(
-    payload,
+    { ...payload, type: 'refresh' },
     process.env.JWT_REFRESH_SECRET!,
     { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' } as jwt.SignOptions
   );
@@ -33,8 +35,13 @@ export function generateTokens(userId: string): AuthTokens {
 }
 
 // Verify JWT token
-export function verifyToken(token: string, secret: string): TokenPayload {
-  return jwt.verify(token, secret) as TokenPayload;
+export function verifyToken(token: string, secret: string, type: 'access' | 'refresh' = 'access'): TokenPayload {
+  const payload = jwt.verify(token, secret, { algorithms: ['HS256'] }) as TokenPayload;
+  if (!payload || payload.type !== type || typeof payload.userId !== 'string' ||
+      !/^[a-f\d]{24}$/i.test(payload.userId) || !Number.isInteger(payload.tokenVersion) || payload.tokenVersion < 0) {
+    throw new Error('Invalid token purpose or payload');
+  }
+  return payload;
 }
 
 // Extract token from request
@@ -54,26 +61,9 @@ export function extractTokenFromRequest(req: Request): string | null {
   return null;
 }
 
-// Verify Auth0 token (for future implementation)
-export async function verifyAuth0Token(token: string): Promise<TokenPayload | null> {
-  try {
-    // TODO: Implement Auth0 token verification
-    // This would typically involve verifying the JWT with Auth0's public key
-    // For now, we'll decode without verification (not recommended for production)
-    const decoded = jwt.decode(token) as any;
-    
-    if (decoded && decoded.sub) {
-      return {
-        userId: decoded.sub,
-        email: decoded.email,
-      };
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Auth0 token verification error:', error);
-    return null;
-  }
+// Auth0 is unavailable until an issuer/audience and signature verifier are configured.
+export async function verifyAuth0Token(_token: string): Promise<TokenPayload | null> {
+  return null;
 }
 
 // Generate random string for tokens

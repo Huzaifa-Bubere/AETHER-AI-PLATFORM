@@ -79,7 +79,7 @@ export interface Interview {
   completedAt?: string;
 }
 
-export type InterviewType = 'behavioral' | 'technical' | 'coding' | 'system-design';
+export type InterviewType = 'behavioral' | 'technical' | 'coding' | 'system-design' | 'skill-based';
 export type InterviewStatus = 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
 
 export interface InterviewSettings {

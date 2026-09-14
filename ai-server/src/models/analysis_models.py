@@ -11,6 +11,9 @@ class VideoAnalysisRequest(BaseModel):
     video_data: str = Field(..., description="Base64 encoded video data")
     duration: float = Field(..., description="Video duration in seconds")
 
+class VideoFrameAnalysisRequest(BaseModel):
+    frame_data: str = Field(..., description="Base64 encoded image frame data")
+
 class SpeechAnalysisRequest(BaseModel):
     transcript: str = Field(..., description="Speech transcript")
     timestamps: List[float] = Field(default=[], description="Word timestamps")

@@ -1,10 +1,6 @@
 // Load environment variables FIRST before any other imports
-import dotenv from 'dotenv';
-dotenv.config();
-
-// Override DNS to use Google's servers — fixes querySrv ECONNREFUSED on restrictive ISP DNS
-import dns from 'dns';
-dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+import { loadEnvironment } from './config/environment';
+loadEnvironment();
 
 import { createServer } from 'http';
 import { Server } from 'socket.io';

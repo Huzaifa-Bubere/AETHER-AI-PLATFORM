@@ -9,6 +9,17 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Autosave and media calls are frequent during a timed assessment.
+// Mount after authentication so shared classroom IPs do not share this quota.
+export const assessmentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  keyGenerator: req => req.user!.userId,
+  message: { success: false, error: 'Too many assessment requests. Please retry shortly.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Strict rate limiter for auth endpoints
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

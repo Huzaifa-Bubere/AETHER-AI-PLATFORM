@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronRight, Loader2, Upload, X, FileText, Cpu, Code2, Users, Layout, CheckCircle2, Clock, Zap, BarChart2, ClipboardList } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useInterviewStore } from '../stores/interviewStore';
@@ -89,7 +89,9 @@ export function InterviewSetupPage() {
   const navigate = useNavigate();
   const { createInterview, isLoading } = useInterviewStore();
 
-  const [selectedType, setSelectedType]       = useState('');
+  const [searchParams] = useSearchParams();
+  const [selectedType, setSelectedType]       = useState(() =>
+    interviewTypes.some(type => type.id === searchParams.get('type')) ? searchParams.get('type')! : '');
   const [selectedRole, setSelectedRole]       = useState('');
   const [selectedDifficulty, setSelectedDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [duration, setDuration]               = useState(30);

@@ -12,11 +12,8 @@ export const debugLogger = (req: Request, res: Response, next: NextFunction): vo
   logger.info('📥 Incoming Request', {
     method: req.method,
     path: req.path,
-    query: req.query,
-    body: req.body && Object.keys(req.body).length > 0 ? {
-      ...req.body,
-      password: req.body.password ? '***HIDDEN***' : undefined,
-    } : undefined,
+    queryKeys: Object.keys(req.query),
+    bodyKeys: req.body ? Object.keys(req.body) : [],
     headers: {
       'content-type': req.headers['content-type'],
       'authorization': req.headers.authorization ? 'Bearer ***' : undefined,
@@ -69,7 +66,7 @@ export const logEnvironmentVariables = (): void => {
     if (value) {
       // Hide sensitive values
       if (key.includes('SECRET') || key.includes('KEY') || key.includes('PASSWORD') || key.includes('URI')) {
-        logger.info(`  ✅ ${key}: ${value.substring(0, 10)}...`);
+        logger.info(`  ✅ ${key}: Configured`);
       } else {
         logger.info(`  ✅ ${key}: ${value}`);
       }

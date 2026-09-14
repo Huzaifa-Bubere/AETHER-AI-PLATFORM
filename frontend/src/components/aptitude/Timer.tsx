@@ -10,6 +10,11 @@ export default function Timer({ deadline, onExpire }: TimerProps) {
   const hasExpired = useRef(false);
 
   useEffect(() => {
+    hasExpired.current = false;
+    setRemainingMs(deadline.getTime() - Date.now());
+  }, [deadline]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       const ms = deadline.getTime() - Date.now();
       setRemainingMs(ms);

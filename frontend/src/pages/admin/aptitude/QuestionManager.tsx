@@ -36,12 +36,16 @@ export default function QuestionManager() {
   const [preview, setPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
 
   const fetchQuestions = async () => {
     try {
       const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
-      const { data } = await api.get('/api/admin/aptitude/questions', { params });
+      const { data } = await api.get('/api/admin/aptitude/questions', { params: { ...params, page, limit: 20 } });
       setQuestions(data.questions);
+      setPages(Math.max(1, data.pages));
+      if (page > Math.max(1, data.pages)) setPage(Math.max(1, data.pages));
     } catch (err) {
       setError(extractErrorMessage(err));
     }
@@ -50,7 +54,8 @@ export default function QuestionManager() {
   useEffect(() => {
     fetchQuestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [filters, page]);
+  useEffect(() => { setPage(1); }, [filters]);
 
   const handleUpload = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -92,6 +97,11 @@ export default function QuestionManager() {
     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-bold">Question Bank</h1>
+        <div className="flex items-center gap-3 text-sm">
+          <button disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+          <span>Page {page} of {pages}</span>
+          <button disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
+        </div>
         <div className="flex gap-2">
           <BulkUploadButton onDone={fetchQuestions} onError={setError} />
           <button

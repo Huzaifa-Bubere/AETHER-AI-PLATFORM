@@ -1,101 +1,24 @@
-import mongoSanitize from 'express-mongo-sanitize';
 import { Request, Response, NextFunction } from 'express';
 
-// MongoDB injection sanitizer
-export const sanitizeData = mongoSanitize({
-  replaceWith: '_',
-  onSanitize: ({ req, key }) => {
-    console.warn(`Sanitized potentially malicious data in ${key}`);
-  },
-});
-
-// XSS protection middleware
-export const xssProtection = (req: Request, res: Response, next: NextFunction) => {
-  // Sanitize request body
-  if (req.body) {
-    req.body = sanitizeObject(req.body);
-  }
-
-  // Sanitize query parameters
-  if (req.query) {
-    req.query = sanitizeObject(req.query);
-  }
-
-  // Sanitize URL parameters
-  if (req.params) {
-    req.params = sanitizeObject(req.params);
-  }
-
-  next();
-};
-
-// Helper function to sanitize objects recursively
-function sanitizeObject(obj: any): any {
-  if (typeof obj !== 'object' || obj === null) {
-    return sanitizeString(obj);
-  }
-
-  if (Array.isArray(obj)) {
-    return obj.map(item => sanitizeObject(item));
-  }
-
-  const sanitized: any = {};
-  for (const key in obj) {
-    if (obj.hasOwnProperty(key)) {
-      sanitized[key] = sanitizeObject(obj[key]);
-    }
-  }
-
-  return sanitized;
+// Validate structure without rewriting passwords, source code or user text.
+// HTML escaping belongs at the rendering/export boundary.
+function invalidInput(value: unknown, depth = 0): boolean {
+  if (depth > 100) return true;
+  if (typeof value === 'string') return value.length > 2 * 1024 * 1024;
+  if (!value || typeof value !== 'object' || Buffer.isBuffer(value)) return false;
+  return Object.entries(value).some(([key, child]) =>
+    key.startsWith('$') || key.includes('.') || key === '__proto__' ||
+    key === 'prototype' || invalidInput(child, depth + 1));
 }
 
-// Helper function to sanitize strings
-function sanitizeString(value: any): any {
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  // Remove potentially dangerous characters
-  return value
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
-    .replace(/javascript:/gi, '') // Remove javascript: protocol
-    .replace(/on\w+\s*=/gi, '') // Remove event handlers
-    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '') // Remove iframes
-    .trim();
-}
-
-// Input validation middleware
 export const validateInput = (req: Request, res: Response, next: NextFunction): void => {
-  // Check for excessively long inputs
-  const maxLength = 2 * 1024 * 1024; // 10KB
-
-  const checkLength = (obj: any, path: string = ''): boolean => {
-    if (typeof obj === 'string' && obj.length > maxLength) {
-      console.warn(`Input too long at ${path}: ${obj.length} characters`);
-      return false;
-    }
-
-    if (typeof obj === 'object' && obj !== null) {
-      for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          if (!checkLength(obj[key], `${path}.${key}`)) {
-            return false;
-          }
-        }
-      }
-    }
-
-    return true;
-  };
-
-  if (req.body && !checkLength(req.body, 'body')) {
-    res.status(400).json({
-      success: false,
-      error: 'Input too long',
-      message: 'Request data exceeds maximum allowed length',
-    });
+  if ([req.body, req.query, req.params].some((value) => invalidInput(value))) {
+    res.status(400).json({ success: false, error: 'Invalid request structure or input size' });
     return;
   }
-
   next();
 };
+
+// Compatibility exports for existing callers; values are never mutated.
+export const xssProtection = validateInput;
+export const sanitizeData = validateInput;

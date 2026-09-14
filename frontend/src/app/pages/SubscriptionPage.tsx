@@ -21,7 +21,7 @@ export function SubscriptionPage() {
 
   const fetchPlans = async () => {
     try {
-      const response = await apiService.get('/payment/plans');
+      const response = await apiService.get<any[]>('/payment/plans');
       if (response.success) {
         setPlans(response.data);
       }
@@ -32,7 +32,7 @@ export function SubscriptionPage() {
 
   const fetchCurrentSubscription = async () => {
     try {
-      const response = await apiService.get('/payment/subscription');
+      const response = await apiService.get<{ plan: string }>('/payment/subscription');
       if (response.success) {
         setCurrentPlan(response.data.plan || 'free');
       }
@@ -43,13 +43,13 @@ export function SubscriptionPage() {
 
   const handleUpgrade = async (planId: string) => {
     if (planId === 'free') {
-      toast.info('You are already on the free plan');
+      toast('You are already on the free plan');
       return;
     }
 
     setLoading(true);
     try {
-      const response = await apiService.post('/payment/create-checkout-session', {
+      const response = await apiService.post<{ url: string }>('/payment/create-checkout-session', {
         plan: planId,
       });
 
@@ -69,7 +69,7 @@ export function SubscriptionPage() {
   const handleManageSubscription = async () => {
     setLoading(true);
     try {
-      const response = await apiService.post('/payment/create-portal-session', {});
+      const response = await apiService.post<{ url: string }>('/payment/create-portal-session', {});
       
       if (response.success && response.data.url) {
         window.location.href = response.data.url;
@@ -164,7 +164,7 @@ export function SubscriptionPage() {
                     if (plan.id === currentPlan) {
                       handleManageSubscription();
                     } else if (plan.id === 'free') {
-                      toast.info('You are already on the free plan');
+                      toast('You are already on the free plan');
                     } else {
                       handleUpgrade(plan.id);
                     }

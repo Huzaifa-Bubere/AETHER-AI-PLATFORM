@@ -403,7 +403,7 @@ export const DashboardPage = memo(function DashboardPage() {
                   <p className="text-muted-foreground text-sm">Practice system design and architecture questions</p>
                 </Card>
               </Link>
-              <Link to="/coding-interview">
+              <Link to="/interview-setup?type=coding">
                 <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6">
                   <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center mb-4">
                     <Code className="w-6 h-6 text-white" />

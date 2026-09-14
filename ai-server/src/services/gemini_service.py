@@ -8,26 +8,18 @@ from loguru import logger
 class GeminiService:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
-        print("=" * 60)
-        print("GEMINI_API_KEY =", self.api_key)
-        print("MODEL =", os.getenv("GEMINI_MODEL"))
-        print("=" * 60)
+        self.model = None
         if not self.api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is required")
+            logger.warning("Gemini is not configured")
+            return
         
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
         logger.info("Gemini service initialized successfully")
 
     async def health_check(self) -> Dict[str, str]:
-        """Check if Gemini service is healthy"""
-        try:
-            # Simple test generation
-            response = await self.model.generate_content_async("Test")
-            return {"status": "healthy", "service": "gemini"}
-        except Exception as e:
-            logger.error(f"Gemini health check failed: {e}")
-            return {"status": "unhealthy", "service": "gemini", "error": str(e)}
+        """Report configuration without spending generation quota."""
+        return {"status": "configured" if self.model else "unconfigured", "service": "gemini"}
 
     async def generate_interview_questions(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate interview questions based on parameters"""
@@ -332,3 +324,29 @@ Return ONLY a JSON object with this exact structure:
             "matchScore": 70,
             "recommendations": ["Add more specific skills", "Include quantifiable achievements"]
         }
+
+    async def analyze_interview_content(self, responses: List[Dict[str, Any]], questions: List[Dict[str, Any]], role: str) -> Dict[str, Any]:
+        """Analyze interview responses content"""
+        try:
+            prompt = f"Analyze these interview responses for role: {role}\n\nResponses: {json.dumps(responses, indent=2)}\nQuestions: {json.dumps(questions, indent=2)}\n\nReturn JSON: {{\"contentQuality\": float, \"keyStrengths\": [str], \"improvementAreas\": [str]}}"
+            response = await self.model.generate_content_async(prompt)
+            text = response.text.strip()
+            if text.startswith('```json'):
+                text = text[7:-3]
+            return json.loads(text)
+        except Exception as e:
+            logger.error(f"Content analysis error: {e}")
+            return {"contentQuality": 70.0, "keyStrengths": [], "improvementAreas": []}
+
+    async def generate_comprehensive_feedback(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate comprehensive feedback from all analysis results"""
+        try:
+            prompt = f"Generate comprehensive interview feedback based on: {json.dumps(params, indent=2)}\n\nReturn JSON: {{\"overallScore\": int, \"feedback\": str, \"recommendations\": [str]}}"
+            response = await self.model.generate_content_async(prompt)
+            text = response.text.strip()
+            if text.startswith('```json'):
+                text = text[7:-3]
+            return json.loads(text)
+        except Exception as e:
+            logger.error(f"Comprehensive feedback error: {e}")
+            return {"overallScore": 75, "feedback": "Good performance overall.", "recommendations": []}

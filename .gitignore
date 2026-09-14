@@ -81,8 +81,7 @@ pip-delete-this-directory.txt
 dist/
 .eggs/
 
-# ── Docker ────────────────────────────────────────────────────────────────────
-.dockerignore
+# Docker build exclusions are source-controlled alongside each Dockerfile.
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.pem

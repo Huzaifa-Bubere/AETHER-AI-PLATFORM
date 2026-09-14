@@ -8,11 +8,11 @@ export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { logout, isAuthenticated, user } = useAuthStore();
-  const isLoggedIn = isAuthenticated || location.pathname.includes('/dashboard') || location.pathname.includes('/interview') || location.pathname.includes('/admin');
+  const isLoggedIn = isAuthenticated;
   const isAdmin = user?.auth?.role === 'admin';
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     window.location.href = '/';
   };
 

@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User';
 import { authenticateToken } from '../middleware/auth';
-import { generateTokens } from '../utils/auth';
+import { generateTokens, verifyToken } from '../utils/auth';
 import { 
   registrationValidation, 
   loginValidation, 
@@ -13,6 +13,7 @@ import {
 } from '../utils/validation';
 import logger from '../utils/logger';
 import emailService from '../services/email';
+import { passwordResetLimiter } from '../middleware/rateLimiter';
 
 const router = express.Router();
 
@@ -65,7 +66,7 @@ router.post('/register', registrationValidation(), async (req, res): Promise<voi
     await user.save();
 
     // Generate tokens
-    const tokens = generateTokens(user._id.toString());
+    const tokens = generateTokens(user._id.toString(), user.auth.tokenVersion ?? 0);
 
     // Update last login
     user.auth.lastLogin = new Date();
@@ -153,7 +154,7 @@ router.post('/login', loginValidation(), async (req, res): Promise<void> => {
     }
 
     // Generate tokens
-    const tokens = generateTokens(user._id.toString());
+    const tokens = generateTokens(user._id.toString(), user.auth.tokenVersion ?? 0);
 
     // Update last login
     user.auth.lastLogin = new Date();
@@ -179,95 +180,9 @@ router.post('/login', loginValidation(), async (req, res): Promise<void> => {
   }
 });
 
-// Auth0 profile creation/update
-router.post('/create-profile', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { email, profile, preferences } = req.body;
-    
-    if (!email) {
-      res.status(400).json({
-        success: false,
-        error: 'Email is required',
-      });
-      return;
-    }
-
-    // Check if MongoDB is connected
-    const isMongoConnected = mongoose.connection.readyState === 1;
-
-    if (!isMongoConnected) {
-      if (process.env.NODE_ENV === 'production') {
-        res.status(503).json({ success: false, error: 'Service temporarily unavailable' });
-        return;
-      }
-      // Development only: return a mock profile
-      logger.warn('No database connection - returning mock user profile for development');
-      res.json({
-        success: true,
-        data: {
-          id: 'dev-user-' + Date.now(),
-          email,
-          profile: profile || { firstName: email.split('@')[0] || 'Dev', lastName: 'User' },
-          preferences: preferences || { role: '', experienceLevel: 'entry', industries: [], interviewTypes: [] },
-          subscription: { plan: 'free', status: 'active' },
-          stats: { totalInterviews: 0, averageScore: 0, improvementRate: 0 },
-        },
-        message: 'Profile created (development mode)',
-      });
-      return;
-    }
-
-    // Check if user already exists
-    let user = await User.findOne({ email: email });
-
-    if (user) {
-      // Update existing user
-      if (profile) {
-        user.profile = { ...user.profile, ...profile };
-      }
-      if (preferences) {
-        user.preferences = { ...user.preferences, ...preferences };
-      }
-      user.auth.lastLogin = new Date();
-      await user.save();
-    } else {
-      // Create new user for Auth0
-      user = new User({
-        email,
-        password: 'auth0-managed', // Placeholder password for Auth0 users
-        profile: profile || {
-          firstName: email.split('@')[0] || 'User',
-          lastName: '',
-        },
-        preferences: preferences || {
-          role: '',
-          experienceLevel: 'entry',
-          industries: [],
-          interviewTypes: [],
-        },
-        auth: {
-          isVerified: true, // Auth0 users are pre-verified
-          lastLogin: new Date(),
-        },
-      });
-      await user.save();
-    }
-
-    logger.info(`Auth0 user profile created/updated: ${email}`);
-
-    res.json({
-      success: true,
-      data: user.toJSON(),
-      message: 'Profile created/updated successfully',
-    });
-  } catch (error: any) {
-    logger.error('Profile creation error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Profile creation failed',
-      message: error.message,
-    });
-  }
+// Password authentication owns profile creation; unverified Auth0 claims are not accepted.
+router.post('/create-profile', (_req, res) => {
+  res.status(410).json({ success: false, error: 'Use registration to create an account and /api/user/profile to update your authenticated profile.' });
 });
 
 // Refresh token
@@ -284,7 +199,7 @@ router.post('/refresh', async (req, res): Promise<void> => {
     }
 
     // Verify refresh token
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as any;
+    const decoded = verifyToken(refreshToken, process.env.JWT_REFRESH_SECRET!, 'refresh');
     
     // Find user
     const user = await User.findById(decoded.userId);
@@ -296,8 +211,13 @@ router.post('/refresh', async (req, res): Promise<void> => {
       return;
     }
 
+    if (user.isAccountLocked() || decoded.tokenVersion !== (user.auth.tokenVersion ?? 0)) {
+      res.status(401).json({ success: false, error: 'Session expired or account locked' });
+      return;
+    }
+
     // Generate new tokens
-    const tokens = generateTokens(user._id.toString());
+    const tokens = generateTokens(user._id.toString(), user.auth.tokenVersion ?? 0);
 
     res.json({
       success: true,
@@ -316,8 +236,7 @@ router.post('/refresh', async (req, res): Promise<void> => {
 // Logout
 router.post('/logout', authenticateToken, async (req, res): Promise<void> => {
   try {
-    // In a production app, you might want to blacklist the token
-    // For now, we'll just return success as the client will remove the token
+    await User.updateOne({ _id: req.user!.userId }, { $inc: { 'auth.tokenVersion': 1 } });
     
     logger.info(`User logged out: ${req.user?.userId}`);
 
@@ -336,7 +255,7 @@ router.post('/logout', authenticateToken, async (req, res): Promise<void> => {
 });
 
 // Forgot password
-router.post('/forgot-password', emailValidation(), async (req, res): Promise<void> => {
+router.post('/forgot-password', passwordResetLimiter, emailValidation(), async (req, res): Promise<void> => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -445,6 +364,7 @@ router.post('/reset-password', [
 
     // Update password
     user.password = password;
+    user.auth.tokenVersion = (user.auth.tokenVersion ?? 0) + 1;
     user.auth.resetPasswordToken = undefined;
     user.auth.resetPasswordExpires = undefined;
     user.auth.loginAttempts = 0;
@@ -508,6 +428,11 @@ router.get('/verify-email', async (req, res): Promise<void> => {
       return;
     }
 
+    if (user.auth.verificationToken !== token) {
+      res.status(400).json({ success: false, error: 'Invalid or expired verification token' });
+      return;
+    }
+
     // Verify email
     user.auth.isVerified = true;
     user.auth.verificationToken = undefined;
@@ -533,7 +458,7 @@ router.get('/verify-email', async (req, res): Promise<void> => {
 });
 
 // Resend verification email
-router.post('/resend-verification', [
+router.post('/resend-verification', passwordResetLimiter, [
   body('email').isEmail().normalizeEmail(),
 ], async (req, res): Promise<void> => {
   try {
@@ -598,36 +523,9 @@ router.post('/resend-verification', [
   }
 });
 
-// Verify OTP (placeholder for future implementation)
-router.post('/verify-otp', [
-  body('email').isEmail().normalizeEmail(),
-  body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
-], async (req, res): Promise<void> => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      res.status(400).json({
-        success: false,
-        error: 'Validation failed',
-        details: errors.array(),
-      });
-      return;
-    }
-
-    // TODO: Implement OTP verification logic
-    // For now, we'll just return success
-    res.json({
-      success: true,
-      data: { verified: true },
-      message: 'OTP verified successfully',
-    });
-  } catch (error: any) {
-    logger.error('OTP verification error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'OTP verification failed',
-    });
-  }
+// Email verification uses signed, single-use links. No OTP issuer is configured.
+router.post('/verify-otp', (_req, res) => {
+  res.status(501).json({ success: false, error: 'OTP verification is unavailable. Use the email verification link.' });
 });
 
 export default router;

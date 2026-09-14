@@ -25,6 +25,7 @@ export interface IUser extends Document {
     stripeSubscriptionId?: string;
   };
   auth: {
+    tokenVersion: number;
     isVerified: boolean;
     verificationToken?: string;
     resetPasswordToken?: string;
@@ -54,7 +55,7 @@ const userSchema = new Schema<IUser>({
     unique: true,
     lowercase: true,
     trim: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email'],
+    match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Please enter a valid email'],
   },
   password: {
     type: String,
@@ -137,6 +138,7 @@ const userSchema = new Schema<IUser>({
     },
   },
   auth: {
+    tokenVersion: { type: Number, default: 0, min: 0 },
     isVerified: {
       type: Boolean,
       default: false,

@@ -5,6 +5,8 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 
 
 interface ReviewItem {
+  questionText?: string;
+  options?: Record<string, string>;
   questionImageUrl: string;
   category: string;
   difficulty: string;
@@ -49,11 +51,19 @@ const PIE_COLORS = ['#10b981', '#ef4444', '#737373']; // correct, incorrect, una
 export default function ResultsDashboard() {
   const { attemptId } = useParams<{ attemptId: string }>();
   const [result, setResult] = useState<Result | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (attemptId) api.get(`/api/aptitude/attempts/${attemptId}/result`).then(({ data }) => setResult(data));
+    setResult(null);
+    setError(null);
+    let active = true;
+    if (attemptId) api.get(`/api/aptitude/attempts/${attemptId}/result`)
+      .then(({ data }) => { if (active) setResult(data); })
+      .catch(error => { if (active) setError(error?.response?.data?.message || 'Could not load results. Please reload to retry.'); });
+    return () => { active = false; };
   }, [attemptId]);
 
+  if (error) return <p role="alert" className="pt-32 px-6">{error}</p>;
   if (!result) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">Loading results…</div>
@@ -136,7 +146,11 @@ export default function ResultsDashboard() {
                     {item.isCorrect ? 'Correct' : item.selectedOption ? 'Incorrect' : 'Not Answered'}
                   </span>
                 </div>
-                <img src={item.questionImageUrl} alt={`Question ${i + 1}`} className="mt-3 max-h-64 rounded-lg bg-white" />
+                {item.questionImageUrl && <img src={item.questionImageUrl} alt={`Question ${i + 1}`} className="mt-3 max-h-64 rounded-lg bg-white" />}
+                {item.questionText && <p className="mt-3 whitespace-pre-wrap">{item.questionText}</p>}
+                {item.options && <ul className="mt-3 space-y-1 text-sm">
+                  {Object.entries(item.options).map(([option, text]) => <li key={option}><strong>{option}.</strong> {text}</li>)}
+                </ul>}
                 <div className="mt-3 flex gap-6 text-sm">
                   <span>
                     Your answer: <strong>{item.selectedOption ?? '—'}</strong>

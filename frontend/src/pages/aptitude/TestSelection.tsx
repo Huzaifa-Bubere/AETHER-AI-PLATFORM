@@ -15,6 +15,7 @@ interface TestSummary {
 export default function TestSelection() {
   const [tests, setTests] = useState<TestSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -22,14 +23,18 @@ export default function TestSelection() {
     api
       .get('/api/aptitude/tests')
       .then(({ data }) => setTests(data.tests))
+      .catch(error => setError(error?.response?.data?.message || 'Could not load tests. Please reload to retry.'))
       .finally(() => setLoading(false));
   }, []);
 
   const handleStart = async (testId: string) => {
     setStartingId(testId);
+    setError(null);
     try {
       const { data } = await api.post(`/api/aptitude/tests/${testId}/start`);
       navigate(`/aptitude/attempts/${data.attemptId}`);
+    } catch (error: any) {
+      setError(error?.response?.data?.message || 'Could not start this test. Please try again.');
     } finally {
       setStartingId(null);
     }
@@ -39,6 +44,7 @@ export default function TestSelection() {
     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
       <div className="mx-auto max-w-4xl">
         <h1 className="text-2xl font-bold">Aptitude & Technical Tests</h1>
+        {error && <p role="alert" className="my-4 text-destructive">{error}</p>}
         <p className="mt-1 text-muted-foreground">Timed, randomized tests — every attempt gets a fresh question set.</p>
 
         {loading ? (

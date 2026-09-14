@@ -1,4 +1,4 @@
-﻿import express from "express";
+import express from "express";
 import mongoose from "mongoose";
 import axios from "axios";
 import { body, validationResult } from "express-validator";
@@ -84,18 +84,16 @@ router.post(
         });
         if (resume) {
           resumeData = resume;
-        } else {
         }
       } else {
         // Get latest resume
 
         const latestResume = await Resume.findOne({
           userId: req.user.userId,
-        }).sort({ uploadDate: -1 });
+        }).sort({ createdAt: -1 });
 
         if (latestResume) {
           resumeData = latestResume;
-        } else {
         }
       }
 
@@ -118,12 +116,12 @@ router.post(
       };
 
       // Add resume context if available
-      if (resumeData && resumeData.parsedData) {
+      if (resumeData?.metadata?.parsedData) {
         questionParams.resumeContext = {
-          skills: resumeData.extractedSkills || [],
-          experience: resumeData.parsedData.experience || [],
-          projects: resumeData.parsedData.projects || [],
-          summary: resumeData.parsedData.summary || "",
+          skills: resumeData.analysis?.skills || [],
+          experience: resumeData.metadata.parsedData.experience || [],
+          projects: resumeData.metadata.parsedData.projects || [],
+          summary: resumeData.metadata.parsedData.summary || "",
         };
       }
 
@@ -131,32 +129,8 @@ router.post(
         `Generating ${questionParams.count} questions for ${settings.role} with resume context: ${!!resumeData}`,
       );
 
-      // Generate questions using Gemini AI with timeout
-
-      const questionGenerationPromise =
-        geminiService.generateInterviewQuestions(questionParams);
-      const timeoutPromise = new Promise(
-        (_, reject) =>
-          setTimeout(
-            () => reject(new Error("Question generation timeout")),
-            60000,
-          ), // Bug 3 fix: 60s
-      );
-
-      let questions;
-      try {
-        questions = (await Promise.race([
-          questionGenerationPromise,
-          timeoutPromise,
-        ])) as any[];
-        console.log(`Generated ${questions.length} questions successfully`);
-      } catch (timeoutError: any) {
-        logger.warn("Question generation timed out, using fallback");
-        logger.warn("Question generation timeout, using fallback");
-        // Use fallback - will be handled by gemini service
-        questions =
-          await geminiService.generateInterviewQuestions(questionParams);
-      }
+      // Gemini's request timeout also bounds fallback latency; do not retry without a deadline.
+      const questions = await geminiService.generateInterviewQuestions(questionParams);
 
       // Create interview in database
       const interview = new Interview({
@@ -166,6 +140,7 @@ router.post(
         status: "scheduled",
         settings: {
           role: settings.role,
+          domain: settings.domain || "",
           difficulty: settings.difficulty,
           duration: settings.duration,
           includeVideo: settings.includeVideo !== false,
@@ -316,6 +291,21 @@ router.post(
         });
       }
 
+      // Scheduled sessions generate their questions when first started.
+      if (!interview.questions.length) {
+        const generated = await geminiService.generateInterviewQuestions({
+          role: interview.settings.role, experienceLevel: "mid", interviewType: interview.type,
+          difficulty: interview.settings.difficulty, domain: interview.settings.domain,
+          count: Math.min(5, Math.max(1, Math.floor(interview.settings.duration / 5))),
+        });
+        interview.set("questions", generated.map((q: any, index: number) => ({
+          ...q, id: q.id || `q_${interview._id}_${index}`,
+          text: q.text || q.question || q.title || `Question ${index + 1}`,
+          type: q.type || interview.type, difficulty: q.difficulty || interview.settings.difficulty,
+          expectedDuration: q.expectedDuration || 5,
+        })));
+      }
+
       // Update interview status and start time
       interview.status = "in-progress";
       interview.session.startTime = new Date();
@@ -372,6 +362,13 @@ router.post(
           success: false,
           error: "Interview not found",
         });
+      }
+
+      if (interview.status === "completed") {
+        return res.json({ success: true, data: interview, message: "Interview already completed" });
+      }
+      if (interview.status !== "in-progress") {
+        return res.status(409).json({ success: false, error: "Start the interview before ending it" });
       }
 
       // Update interview status and end time
@@ -475,7 +472,7 @@ router.post(
   [
     body("questionId").notEmpty(),
     body("answer").optional({ nullable: true }).trim(),
-    body("duration").isNumeric(),
+    body("duration").isFloat({ min: 0, max: 86400 }).toFloat(),
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -518,6 +515,15 @@ router.post(
         });
       }
 
+      if (interview.status !== "in-progress") {
+        return res.status(409).json({ success: false, error: "The interview is not in progress" });
+      }
+      const existing = interview.responses.find(r => r.questionId === questionId);
+      if (existing) {
+        if (existing.answer === effectiveAnswer) return res.json({ success: true, message: "Answer already saved" });
+        return res.status(409).json({ success: false, error: "This question has already been answered" });
+      }
+
       // STEP 1 - SAVE RESPONSE FIRST (FAST)
       const responseData = {
         questionId,
@@ -529,13 +535,10 @@ router.post(
         timestamp: new Date(),
       };
 
-      console.log("=== RESPONSE DATA ===");
-
-      console.log(JSON.stringify(responseData, null, 2));
-
-      await Interview.findByIdAndUpdate(id, {
-        $push: { responses: responseData },
-      });
+      const saved = await Interview.findOneAndUpdate({
+        _id: id, userId: req.user!.userId, status: "in-progress", "responses.questionId": { $ne: questionId },
+      }, { $push: { responses: responseData } }, { new: true });
+      if (!saved) return res.status(409).json({ success: false, error: "Answer already saved or interview ended" });
 
       // STEP 2 - RETURN RESPONSE IMMEDIATELY (NO WAIT)
       res.json({
@@ -556,47 +559,26 @@ router.post(
 
           if (!analysis?.scores) return;
 
-          // Fetch current state to compute running average across all responses
-          const current =
-            await Interview.findById(id).select("analysis responses");
-          const existingMetrics = current?.analysis?.contentMetrics;
-          const responseCount = Math.max(1, current?.responses?.length || 1);
-
-          const runningAvg = (oldVal: number, newVal: number) =>
-            Math.round(
-              ((oldVal || 0) * (responseCount - 1) + (newVal || 0)) /
-                responseCount,
-            );
-
-          await Interview.findByIdAndUpdate(id, {
-            $set: {
-              "analysis.contentMetrics.relevanceScore": runningAvg(
-                existingMetrics?.relevanceScore || 0,
-                analysis.scores.relevance || 0,
-              ),
-              "analysis.contentMetrics.technicalAccuracy": runningAvg(
-                existingMetrics?.technicalAccuracy || 0,
-                analysis.scores.technicalAccuracy || 0,
-              ),
-              "analysis.contentMetrics.communicationClarity": runningAvg(
-                existingMetrics?.communicationClarity || 0,
-                analysis.scores.clarity || 0,
-              ),
-              "analysis.contentMetrics.structureScore": runningAvg(
-                existingMetrics?.structureScore || 0,
-                analysis.scores.structure || 0,
-              ),
-              "analysis.overallScore": runningAvg(
-                current?.analysis?.overallScore || 0,
-                analysis.overallScore || 0,
-              ),
-            },
-            $addToSet: {
-              "analysis.contentMetrics.keywordMatches": {
-                $each: analysis.keywordMatches || [],
-              },
-            },
+          const score = (value: unknown) => Math.max(0, Math.min(100, Number(value) || 0));
+          const storedAnalysis = {
+            scores: { relevance: score(analysis.scores.relevance), technicalAccuracy: score(analysis.scores.technicalAccuracy),
+              clarity: score(analysis.scores.clarity), structure: score(analysis.scores.structure) },
+            overallScore: score(analysis.overallScore), keywordMatches: Array.isArray(analysis.keywordMatches) ? analysis.keywordMatches : [],
+          };
+          await Interview.updateOne({ _id: id, "responses.questionId": questionId }, {
+            $set: { "responses.$.analysis": storedAnalysis },
           });
+          // Each atomic aggregation sees all analyses saved so far, regardless of completion order.
+          const average = (field: string) => ({ $round: [{ $ifNull: [{ $avg: `$responses.analysis.${field}` }, 0] }, 0] });
+          await Interview.updateOne({ _id: id }, [{ $set: {
+            "analysis.contentMetrics.relevanceScore": average("scores.relevance"),
+            "analysis.contentMetrics.technicalAccuracy": average("scores.technicalAccuracy"),
+            "analysis.contentMetrics.communicationClarity": average("scores.clarity"),
+            "analysis.contentMetrics.structureScore": average("scores.structure"),
+            "analysis.overallScore": average("overallScore"),
+            "analysis.contentMetrics.keywordMatches": { $reduce: { input: "$responses", initialValue: [],
+              in: { $setUnion: ["$$value", { $ifNull: ["$$this.analysis.keywordMatches", []] }] } } },
+          } }]);
 
           logger.info("Background AI analysis completed successfully");
         } catch (err) {
@@ -1141,9 +1123,8 @@ router.post(
         process.env.PYTHON_AI_SERVER_URL || "http://localhost:8000";
       const apiKey = process.env.PYTHON_AI_SERVER_API_KEY;
 
-      const axios = require("axios");
       const analysisResponse = await axios.post(
-        `${pythonServerUrl}/api/video/analyze-frame`,
+        `${pythonServerUrl}/api/video/analyze-frame-json`,
         { frame_data: frameData, timestamp },
         {
           headers: {
@@ -1250,7 +1231,6 @@ router.post(
         process.env.PYTHON_AI_SERVER_URL || "http://localhost:8000";
       const apiKey = process.env.PYTHON_AI_SERVER_API_KEY;
 
-      const axios = require("axios");
       const analysisResponse = await axios.post(
         `${pythonServerUrl}/api/audio/analyze`,
         {

@@ -23,8 +23,8 @@ import aptitudeStudentRoutes from './routes/aptitudeStudent.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { notFound } from './middleware/notFound';
 import { authenticateToken, requireAdmin } from './middleware/auth';
-import { apiLimiter, authLimiter, passwordResetLimiter, uploadLimiter } from './middleware/rateLimiter';
-import { sanitizeData, xssProtection, validateInput } from './middleware/sanitizer';
+import { apiLimiter, authLimiter, assessmentLimiter } from './middleware/rateLimiter';
+import { validateInput } from './middleware/sanitizer';
 import logger from './utils/logger';
 
 /**
@@ -106,8 +106,6 @@ export function createApp(): Application {
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Security middleware - Sanitization
-  app.use(sanitizeData);
-  app.use(xssProtection);
   app.use(validateInput);
 
   // Compression middleware
@@ -155,8 +153,8 @@ export function createApp(): Application {
   // API routes - EXACT paths that tests expect
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/user', apiLimiter, authenticateToken, userRoutes);
-  app.use('/api/resume', uploadLimiter, authenticateToken, resumeRoutes);
-  app.use('/api/interview', apiLimiter, authenticateToken, interviewRoutes);
+  app.use('/api/resume', apiLimiter, authenticateToken, resumeRoutes);
+  app.use('/api/interview', authenticateToken, assessmentLimiter, interviewRoutes);
   app.use('/api/feedback', apiLimiter, authenticateToken, feedbackRoutes);
   app.use('/api/admin', apiLimiter, authenticateToken, requireAdmin, adminRoutes);
   app.use('/api/code', apiLimiter, codeExecutionRoutes);
@@ -165,7 +163,7 @@ export function createApp(): Application {
   app.use('/api/scheduling', apiLimiter, authenticateToken, schedulingRoutes);
   app.use('/api/health', healthRoutes); // no auth — public health check
   app.use('/api/admin/aptitude', apiLimiter, aptitudeAdminRoutes); // auth+admin check happens inside the router
-  app.use('/api/aptitude', apiLimiter, aptitudeStudentRoutes); // auth check happens inside the router// no auth — public health check
+  app.use('/api/aptitude', aptitudeStudentRoutes); // auth and assessment limits are applied inside
 
   // Error handling middleware (must be last)
   app.use(notFound);

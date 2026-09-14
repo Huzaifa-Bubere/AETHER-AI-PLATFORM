@@ -1,5 +1,7 @@
 import { Server, Socket } from 'socket.io';
-import jwt from 'jsonwebtoken';
+import { verifyToken } from '../utils/auth';
+import User from '../models/User';
+import Interview from '../models/Interview';
 import axios from 'axios';
 import logger from '../utils/logger';
 import webrtcService from './webrtc';
@@ -23,14 +25,9 @@ async function callPythonAI(path: string, payload: any): Promise<any> {
   return res.data?.data ?? res.data;
 }
 
-interface AuthenticatedSocket extends Socket {
-  userId?: string;
-  interviewId?: string;
-}
-
 export function setupSocketHandlers(io: Server) {
   // Authentication middleware
-  io.use((socket: AuthenticatedSocket, next) => {
+  io.use(async (socket: AuthenticatedSocket, next) => {
     const token = socket.handshake.auth.token;
     
     if (!token) {
@@ -38,7 +35,11 @@ export function setupSocketHandlers(io: Server) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as any;
+      const decoded = verifyToken(token, process.env.JWT_ACCESS_SECRET!);
+      const user = await User.findById(decoded.userId);
+      if (!user || user.isAccountLocked() || decoded.tokenVersion !== (user.auth.tokenVersion ?? 0)) {
+        return next(new Error('Authentication error'));
+      }
       socket.userId = decoded.userId;
       next();
     } catch (error) {
@@ -50,6 +51,25 @@ export function setupSocketHandlers(io: Server) {
   webrtcService.setupWebRTCHandlers(io);
 
   io.on('connection', (socket: AuthenticatedSocket) => {
+    // Covers every application packet, including WebRTC handlers.
+    socket.use(async ([event, data], next) => {
+      try {
+        const decoded = verifyToken(socket.handshake.auth.token, process.env.JWT_ACCESS_SECRET!);
+        const user = await User.findById(decoded.userId);
+        if (!user || user.isAccountLocked() || decoded.tokenVersion !== (user.auth.tokenVersion ?? 0)) {
+          throw new Error('Session expired');
+        }
+        const interviewId = event === 'join-interview' || event === 'leave-interview' ? data : data?.interviewId;
+        if (typeof interviewId !== 'string' || !/^[a-f\d]{24}$/i.test(interviewId) ||
+            !await Interview.exists({ _id: interviewId, userId: socket.userId })) {
+          throw new Error('Interview access denied');
+        }
+        next();
+      } catch {
+        socket.emit('authorization-error', { error: 'Session expired or interview access denied' });
+        next(new Error('Unauthorized interview event'));
+      }
+    });
     logger.info(`Socket connected: ${socket.id}, User: ${socket.userId}`);
 
     // Join interview room

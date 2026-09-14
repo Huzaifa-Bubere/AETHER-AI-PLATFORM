@@ -16,7 +16,7 @@ class CloudinaryService {
       const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
       logger.info(`Cloud Name: ${cloudName ? '✓ Present (' + cloudName + ')' : '✗ MISSING'}`);
-      logger.info(`API Key: ${apiKey ? '✓ Present (' + apiKey.substring(0, 4) + '...' + apiKey.substring(apiKey.length - 4) + ')' : '✗ MISSING'}`);
+      logger.info(`API Key: ${apiKey ? '✓ Present' : '✗ MISSING'}`);
       logger.info(`API Secret: ${apiSecret ? '✓ Present (' + apiSecret.length + ' chars)' : '✗ MISSING'}`);
 
       if (!cloudName || !apiKey || !apiSecret) {

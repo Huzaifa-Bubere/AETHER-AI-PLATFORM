@@ -232,7 +232,7 @@ export function HistoryPage() {
                           size="sm"
                           className="w-fit"
                           onClick={() =>
-                            navigate(`/interview-room?id=${interviewId}`)
+                            navigate(`${interview.type === 'coding' ? '/coding-interview' : '/interview-room'}?id=${interviewId}`)
                           }
                         >
                           Continue Interview
@@ -245,7 +245,7 @@ export function HistoryPage() {
                           size="sm"
                           className="w-fit"
                           onClick={() =>
-                            navigate(`/interview-room?id=${interviewId}`)
+                            navigate(`${interview.type === 'coding' ? '/coding-interview' : '/interview-room'}?id=${interviewId}`)
                           }
                         >
                           Start Interview

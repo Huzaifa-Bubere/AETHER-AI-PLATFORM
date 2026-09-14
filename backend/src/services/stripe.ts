@@ -22,7 +22,7 @@ class StripeService {
 
     try {
       this.stripe = new Stripe(stripeSecretKey, {
-        apiVersion: '2026-01-28.clover' as any,
+        apiVersion: '2024-12-18.acacia' as any,
         typescript: true,
       });
       this.isConfigured = true;

@@ -35,6 +35,17 @@ export interface IAptitudeAttempt extends Document {
   test: Types.ObjectId;
   roundType: string;
   questions: Types.ObjectId[]; // fixed order, generated once at start
+  questionSnapshots: {
+    questionId: Types.ObjectId;
+    questionText: string;
+    imageUrl: string;
+    options: { A: string; B: string; C: string; D: string };
+    category: string;
+    difficulty: string;
+    correctOption: OptionKey;
+    explanation: string;
+    marks: number;
+  }[];
   responses: IResponse[];
   durationMinutes: number;
   startedAt: Date;
@@ -93,6 +104,17 @@ const AptitudeAttemptSchema = new Schema<IAptitudeAttempt>(
     test: { type: Schema.Types.ObjectId, ref: 'AptitudeTest', required: true },
     roundType: { type: String, required: true },
     questions: [{ type: Schema.Types.ObjectId, ref: 'AptitudeQuestion' }],
+    questionSnapshots: [new Schema({
+      questionId: { type: Schema.Types.ObjectId, required: true },
+      questionText: String,
+      imageUrl: String,
+      options: { A: String, B: String, C: String, D: String },
+      category: String,
+      difficulty: String,
+      correctOption: { type: String, enum: ['A', 'B', 'C', 'D'], required: true },
+      explanation: String,
+      marks: { type: Number, required: true, min: 0 },
+    }, { _id: false })],
     responses: [ResponseSchema],
     durationMinutes: { type: Number, required: true },
     startedAt: { type: Date, default: Date.now },

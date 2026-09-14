@@ -1,77 +1,20 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { APIResponse, PaginatedResponse } from '../types';
+import { apiBaseURL, attachAuthentication } from './http';
 
 class APIService {
   private api: AxiosInstance;
 
   constructor() {
-    // Ensure baseURL always ends with /api
-    // Guards against VITE_API_BASE_URL being set without the /api suffix
-    const raw = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5001/api';
-    const baseURL = raw.endsWith('/api') ? raw : raw.replace(/\/$/, '') + '/api';
-
     this.api = axios.create({
-      baseURL,
+      baseURL: apiBaseURL,
       timeout: 60000,
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    this.setupInterceptors();
-  }
-
-  private setupInterceptors() {
-    // Request interceptor to add auth token
-    this.api.interceptors.request.use(
-      (config) => {
-        const token = localStorage.getItem('accessToken');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
-
-    // Response interceptor to handle token refresh
-    this.api.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        const originalRequest = error.config;
-
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
-
-          try {
-            const refreshToken = localStorage.getItem('refreshToken');
-            if (refreshToken) {
-              const response = await this.api.post('/auth/refresh', {
-                refreshToken,
-              });
-
-              const { accessToken } = response.data.data;
-              localStorage.setItem('accessToken', accessToken);
-
-              originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-              return this.api(originalRequest);
-            }
-          } catch (refreshError) {
-            console.error('Token refresh failed:', refreshError);
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
-            
-            if (!window.location.pathname.includes('/login') && 
-                !window.location.pathname.includes('/signup') &&
-                !window.location.pathname.includes('/')) {
-              window.location.href = '/login';
-            }
-          }
-        }
-
-        return Promise.reject(error);
-      }
-    );
+    attachAuthentication(this.api);
   }
 
   // Generic request methods

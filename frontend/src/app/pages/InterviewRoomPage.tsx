@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Play, Pause, Square, SkipForward, Clock, MessageSquare,
@@ -183,7 +183,7 @@ export function InterviewRoomPage() {
     if (existingId && existingId !== interviewId) {
       store.resetSession();
     }
-    if (!store.currentSession) handleStartInterview();
+    void handleStartInterview();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interviewId]);
 
@@ -222,31 +222,45 @@ export function InterviewRoomPage() {
     } catch { toast.error('Failed to start interview'); }
   };
 
+  const responseBusy = useRef(false);
+
   const handleEndInterview = async () => {
+    if (responseBusy.current) return;
+    responseBusy.current = true;
     setShowEndConfirm(false);
     try {
+      setIsListening(false);
+      if (currentAnswer.trim() && currentQuestion && responseStartTime) {
+        await submitResponse({ questionId: currentQuestion.id, answer: currentAnswer,
+          duration: Math.max(0, Math.round((Date.now() - responseStartTime) / 1000)), timestamp: new Date().toISOString() });
+        setCurrentAnswer('');
+      }
       await endInterview();
       setSessionState('ended');
       toast.success('Interview completed! Generating report…');
       const id = (currentInterview as any)?._id || currentInterview?.id;
       navigate(id ? `/feedback/${id}` : '/dashboard');
-    } catch { toast.error('Failed to end interview'); navigate('/dashboard'); }
+    } catch { toast.error('Failed to end interview. Your answer is preserved; please retry.'); }
+    finally { responseBusy.current = false; }
   };
 
   const handleNextQuestion = async () => {
     if (!currentAnswer.trim()) { toast.error('Please provide an answer first'); return; }
-    if (!currentQuestion || !responseStartTime) return;
+    if (!currentQuestion || !responseStartTime || responseBusy.current) return;
+    responseBusy.current = true;
+    setIsListening(false);
     try {
       const duration = Math.round((Date.now() - responseStartTime) / 1000);
       // Bug 6 fix: await submitResponse so the response is saved before fetching next question
-      await submitResponse({ questionId: currentQuestion.id, answer: currentAnswer, duration, timestamp: new Date() });
+      await submitResponse({ questionId: currentQuestion.id, answer: currentAnswer, duration, timestamp: new Date().toISOString() });
       setCurrentAnswer('');
       setIsListening(false); // Bug 7 fix: stop listening before fetching next question
       await getNextQuestion();
       // Bug 7 fix: only start listening AFTER new question is loaded
       setIsListening(true);
       setResponseStartTime(Date.now());
-    } catch { toast.error('Failed to get next question'); }
+    } catch { toast.error('Failed to save or load the next question. Please retry.'); }
+    finally { responseBusy.current = false; }
   };
 
   const handleTranscript = (t: string, isFinal: boolean) => {
@@ -275,7 +289,7 @@ export function InterviewRoomPage() {
     `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const totalQ    = currentInterview?.questions?.length || 0;
-  const qIndex    = currentQuestionIndex || 0 + 1;
+  const qIndex    = currentQuestionIndex || 1;
   const progress  = totalQ > 0 ? (qIndex / totalQ) * 100 : 0;
   const wordCount = currentAnswer.split(' ').filter(Boolean).length;
   const diffTag   = (d?: string) => d === 'easy' ? 'tag-easy' : d === 'medium' ? 'tag-medium' : 'tag-hard';
@@ -291,7 +305,7 @@ export function InterviewRoomPage() {
         <h2 style={{ fontSize:18,fontWeight:700,marginBottom:8,color:'#e2e8f0' }}>Something went wrong</h2>
         <p style={{ color:'#64748b',fontSize:13,marginBottom:24,lineHeight:1.65 }}>{error}</p>
         <div style={{ display:'flex',gap:10 }}>
-          <button className="ir-btn btn-ghost" style={{ flex:1 }} onClick={clearError}>Try again</button>
+          <button className="ir-btn btn-ghost" style={{ flex:1 }} onClick={() => { clearError(); void handleStartInterview(); }}>Try again</button>
           <button className="ir-btn btn-primary" style={{ flex:1 }} onClick={() => navigate('/dashboard')}>Dashboard</button>
         </div>
       </div>

@@ -15,10 +15,16 @@ interface StudentRow {
 export default function StudentManager() {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStudents = async () => {
-    const { data } = await api.get('/api/admin/aptitude/students', { params: { search } });
-    setStudents(data.students);
+    try {
+      const { data } = await api.get('/api/admin/aptitude/students', { params: { search } });
+      setStudents(data.students);
+      setError(null);
+    } catch (error: any) {
+      setError(error?.response?.data?.message || 'Could not load students. Please retry.');
+    }
   };
 
   useEffect(() => {
@@ -28,12 +34,17 @@ export default function StudentManager() {
   }, [search]);
 
   const toggleBlock = async (userId: string, isBlocked: boolean) => {
-    await api.patch(`/api/admin/aptitude/students/${userId}/block`, { isBlocked: !isBlocked });
-    fetchStudents();
+    try {
+      await api.patch(`/api/admin/aptitude/students/${userId}/block`, { isBlocked: !isBlocked });
+      await fetchStudents();
+    } catch (error: any) {
+      setError(error?.response?.data?.message || 'Could not update the student. Please retry.');
+    }
   };
 
   return (
     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
+      {error && <p role="alert" className="my-4 text-destructive">{error}</p>}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-bold">Students</h1>
         <input

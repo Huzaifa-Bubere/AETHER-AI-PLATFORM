@@ -7,6 +7,7 @@ import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { useAuthStore } from './stores/authStore';
 import { LoadingSpinner } from './components/ui/loading-spinner';
 
@@ -95,12 +96,19 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
+  useEffect(() => {
+    const expired = () => useAuthStore.setState({ user: null, isAuthenticated: false, isLoading: false });
+    window.addEventListener('auth:expired', expired);
+    void useAuthStore.getState().checkAuth();
+    return () => window.removeEventListener('auth:expired', expired);
+  }, []);
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/login" element={
           <PublicRoute>
             <LoginPage />

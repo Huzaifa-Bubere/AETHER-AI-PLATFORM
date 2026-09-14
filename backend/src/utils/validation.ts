@@ -50,7 +50,7 @@ export const phoneValidation = (): ValidationChain => {
   return body('profile.phone')
     .optional()
     .trim()
-    .matches(/^[\d\s\-\+\(\)]+$/)
+    .matches(/^[\d\s+()-]+$/)
     .withMessage('Please provide a valid phone number')
     .isLength({ min: 10, max: 20 })
     .withMessage('Phone number must be between 10 and 20 characters');
@@ -246,7 +246,7 @@ export const profileUpdateValidation = (): ValidationChain[] => {
       .custom((value) => {
         // Allow empty string or valid phone
         if (!value || value === '') return true;
-        if (!/^[\d\s\-\+\(\)]+$/.test(value)) {
+        if (!/^[\d\s+()-]+$/.test(value)) {
           throw new Error('Please provide a valid phone number');
         }
         if (value.length < 10 || value.length > 20) {

@@ -29,8 +29,8 @@ export interface IAptitudeTest extends Document {
 
 const DifficultyPlanSchema = new Schema<DifficultyPlan>(
   {
-    count: { type: Number, required: true, min: 0 },
-    marksPerQuestion: { type: Number, required: true, default: 1 },
+    count: { type: Number, required: true, min: 0, max: 100, validate: Number.isInteger },
+    marksPerQuestion: { type: Number, required: true, default: 1, min: 0.0001 },
   },
   { _id: false }
 );
@@ -45,7 +45,7 @@ const AptitudeTestSchema = new Schema<IAptitudeTest>(
       medium: { type: DifficultyPlanSchema, required: true },
       hard: { type: DifficultyPlanSchema, required: true },
     },
-    durationMinutes: { type: Number, required: true, default: 45 },
+    durationMinutes: { type: Number, required: true, default: 45, min: 1, max: 1440, validate: Number.isInteger },
     totalMarks: { type: Number, required: true, default: 0 },
     isPublished: { type: Boolean, default: false, index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -55,12 +55,15 @@ const AptitudeTestSchema = new Schema<IAptitudeTest>(
 
 AptitudeTestSchema.pre('validate', function (next) {
   const plan = this.difficultyPlan;
-  if (plan) {
+  if (plan?.easy && plan?.medium && plan?.hard) {
+    const count = plan.easy.count + plan.medium.count + plan.hard.count;
+    if (count < 1 || count > 100) this.invalidate('difficultyPlan', 'A test must contain between 1 and 100 questions.');
     this.totalMarks =
       plan.easy.count * plan.easy.marksPerQuestion +
       plan.medium.count * plan.medium.marksPerQuestion +
       plan.hard.count * plan.hard.marksPerQuestion;
   }
+  if (!this.categories?.length) this.invalidate('categories', 'Select at least one category.');
   next();
 });
 

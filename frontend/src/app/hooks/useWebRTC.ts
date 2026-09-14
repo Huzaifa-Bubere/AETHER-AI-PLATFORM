@@ -104,7 +104,7 @@ export function useWebRTC({ interviewId, autoConnect = false }: UseWebRTCOptions
 
       socket.emit('webrtc:offer', {
         interviewId,
-        offer: offer.toJSON(),
+        offer,
       });
 
       console.log('Offer created and sent');
@@ -128,7 +128,7 @@ export function useWebRTC({ interviewId, autoConnect = false }: UseWebRTCOptions
       if (socket) {
         socket.emit('webrtc:answer', {
           interviewId,
-          answer: answer.toJSON(),
+          answer,
         });
       }
 

@@ -26,7 +26,7 @@ export function LandingPage() {
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link to="/signup">
-                  <Button variant="primary" size="lg">
+                  <Button variant="default" size="lg">
                     Start Free Interview
                     <ChevronRight className="ml-2 w-5 h-5" />
                   </Button>
@@ -56,7 +56,7 @@ export function LandingPage() {
             </div>
             
             <div className="relative">
-              <Card hover>
+              <Card>
                 <img
                   src="https://images.unsplash.com/photo-1767950467836-ef59566126c3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxBSSUyMHJvYm90JTIwcHJvZmVzc2lvbmFsJTIwaW50ZXJ2aWV3fGVufDF8fHx8MTc2OTg3MTEyM3ww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
                   alt="AI Interviewer"
@@ -118,7 +118,7 @@ export function LandingPage() {
                 color: 'bg-orange-500'
               }
             ].map((feature, index) => (
-              <Card key={index} hover className="p-6">
+              <Card key={index} className="p-6">
                 <div className={`w-14 h-14 ${feature.color} rounded-xl flex items-center justify-center mb-4`}>
                   <feature.icon className="w-7 h-7 text-white" />
                 </div>
@@ -216,7 +216,7 @@ export function LandingPage() {
                 text: 'Best investment for interview prep. The personalized feedback saved me months of practice.'
               }
             ].map((testimonial, index) => (
-              <Card key={index} hover className="h-full p-6">
+              <Card key={index} className="h-full p-6">
                 <div className="flex items-center gap-1 text-yellow-500 mb-4">
                   {[...Array(5)].map((_, i) => (
                     <Star key={i} className="w-4 h-4 fill-current" />
@@ -357,7 +357,7 @@ export function LandingPage() {
               Join thousands of successful candidates who improved their interview skills with AI
             </p>
             <Link to="/signup">
-              <Button variant="primary" size="lg">
+              <Button variant="default" size="lg">
                 Start Your Free Interview
                 <ChevronRight className="ml-2 w-5 h-5" />
               </Button>

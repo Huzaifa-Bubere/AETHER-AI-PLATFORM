@@ -1,4 +1,5 @@
-﻿import express from 'express';
+import express from 'express';
+import { uploadLimiter } from '../middleware/rateLimiter';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import { body, validationResult } from 'express-validator';
@@ -69,7 +70,7 @@ const handleMulterError = (err: any, req: express.Request, res: express.Response
 };
 
 // Upload resume
-router.post('/upload', (req, res, next) => {
+router.post('/upload', uploadLimiter, (req, res, next) => {
   upload.single('resume')(req, res, (err) => {
     if (err) {
       return handleMulterError(err, req, res, next);
@@ -86,7 +87,7 @@ router.post('/upload', (req, res, next) => {
     mimetype: req.file.mimetype,
     size: req.file.size
   }) : 'N/A'}`);
-  logger.info(`Headers: ${JSON.stringify(req.headers)}`);
+  logger.info(`Content type: ${req.headers['content-type'] || 'unknown'}`);
 
   // Check if file exists
   if (!req.file) {
@@ -657,7 +658,7 @@ router.delete('/:id', asyncHandler(async (req, res) => {
       try {
         const path = require('path');
         const fs = require('fs');
-        const urlPath = resume.fileUrl.replace(/^https?:\/\/[^\/]+/, '');
+        const urlPath = resume.fileUrl.replace(/^https?:\/\/[^/]+/, '');
         const filePath = path.join(process.cwd(), 'uploads', urlPath.replace('/uploads/', ''));
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);

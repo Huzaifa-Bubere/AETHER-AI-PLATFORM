@@ -48,7 +48,7 @@ export function ProfilePage() {
   useEffect(() => {
     const fetchPaymentHistory = async () => {
       try {
-        const response = await apiService.get('/payment/history');
+        const response = await apiService.get<any[]>('/payment/history');
         if (response.success && response.data) {
           setPaymentHistory(response.data);
         }

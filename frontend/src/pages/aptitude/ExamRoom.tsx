@@ -15,6 +15,9 @@ export default function ExamRoom() {
     currentIndex,
     deadline,
     submitted,
+    submitting,
+    saving,
+    attemptId: loadedAttemptId,
     loadAttempt,
     goTo,
     selectOption,
@@ -34,8 +37,8 @@ export default function ExamRoom() {
   }, [attemptId, loadAttempt]);
 
   useEffect(() => {
-    if (submitted) navigate(`/aptitude/attempts/${attemptId}/result`, { replace: true });
-  }, [submitted, attemptId, navigate]);
+    if (submitted && loadedAttemptId === attemptId && !loading) navigate(`/aptitude/attempts/${attemptId}/result`, { replace: true });
+  }, [submitted, loadedAttemptId, loading, attemptId, navigate]);
 
   // Warn before refresh/close
   useEffect(() => {
@@ -50,14 +53,14 @@ export default function ExamRoom() {
   // Tab-switch / minimize -> auto-submit (per spec)
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.hidden && !submitted) {
+      if (document.hidden && !submitted && !loading && loadedAttemptId === attemptId) {
         tabSwitchCountRef.current += 1;
         submit(true);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [submit, submitted]);
+  }, [submit, submitted, loading, loadedAttemptId, attemptId]);
 
   const enterFullscreen = useCallback(() => {
     containerRef.current?.requestFullscreen?.().catch(() => {
@@ -67,14 +70,14 @@ export default function ExamRoom() {
 
   useEffect(() => {
     enterFullscreen();
-  }, [enterFullscreen]);
+  }, [enterFullscreen, loading]);
 
   const handleExpire = useCallback(() => {
     submit(true);
   }, [submit]);
 
   if (loading) return <CenteredMessage text="Loading your exam…" />;
-  if (error) return <CenteredMessage text={error} isError />;
+  if (error && !questions.length) return <CenteredMessage text={error} isError />;
   if (!questions.length) return <CenteredMessage text="No questions loaded." isError />;
 
   const q = questions[currentIndex];
@@ -83,6 +86,8 @@ export default function ExamRoom() {
 
   return (
     <div ref={containerRef} className="min-h-screen bg-background pt-16 text-foreground">
+      {error && <p role="alert" className="bg-red-50 p-4 text-red-700">{error}</p>}
+      <p role="status" className="px-6 text-sm text-muted-foreground">{submitting ? 'Submitting…' : saving ? 'Saving answer…' : 'Answers save automatically.'}</p>
       {/* Top bar */}
       <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
         <div>
@@ -116,21 +121,23 @@ export default function ExamRoom() {
             </div>
 
             <div className="flex justify-center overflow-auto rounded-lg bg-white p-4" style={{ maxHeight: '60vh' }}>
-              <img
+              {q.imageUrl && <img
                 src={q.imageUrl}
                 alt={`Question ${currentIndex + 1}`}
                 style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
                 className="select-none transition-transform"
                 draggable={false}
-              />
+              />}
             </div>
           </div>
 
+          {q.questionText && <p className="mt-4 whitespace-pre-wrap text-lg">{q.questionText}</p>}
           {/* Options */}
           <div className="mt-4 grid grid-cols-2 gap-3">
             {(['A', 'B', 'C', 'D'] as const).map((opt) => (
               <button
                 key={opt}
+                disabled={submitting}
                 onClick={() => selectOption(opt)}
                 className={`rounded-lg border px-4 py-3 text-left font-medium transition-colors ${
                   r?.selectedOption === opt
@@ -141,7 +148,7 @@ export default function ExamRoom() {
                 <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-current text-sm">
                   {opt}
                 </span>
-                Option {opt}
+                {q.options?.[opt] || `Option ${opt}`}
               </button>
             ))}
           </div>

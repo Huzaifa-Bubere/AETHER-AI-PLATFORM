@@ -62,6 +62,9 @@ class CodeExecutionService {
 
   // ── Local execution fallback ────────────────────────────────────────────────
   private async executeLocally(request: CodeExecutionRequest): Promise<CodeExecutionResult> {
+    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_UNSAFE_LOCAL_CODE_EXECUTION !== 'true') {
+      return { success: false, error: 'Local code execution is disabled. Configure an isolated execution service.' };
+    }
     const language = request.language;
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mock-interview-exec-'));
     const fileName = this.getFileName(language);
@@ -730,7 +733,8 @@ fn main() {
 
     // 1. LOCAL EXECUTION FIRST (Python + JS always available on the server)
     const localLanguages = ['python', 'javascript', 'typescript'];
-    if (localLanguages.includes(request.language)) {
+    const allowLocal = process.env.NODE_ENV !== 'production' && process.env.ALLOW_UNSAFE_LOCAL_CODE_EXECUTION === 'true';
+    if (allowLocal && localLanguages.includes(request.language)) {
       try {
         const localResult = await this.executeLocally(request);
         // Use local result if it ran (success OR user-code error — not a "not found" error)
@@ -769,7 +773,10 @@ fn main() {
 
     // 3. LAST RESORT — local for non-Python/JS languages (Java, C++, etc.)
     //    Will fail gracefully if the runtime isn't installed
-    logger.warn(`All execution paths failed for ${request.language}, trying local last-resort`);
+    if (!allowLocal) {
+      return { success: false, error: 'The isolated code execution service is unavailable. Please try again later.' };
+    }
+    logger.warn(`All execution paths failed for ${request.language}, trying explicitly enabled local execution`);
     return await this.executeLocally(request);
   }
 

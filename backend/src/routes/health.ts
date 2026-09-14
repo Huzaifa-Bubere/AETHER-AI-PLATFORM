@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import axios from 'axios';
 import { asyncHandler } from '../middleware/errorHandler';
 import logger from '../utils/logger';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -44,29 +45,9 @@ async function checkMongoDB(): Promise<ServiceStatus> {
 }
 
 async function checkGemini(): Promise<ServiceStatus> {
-  const start = Date.now();
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return { status: 'error', detail: 'GEMINI_API_KEY not set' };
-
-  try {
-    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const res = await axios.post(
-      url,
-      { contents: [{ parts: [{ text: 'ping' }] }] },
-      { timeout: 8000 }
-    );
-    if (res.status === 200) {
-      return { status: 'ok', latencyMs: Date.now() - start };
-    }
-    return { status: 'error', latencyMs: Date.now() - start, detail: `HTTP ${res.status}` };
-  } catch (err: any) {
-    return {
-      status: 'error',
-      latencyMs: Date.now() - start,
-      detail: err.response?.data?.error?.message || err.message,
-    };
-  }
+  return { status: 'skipped', detail: 'Configured; paid generation is not used for health checks' };
 }
 
 async function checkPythonAiServer(): Promise<ServiceStatus> {
@@ -120,12 +101,20 @@ async function checkRedis(): Promise<ServiceStatus> {
   const url = process.env.REDIS_URL;
   if (!url) return { status: 'skipped', detail: 'REDIS_URL not set' };
 
+  let client: any;
   try {
     // Dynamically import to avoid crashing if redis package missing
     const { createClient } = await import('redis');
-    const client = createClient({ url });
+    client = createClient({ url, socket: { connectTimeout: 3000, reconnectStrategy: false } });
+    client.on('error', () => { /* Report connection failure below. */ });
     await client.connect();
-    await client.ping();
+    await Promise.race([
+      client.ping(),
+      new Promise((_, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Redis probe timed out')), 3000);
+        timeout.unref();
+      }),
+    ]);
     await client.disconnect();
     return { status: 'ok', latencyMs: Date.now() - start };
   } catch (err: any) {
@@ -134,6 +123,8 @@ async function checkRedis(): Promise<ServiceStatus> {
       latencyMs: Date.now() - start,
       detail: `Redis unavailable (optional): ${err.message}`,
     };
+  } finally {
+    if (client?.isOpen) await client.disconnect().catch(() => undefined);
   }
 }
 
@@ -141,6 +132,8 @@ async function checkRedis(): Promise<ServiceStatus> {
 
 router.get(
   '/full-check',
+  authenticateToken,
+  requireAdmin,
   asyncHandler(async (_req: Request, res: Response) => {
     logger.info('Health full-check requested');
 

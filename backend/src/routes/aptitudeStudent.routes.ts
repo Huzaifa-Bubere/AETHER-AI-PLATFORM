@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import * as ctrl from '../controllers/studentAptitude.controller';
 import { authenticateToken } from '../middleware/auth';
+import { assessmentLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
 router.use(authenticateToken);
+router.use(assessmentLimiter);
 
 router.get('/tests', ctrl.listPublishedTests);
 router.post('/tests/:testId/start', ctrl.startAttempt);

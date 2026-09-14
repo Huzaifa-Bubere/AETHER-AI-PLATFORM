@@ -96,7 +96,7 @@ export function ForgotPasswordPage() {
                 />
               </div>
 
-              <Button type="submit" variant="primary" className="w-full" disabled={loading}>
+              <Button type="submit" variant="default" className="w-full" disabled={loading}>
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />

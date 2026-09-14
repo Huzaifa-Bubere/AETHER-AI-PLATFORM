@@ -216,7 +216,7 @@ export function OnboardingPage() {
               Back
             </Button>
             <Button
-              variant="primary"
+              variant="default"
               onClick={handleNext}
               disabled={!canProceed()}
             >

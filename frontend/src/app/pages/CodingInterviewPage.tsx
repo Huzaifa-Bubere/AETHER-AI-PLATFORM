@@ -176,7 +176,7 @@ export function CodingInterviewPage() {
     const fetchQuestion = async () => {
       setLoading(true);
       try {
-        await getNextQuestion();
+        await useInterviewStore.getState().startInterview(interviewId);
         if (!cancelled) setLoading(false);
       } catch (error: any) {
         if (cancelled) return;
@@ -405,6 +405,13 @@ export function CodingInterviewPage() {
     }
   };
 
+  if (!loading && !currentQuestion) {
+    return <main className="min-h-screen pt-32 px-6 text-center">
+      <p role="status">{useInterviewStore.getState().error || 'There are no unanswered coding questions.'}</p>
+      <Button className="mt-4" onClick={() => navigate(`/feedback/${interviewId}`)}>View interview</Button>
+      <Button variant="outline" className="mt-4 ml-3" onClick={() => window.location.reload()}>Retry</Button>
+    </main>;
+  }
   if (loading || !currentQuestion) {
     return (
       <div className="min-h-screen flex items-center justify-center">

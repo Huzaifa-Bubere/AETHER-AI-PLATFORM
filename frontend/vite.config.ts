@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [
     // The React and Tailwind plugins are both required for Make, even if
-    // Tailwind is not being actively used – do not remove them
+    // Tailwind is not being actively used â€“ do not remove them
     react(),
     tailwindcss(),
   ],
@@ -43,7 +43,7 @@ export default defineConfig({
             '@radix-ui/react-tooltip',
           ],
           'chart-vendor': ['chart.js', 'react-chartjs-2', 'recharts'],
-          'editor-vendor': ['@monaco-editor/react', 'prismjs'],
+          'editor-vendor': ['@monaco-editor/react'],
           'utils': ['axios', 'zustand', 'date-fns', 'clsx', 'tailwind-merge'],
         },
       },
@@ -56,11 +56,9 @@ export default defineConfig({
     sourcemap: false,
     // Target modern browsers for better optimization
     target: 'es2020',
-    // Drop console and debugger in production
-    esbuild: {
-      drop: ['console', 'debugger'],
-    },
   },
+
+  esbuild: { drop: ['console', 'debugger'] },
 
   // Performance optimizations
   optimizeDeps: {

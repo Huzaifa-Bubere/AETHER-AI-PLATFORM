@@ -2,18 +2,18 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import logger from "../utils/logger";
 
 class GeminiService {
-  private genAI: GoogleGenerativeAI;
-  private model: any;
+  private configuredModel: any;
 
-  constructor() {
+  private get model(): any {
+    if (this.configuredModel) return this.configuredModel;
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       throw new Error("GEMINI_API_KEY is not defined in environment variables");
     }
-    this.genAI = new GoogleGenerativeAI(apiKey);
+    const genAI = new GoogleGenerativeAI(apiKey);
     const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-    this.model = this.genAI.getGenerativeModel({ model: modelName });
-    console.log("✅ Gemini service initialized with model:", modelName);
+    this.configuredModel = genAI.getGenerativeModel({ model: modelName });
+    return this.configuredModel;
   }
 
   // ── Question generation ───────────────────────────────────────────────────
@@ -29,7 +29,7 @@ class GeminiService {
     console.log("=== GENERATING INTERVIEW QUESTIONS ===");
     try {
       const prompt = this.buildQuestionGenerationPrompt(params);
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt, { timeout: 45000 });
       const text = result.response.text();
       let questions;
       try {
@@ -118,7 +118,7 @@ class GeminiService {
   }): Promise<any> {
     try {
       const prompt = this.buildResponseAnalysisPrompt(params);
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt, { timeout: 45000 });
       const text = result.response.text();
       try {
         const clean = text
@@ -188,7 +188,7 @@ class GeminiService {
   }): Promise<any> {
     try {
       const prompt = this.buildFeedbackPrompt(params);
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt, { timeout: 45000 });
       const text = result.response.text();
       try {
         const clean = text
@@ -247,7 +247,7 @@ class GeminiService {
   }): Promise<string[]> {
     try {
       const prompt = this.buildFollowUpPrompt(params);
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt, { timeout: 45000 });
       const text = result.response.text();
       const clean = text
         .replace(/```json\n?/g, "")
@@ -268,7 +268,7 @@ class GeminiService {
   }): Promise<any> {
     try {
       const prompt = this.buildResumeAnalysisPrompt(params);
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt, { timeout: 45000 });
       const text = result.response.text();
       const clean = text
         .replace(/```json\n?/g, "")
@@ -289,7 +289,7 @@ class GeminiService {
   }): Promise<any> {
     try {
       const prompt = this.buildRecommendationsPrompt(params);
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt, { timeout: 45000 });
       const text = result.response.text();
       const clean = text
         .replace(/```json\n?/g, "")
@@ -309,7 +309,7 @@ class GeminiService {
   }): Promise<any> {
     try {
       const prompt = `You are an AI interview analysis expert.\nAnalyze this interview transcript for role: ${params.role}\n\nTRANSCRIPT:\n${params.transcript}\n\nReturn ONLY valid JSON:\n{"emotionAnalysis":[{"name":"Confident","value":0}],"fillerWords":[{"word":"um","count":0}],"speakingConfidence":0,"answerQuality":0,"timeline":[]}`;
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt, { timeout: 45000 });
       const text = result.response.text();
       const clean = text
         .replace(/```json\n?/g, "")

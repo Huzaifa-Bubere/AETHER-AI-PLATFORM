@@ -16,21 +16,6 @@ import { Types } from 'mongoose';
  *  4. `timesUsed` is incremented on selection so the admin dashboard can show
  *     which questions are overused and need more bank depth.
  */
-import AptitudeQuestion, { Difficulty } from '../models/AptitudeQuestion';
-import AptitudeAttempt from '../models/AptitudeAttempt';
-import { IAptitudeTest } from '../models/AptitudeTest';
-import { Types } from 'mongoose';
-
-/**
- * Builds the question set for a new attempt.
- *
- * Randomization strategy:
- *  1. Look up every question this user has already seen across their past attempts.
- *  2. Prefer unseen questions first, in random order.
- *  3. Fall back to seen questions if unseen pool is exhausted.
- *  4. Fall back to questions from other difficulties/categories if exact quota is not met.
- *  5. Ensure test always starts if at least 1 active question exists.
- */
 export async function buildQuestionSet(test: IAptitudeTest, userId: Types.ObjectId) {
   const pastAttempts = await AptitudeAttempt.find({ user: userId, test: test._id }).select('questions').lean();
   const seenIds = new Set(pastAttempts.flatMap((a) => a.questions.map((q) => q.toString())));
@@ -56,42 +41,15 @@ export async function buildQuestionSet(test: IAptitudeTest, userId: Types.Object
     const seen = pool.filter((q) => seenIds.has(q._id.toString()));
 
     const candidates = [...shuffle(unseen), ...shuffle(seen)];
-    for (const q of candidates) {
-      if (selectedIds.size >= 100) break;
-      selectedIds.add(q._id.toString());
-      if (selectedIds.size >= plan.count) break;
+    if (candidates.length < plan.count) {
+      throw new Error(`Insufficient ${difficulty} questions for this test: need ${plan.count}, found ${candidates.length}.`);
     }
-  }
-
-  // 2. Second pass: if nothing or very few selected, get ANY active question for this roundType/categories
-  if (selectedIds.size === 0) {
-    const fallbackPool = await AptitudeQuestion.find({
-      roundType: test.roundType,
-      category: { $in: test.categories },
-      status: 'active',
-    })
-      .select('_id')
-      .lean();
-
-    const candidates = shuffle(fallbackPool);
-    for (const q of candidates) {
+    for (const q of candidates.slice(0, plan.count)) {
       selectedIds.add(q._id.toString());
     }
   }
 
-  // 3. Third pass: if still empty, get ANY active question across the database
-  if (selectedIds.size === 0) {
-    const allActive = await AptitudeQuestion.find({ status: 'active' }).select('_id').limit(20).lean();
-    for (const q of allActive) {
-      selectedIds.add(q._id.toString());
-    }
-  }
-
-  if (selectedIds.size === 0) {
-    throw new Error(
-      `No active questions found for round "${test.roundType}". Please add questions in the Admin Question Bank first.`
-    );
-  }
+  if (selectedIds.size === 0) throw new Error('The test must request at least one question.');
 
   const selectedObjectIds = Array.from(selectedIds).map((id) => new Types.ObjectId(id));
 

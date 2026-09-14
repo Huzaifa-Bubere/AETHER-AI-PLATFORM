@@ -1,0 +1,1374 @@
+--- a/backend/src/controllers/adminAptitude.controller.ts
++++ b/backend/src/controllers/adminAptitude.controller.ts
+@@ -3,6 +3,8 @@
+ import AptitudeTest from '../models/AptitudeTest';
+ import AptitudeAttempt from '../models/AptitudeAttempt';
+ import User from '../models/User';
++import { requireAvailableQuestions, testAvailability } from '../services/aptitudeAvailability.service';
++import { invalidInput } from '../middleware/aptitudeValidation';
+ import { uploadQuestionImage, deleteQuestionImage } from '../utils/aptitudeImageUpload';
+ 
+ interface AuthedRequest extends Request {
+@@ -12,325 +14,147 @@
+ }
+ 
+ // ---------- Questions ----------
+-
+-/** POST /api/admin/aptitude/questions (supports JSON or multipart) */
++function questionInput(body: any, existing?: any) {
++  if (!body || typeof body !== 'object' || Array.isArray(body)) invalidInput('Question must be an object.');
++  const data: any = {};
++  for (const field of ['roundType', 'category', 'difficulty', 'correctOption', 'marks', 'explanation', 'questionText']) {
++    if (body[field] !== undefined) data[field] = body[field];
++  }
++  let options = body.options;
++  if (typeof options === 'string') {
++    try { options = JSON.parse(options); } catch { invalidInput('Options must be valid JSON.'); }
++  }
++  if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options))) invalidInput('Options must contain A, B, C and D.');
++  data.options = Object.fromEntries(['A', 'B', 'C', 'D'].map(key => [key,
++    options?.[key] ?? body[`option${key}`] ?? existing?.options?.[key] ?? '']));
++  if (body.imageUrl !== undefined) {
++    if (typeof body.imageUrl !== 'string' || (body.imageUrl && !/^https?:\/\//i.test(body.imageUrl))) invalidInput('An external image must use an HTTP or HTTPS URL.');
++    data.imageUrl = body.imageUrl;
++    data.imagePublicId = ''; // External assets are never owned or deleted by this API.
++  }
++  return data;
++}
++
++async function storeQuestion(body: any, file: Express.Multer.File | undefined, userId?: string, existing?: any) {
++  const question = existing || new AptitudeQuestion({ createdBy: userId });
++  const oldPublicId = question.imagePublicId;
++  question.set(questionInput(body, existing));
++  if (file) question.imageUrl = 'pending-upload';
++  await question.validate(); // Reject malformed records before uploading any asset.
++  let uploaded;
++  try {
++    if (file) {
++      uploaded = await uploadQuestionImage(file.buffer);
++      question.imageUrl = uploaded.url;
++      question.imagePublicId = uploaded.publicId;
++    }
++    await question.save();
++  } catch (error) {
++    if (uploaded) await deleteQuestionImage(uploaded.publicId);
++    throw error;
++  }
++  if (oldPublicId && oldPublicId !== question.imagePublicId) await deleteQuestionImage(oldPublicId);
++  return question;
++}
++
+ export async function createQuestion(req: AuthedRequest, res: Response): Promise<void> {
+-  try {
+-    const {
+-      roundType = 'aptitude',
+-      category,
+-      difficulty = 'easy',
+-      correctOption,
+-      marks = 1,
+-      explanation = '',
+-      questionText = '',
+-      optionA = '',
+-      optionB = '',
+-      optionC = '',
+-      optionD = '',
+-      options: rawOptions,
+-    } = req.body;
+-
+-    if (!category) {
+-      res.status(400).json({ message: 'Category is required.' });
+-      return;
+-    }
+-    if (!correctOption || !['A', 'B', 'C', 'D'].includes(correctOption)) {
+-      res.status(400).json({ message: 'Valid correct option (A, B, C, or D) is required.' });
+-      return;
+-    }
+-
+-    let imageUrl = '';
+-    let imagePublicId = '';
+-
+-    if (req.file) {
+-      const uploaded = await uploadQuestionImage(req.file.buffer);
+-      imageUrl = uploaded.url;
+-      imagePublicId = uploaded.publicId;
+-    } else if (req.body.imageUrl) {
+-      imageUrl = req.body.imageUrl;
+-      imagePublicId = req.body.imagePublicId || `external_${Date.now()}`;
+-    }
+-
+-    // Must have either an image OR question text
+-    if (!imageUrl && !questionText) {
+-      res.status(400).json({ message: 'Either a Question Statement or an Image is required.' });
+-      return;
+-    }
+-
+-    let parsedOptions = {
+-      A: optionA || '',
+-      B: optionB || '',
+-      C: optionC || '',
+-      D: optionD || '',
+-    };
+-
+-    if (rawOptions) {
+-      try {
+-        const optObj = typeof rawOptions === 'string' ? JSON.parse(rawOptions) : rawOptions;
+-        parsedOptions = {
+-          A: optObj.A || parsedOptions.A,
+-          B: optObj.B || parsedOptions.B,
+-          C: optObj.C || parsedOptions.C,
+-          D: optObj.D || parsedOptions.D,
+-        };
+-      } catch {
+-        // ignore parse error and keep parsedOptions
+-      }
+-    }
+-
+-    const question = await AptitudeQuestion.create({
+-      roundType,
+-      category,
+-      difficulty,
+-      correctOption,
+-      marks: Number(marks) || 1,
+-      explanation: explanation || '',
+-      questionText: questionText || '',
+-      options: parsedOptions,
+-      imageUrl,
+-      imagePublicId,
+-      createdBy: req.user?.userId,
+-    });
+-
+-    res.status(201).json({ question });
+-  } catch (error: any) {
+-    res.status(500).json({ message: error.message || 'Failed to create question' });
+-  }
+-}
+-
+-/**
+- * POST /api/admin/aptitude/questions/bulk (supports JSON array or multipart images)
+- */
++  const question = await storeQuestion(req.body, req.file, req.user?.userId);
++  res.status(201).json({ question });
++}
++
+ export async function bulkCreateQuestions(req: AuthedRequest, res: Response): Promise<void> {
+-  try {
+-    const files = req.files as Express.Multer.File[] | undefined;
+-    let questionsData: any[] = [];
+-
+-    if (req.body.questions && Array.isArray(req.body.questions)) {
+-      questionsData = req.body.questions;
+-    } else if (req.body.meta) {
+-      try {
+-        questionsData = JSON.parse(req.body.meta);
+-      } catch {
+-        res.status(400).json({ message: '`meta` must be a valid JSON array.' });
+-        return;
+-      }
+-    }
+-
+-    if (files && files.length > 0) {
+-      if (questionsData.length !== files.length) {
+-        res.status(400).json({ message: `Got ${files.length} images but ${questionsData.length} meta entries — they must match 1:1.` });
+-        return;
+-      }
+-    } else if (questionsData.length === 0) {
+-      res.status(400).json({ message: 'No questions provided.' });
+-      return;
+-    }
+-
+-    const created = [];
+-    const failed: { index: number; error: string }[] = [];
+-
+-    for (let i = 0; i < questionsData.length; i++) {
+-      try {
+-        const m = questionsData[i];
+-        let imageUrl = m.imageUrl || '';
+-        let imagePublicId = m.imagePublicId || '';
+-
+-        if (files && files[i]) {
+-          const uploaded = await uploadQuestionImage(files[i].buffer);
+-          imageUrl = uploaded.url;
+-          imagePublicId = uploaded.publicId;
+-        }
+-
+-        const question = await AptitudeQuestion.create({
+-          roundType: m.roundType || 'aptitude',
+-          category: m.category,
+-          difficulty: m.difficulty || 'easy',
+-          correctOption: m.correctOption || 'A',
+-          marks: Number(m.marks) || 1,
+-          explanation: m.explanation || '',
+-          questionText: m.questionText || '',
+-          options: m.options || {
+-            A: m.optionA || '',
+-            B: m.optionB || '',
+-            C: m.optionC || '',
+-            D: m.optionD || '',
+-          },
+-          imageUrl,
+-          imagePublicId,
+-          createdBy: req.user?.userId,
+-        });
+-        created.push(question);
+-      } catch (err: any) {
+-        failed.push({ index: i, error: err.message });
+-      }
+-    }
+-
+-    res.status(207).json({ createdCount: created.length, failedCount: failed.length, created, failed });
+-  } catch (error: any) {
+-    res.status(500).json({ message: error.message || 'Failed to bulk create questions' });
+-  }
+-}
+-
+-/** GET /api/admin/aptitude/questions?roundType=&category=&difficulty=&status=&page=&limit= */
++  let data = req.body.questions;
++  if (req.body.meta !== undefined) {
++    try { data = JSON.parse(req.body.meta); } catch { invalidInput('Metadata must be a valid JSON array.'); }
++  }
++  if (!Array.isArray(data) || data.length < 1 || data.length > 100) invalidInput('Provide between 1 and 100 questions.');
++  const files = req.files || [];
++  if (files.length && files.length !== data.length) invalidInput('Images and metadata entries must match in number and order.');
++  const created = [], failed = [];
++  for (let index = 0; index < data.length; index++) {
++    try { created.push(await storeQuestion(data[index], files[index], req.user?.userId)); }
++    catch (error: any) { failed.push({ index, error: error.message }); }
++  }
++  res.status(207).json({ createdCount: created.length, failedCount: failed.length, created, failed });
++}
++
++const literalSearch = (value: string) => value.slice(0, 200).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+ export async function listQuestions(req: Request, res: Response): Promise<void> {
+   const { roundType, category, difficulty, status, page = '1', limit = '20', search = '' } = req.query as Record<string, string>;
+   const filter: Record<string, any> = {};
+-  if (roundType) filter.roundType = roundType;
+-  if (category) filter.category = category;
+-  if (difficulty) filter.difficulty = difficulty;
+-  if (status) filter.status = status;
+-  if (search) {
+-    filter.$or = [
+-      { questionText: { $regex: search, $options: 'i' } },
+-      { explanation: { $regex: search, $options: 'i' } },
+-    ];
+-  }
+-
+-  const pageNum = Math.max(1, parseInt(page));
+-  const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+-
++  for (const [key, value] of Object.entries({ roundType, category, difficulty, status })) if (value) filter[key] = value;
++  if (search) filter.$or = ['questionText', 'explanation'].map(key => ({ [key]: { $regex: literalSearch(search), $options: 'i' } }));
++  const pageNum = Math.max(1, parseInt(page) || 1);
++  const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+   const [questions, total] = await Promise.all([
+-    AptitudeQuestion.find(filter)
+-      .sort({ createdAt: -1 })
+-      .skip((pageNum - 1) * limitNum)
+-      .limit(limitNum),
++    AptitudeQuestion.find(filter).sort({ createdAt: -1, _id: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum),
+     AptitudeQuestion.countDocuments(filter),
+   ]);
+-
+   res.json({ questions, total, page: pageNum, pages: Math.ceil(total / limitNum) });
+ }
+ 
+-/** PUT /api/admin/aptitude/questions/:id */
+ export async function updateQuestion(req: AuthedRequest, res: Response): Promise<void> {
+-  const { category, difficulty, correctOption, marks, explanation, roundType, questionText, optionA, optionB, optionC, optionD, options } = req.body;
+   const question = await AptitudeQuestion.findById(req.params.id);
+-  if (!question) {
+-    res.status(404).json({ message: 'Question not found.' });
+-    return;
+-  }
+-
++  if (!question) { res.status(404).json({ message: 'Question not found.' }); return; }
+   if (await AptitudeAttempt.exists({ questions: question._id })) {
+-    res.status(409).json({ message: 'This question is used by an attempt. Deactivate it and create a replacement to preserve existing results.' });
+-    return;
+-  }
+-
+-  if (req.file) {
+-    const { url, publicId } = await uploadQuestionImage(req.file.buffer);
+-    if (question.imagePublicId) {
+-      await deleteQuestionImage(question.imagePublicId).catch(() => {});
+-    }
+-    question.imageUrl = url;
+-    question.imagePublicId = publicId;
+-  }
+-
+-  if (roundType) question.roundType = roundType;
+-  if (category) question.category = category;
+-  if (difficulty) question.difficulty = difficulty;
+-  if (correctOption) question.correctOption = correctOption;
+-  if (marks !== undefined) question.marks = Number(marks);
+-  if (explanation !== undefined) question.explanation = explanation;
+-  if (questionText !== undefined) question.questionText = questionText;
+-
+-  if (options) {
+-    try {
+-      const optObj = typeof options === 'string' ? JSON.parse(options) : options;
+-      question.options = {
+-        A: optObj.A ?? question.options?.A ?? '',
+-        B: optObj.B ?? question.options?.B ?? '',
+-        C: optObj.C ?? question.options?.C ?? '',
+-        D: optObj.D ?? question.options?.D ?? '',
+-      };
+-    } catch {
+-      // keep existing
+-    }
+-  } else if (optionA !== undefined || optionB !== undefined || optionC !== undefined || optionD !== undefined) {
+-    question.options = {
+-      A: optionA ?? question.options?.A ?? '',
+-      B: optionB ?? question.options?.B ?? '',
+-      C: optionC ?? question.options?.C ?? '',
+-      D: optionD ?? question.options?.D ?? '',
+-    };
+-  }
+-
+-  await question.save();
++    res.status(409).json({ message: 'This question has been used. Create a replacement and deactivate this one to preserve results.' }); return;
++  }
++  res.json({ question: await storeQuestion(req.body, req.file, req.user?.userId, question) });
++}
++
++export async function toggleQuestionStatus(req: Request, res: Response): Promise<void> {
++  if (!['active', 'inactive'].includes(req.body.status)) invalidInput('Status must be active or inactive.');
++  const question = await AptitudeQuestion.findByIdAndUpdate(req.params.id, { status: req.body.status }, { new: true, runValidators: true });
++  if (!question) { res.status(404).json({ message: 'Question not found.' }); return; }
+   res.json({ question });
+ }
+ 
+-/** PATCH /api/admin/aptitude/questions/:id/status  { status: 'active' | 'inactive' } */
+-export async function toggleQuestionStatus(req: Request, res: Response): Promise<void> {
+-  const question = await AptitudeQuestion.findByIdAndUpdate(req.params.id, { status: req.body.status }, { new: true });
+-  if (!question) {
+-    res.status(404).json({ message: 'Question not found.' });
+-    return;
+-  }
+-  res.json({ question });
+-}
+-
+-/** DELETE /api/admin/aptitude/questions/:id */
+ export async function deleteQuestion(req: Request, res: Response): Promise<void> {
+   const question = await AptitudeQuestion.findById(req.params.id);
+-  if (!question) {
+-    res.status(404).json({ message: 'Question not found.' });
+-    return;
+-  }
++  if (!question) { res.status(404).json({ message: 'Question not found.' }); return; }
+   if (await AptitudeAttempt.exists({ questions: question._id })) {
+-    res.status(409).json({ message: 'This question is used by an attempt. Deactivate it and create a replacement to preserve existing results.' });
+-    return;
+-  }
+-
+-  if (question.imagePublicId) {
+-    await deleteQuestionImage(question.imagePublicId).catch(() => {});
++    res.status(409).json({ message: 'This question has been used. Deactivate it to preserve existing results.' }); return;
+   }
+   await question.deleteOne();
++  if (question.imagePublicId) await deleteQuestionImage(question.imagePublicId);
+   res.json({ deleted: true });
+ }
+ 
+ // ---------- Tests ----------
+ 
+-/** POST /api/admin/aptitude/tests */
++const testFields = ['title', 'roundType', 'categories', 'difficultyPlan', 'durationMinutes', 'isPublished'];
++async function applyTestInput(test: InstanceType<typeof AptitudeTest>, body: any) {
++  if (body.isPublished !== undefined && typeof body.isPublished !== 'boolean') invalidInput('Published status must be a boolean.');
++  for (const field of testFields) if (body[field] !== undefined) test.set(field, body[field]);
++  await test.validate();
++  if (test.isPublished) await requireAvailableQuestions(test);
++  await test.save();
++}
++
+ export async function createTest(req: AuthedRequest, res: Response): Promise<void> {
+-  try {
+-    const test = await AptitudeTest.create({
+-      ...req.body,
+-      isPublished: req.body.isPublished !== undefined ? req.body.isPublished : true,
+-      createdBy: req.user?.userId,
+-    });
+-    res.status(201).json({ test });
+-  } catch (error: any) {
+-    res.status(400).json({ message: error.message || 'Failed to create test' });
+-  }
+-}
+-
+-/** PUT /api/admin/aptitude/tests/:id */
++  const test = new AptitudeTest({ createdBy: req.user?.userId, isPublished: false });
++  await applyTestInput(test, req.body);
++  res.status(201).json({ test });
++}
++
+ export async function updateTest(req: Request, res: Response): Promise<void> {
+   const test = await AptitudeTest.findById(req.params.id);
+-  if (!test) {
+-    res.status(404).json({ message: 'Test not found.' });
+-    return;
+-  }
+-  for (const field of ['title', 'roundType', 'categories', 'difficultyPlan', 'durationMinutes', 'isPublished']) {
+-    if (req.body[field] !== undefined) test.set(field, req.body[field]);
+-  }
+-  await test.save(); // Runs total-marks calculation and complete plan validation.
++  if (!test) { res.status(404).json({ message: 'Test not found.' }); return; }
++  await applyTestInput(test, req.body);
+   res.json({ test });
+ }
+ 
+-/** PATCH /api/admin/aptitude/tests/:id/publish  { isPublished: boolean } */
+ export async function togglePublishTest(req: Request, res: Response): Promise<void> {
+-  const test = await AptitudeTest.findByIdAndUpdate(req.params.id, { isPublished: req.body.isPublished }, { new: true });
+-  if (!test) {
+-    res.status(404).json({ message: 'Test not found.' });
+-    return;
+-  }
++  if (typeof req.body.isPublished !== 'boolean') invalidInput('Published status must be a boolean.');
++  const test = await AptitudeTest.findById(req.params.id);
++  if (!test) { res.status(404).json({ message: 'Test not found.' }); return; }
++  await applyTestInput(test, { isPublished: req.body.isPublished });
+   res.json({ test });
+ }
+ 
+-/** GET /api/admin/aptitude/tests */
+ export async function listTests(_req: Request, res: Response): Promise<void> {
+   const tests = await AptitudeTest.find().sort({ createdAt: -1 });
+-  res.json({ tests });
++  res.json({ tests: await Promise.all(tests.map(async test => ({ ...test.toObject(), availability: await testAvailability(test) }))) });
+ }
+ 
+ // ---------- Dashboard / Students ----------
+@@ -366,7 +190,7 @@
+ /** GET /api/admin/aptitude/students?search= — students with at least one attempt */
+ export async function listStudentPerformance(req: Request, res: Response): Promise<void> {
+   try {
+-    const search = (req.query.search as string) || '';
++    const search = literalSearch((req.query.search as string) || '');
+ 
+     const pipeline: any[] = [
+       { $match: { status: 'completed' } },
+@@ -415,19 +239,14 @@
+  * PATCH /api/admin/aptitude/students/:userId/block  { isBlocked: boolean }
+  */
+ export async function toggleStudentBlock(req: Request, res: Response): Promise<void> {
+-  try {
+-    const lockUntil = req.body.isBlocked ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) : null;
+-    const user = await User.findByIdAndUpdate(
+-      req.params.userId,
+-      { 'auth.lockUntil': lockUntil },
+-      { new: true }
+-    );
+-    if (!user) {
+-      res.status(404).json({ message: 'Student not found.' });
+-      return;
+-    }
+-    res.json({ user });
+-  } catch (error: any) {
+-    res.status(500).json({ message: error.message || 'Failed to toggle block status' });
+-  }
+-}
++  if (typeof req.body.isBlocked !== 'boolean') invalidInput('Blocked status must be a boolean.');
++  const isBlocked = req.body.isBlocked;
++  const user = await User.findOneAndUpdate(
++    { _id: req.params.userId, 'auth.role': { $ne: 'admin' } },
++    { $set: { 'auth.lockUntil': isBlocked ? new Date(Date.now() + 365 * 86400000) : null },
++      ...(isBlocked ? { $inc: { 'auth.tokenVersion': 1 } } : {}) },
++    { new: true }
++  );
++  if (!user) { res.status(404).json({ message: 'Student not found. Administrator accounts cannot be blocked here.' }); return; }
++  res.json({ userId: user._id, isBlocked });
++}
+--- a/backend/src/middleware/aptitudeValidation.ts
++++ b/backend/src/middleware/aptitudeValidation.ts
+@@ -0,0 +1,20 @@
++import { Request, Response, NextFunction } from 'express';
++import { isObjectIdOrHexString } from 'mongoose';
++
++export function aptitudeId(_req: Request, res: Response, next: NextFunction, id: string) {
++  if (!isObjectIdOrHexString(id)) { res.status(400).json({ message: 'Invalid resource ID.' }); return; }
++  next();
++}
++
++// Keep the aptitude API's error contract consistent for JSON and multipart requests.
++export function aptitudeError(error: any, _req: Request, res: Response, next: NextFunction) {
++  if (error.name === 'ValidationError' || error.name === 'CastError' || error.name === 'MulterError' || error.statusCode) {
++    res.status(error.statusCode || (error.code === 'LIMIT_FILE_SIZE' ? 413 : 400)).json({ message: error.message });
++    return;
++  }
++  next(error);
++}
++
++export function invalidInput(message: string, statusCode = 400): never {
++  throw Object.assign(new Error(message), { statusCode });
++}
+--- a/backend/src/models/AptitudeQuestion.ts
++++ b/backend/src/models/AptitudeQuestion.ts
+@@ -1,9 +1,8 @@
+ import { Schema, model, Document, Types } from 'mongoose';
+ 
+-/**
+- * A question is a single image containing the statement + all four options.
+- * No question text is ever stored — matches the "image only" spec.
+- */
++/** Questions contain either a complete image or a statement with four text options. */
++export const CATEGORIES = ['quantitative-aptitude', 'logical-reasoning', 'verbal-ability',
++  'data-interpretation', 'puzzle-solving', 'technical-quiz'] as const;
+ 
+ export type RoundType = 'aptitude' | 'technical' | 'coding';
+ export type Category =
+@@ -78,7 +77,7 @@
+     imageUrl: { type: String, default: '' },
+     imagePublicId: { type: String, default: '' },
+     correctOption: { type: String, enum: ['A', 'B', 'C', 'D'], required: true },
+-    marks: { type: Number, required: true, default: 1, min: 0 },
++    marks: { type: Number, required: true, default: 1, min: 0.0001, max: 1000 },
+     explanation: { type: String, default: '' },
+     status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
+     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: false },
+@@ -88,6 +87,15 @@
+ );
+ 
+ // Compound index used heavily by the random-question picker
++AptitudeQuestionSchema.pre('validate', function (next) {
++  if (!this.imageUrl?.trim()) {
++    if (!this.questionText?.trim()) this.invalidate('questionText', 'Provide a question statement or a complete question image.');
++    if (['A', 'B', 'C', 'D'].some(key => !this.options?.[key as OptionKey]?.trim())) {
++      this.invalidate('options', 'Text questions require all four options.');
++    }
++  }
++  next();
++});
+ AptitudeQuestionSchema.index({ roundType: 1, category: 1, difficulty: 1, status: 1 });
+ 
+ export default model<IAptitudeQuestion>('AptitudeQuestion', AptitudeQuestionSchema);
+--- a/backend/src/models/AptitudeTest.ts
++++ b/backend/src/models/AptitudeTest.ts
+@@ -1,5 +1,5 @@
+ import { Schema, model, Document, Types } from 'mongoose';
+-import { RoundType, Category } from './AptitudeQuestion';
++import { RoundType, Category, CATEGORIES } from './AptitudeQuestion';
+ 
+ /** How many questions of each difficulty this test should pull, and the per-level time budget.
+  *  Defaults mirror the spec: 15 easy / 15 medium / 15 hard, 45 min total for aptitude+technical,
+@@ -30,7 +30,7 @@
+ const DifficultyPlanSchema = new Schema<DifficultyPlan>(
+   {
+     count: { type: Number, required: true, min: 0, max: 100, validate: Number.isInteger },
+-    marksPerQuestion: { type: Number, required: true, default: 1, min: 0.0001 },
++    marksPerQuestion: { type: Number, required: true, default: 1, min: 0.0001, max: 1000 },
+   },
+   { _id: false }
+ );
+@@ -39,7 +39,7 @@
+   {
+     title: { type: String, required: true, trim: true },
+     roundType: { type: String, enum: ['aptitude', 'technical', 'coding'], required: true },
+-    categories: [{ type: String, required: true }],
++    categories: [{ type: String, required: true, enum: CATEGORIES }],
+     difficultyPlan: {
+       easy: { type: DifficultyPlanSchema, required: true },
+       medium: { type: DifficultyPlanSchema, required: true },
+--- a/backend/src/routes/aptitudeAdmin.routes.ts
++++ b/backend/src/routes/aptitudeAdmin.routes.ts
+@@ -1,10 +1,13 @@
++import { aptitudeId, aptitudeError } from '../middleware/aptitudeValidation';
+ import { Router } from 'express';
+ import multer from 'multer';
+ import * as ctrl from '../controllers/adminAptitude.controller';
+ import { authenticateToken, requireAdmin } from '../middleware/auth';
+ 
+-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
++const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 100, fields: 20, fieldSize: 2 * 1024 * 1024 } });
+ const router = Router();
++router.param('id', aptitudeId);
++router.param('userId', aptitudeId);
+ 
+ router.use(authenticateToken, requireAdmin);
+ 
+@@ -27,4 +30,5 @@
+ router.get('/students', ctrl.listStudentPerformance);
+ router.patch('/students/:userId/block', ctrl.toggleStudentBlock);
+ 
++router.use(aptitudeError);
+ export default router;
+--- a/backend/src/routes/aptitudeStudent.routes.ts
++++ b/backend/src/routes/aptitudeStudent.routes.ts
+@@ -1,10 +1,16 @@
++import express from 'express';
++import { questionImageDirectory } from '../utils/aptitudeImageUpload';
++import { aptitudeId, aptitudeError } from '../middleware/aptitudeValidation';
+ import { Router } from 'express';
+ import * as ctrl from '../controllers/studentAptitude.controller';
+ import { authenticateToken } from '../middleware/auth';
+ import { assessmentLimiter } from '../middleware/rateLimiter';
+ 
+ const router = Router();
++router.param('testId', aptitudeId);
++router.param('attemptId', aptitudeId);
+ 
++router.use('/images', express.static(questionImageDirectory, { dotfiles: 'deny', index: false, maxAge: '1d', setHeaders: res => res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin') }));
+ router.use(authenticateToken);
+ router.use(assessmentLimiter);
+ 
+@@ -15,4 +21,5 @@
+ router.post('/attempts/:attemptId/submit', ctrl.submitAttempt);
+ router.get('/attempts/:attemptId/result', ctrl.getResult);
+ 
++router.use(aptitudeError);
+ export default router;
+--- a/backend/src/services/aptitudeAvailability.service.ts
++++ b/backend/src/services/aptitudeAvailability.service.ts
+@@ -0,0 +1,18 @@
++import Question from '../models/AptitudeQuestion';
++import { IAptitudeTest } from '../models/AptitudeTest';
++import { invalidInput } from '../middleware/aptitudeValidation';
++
++export async function testAvailability(test: IAptitudeTest) {
++  const levels = await Promise.all((['easy', 'medium', 'hard'] as const).map(async difficulty => ({
++    difficulty, required: test.difficultyPlan[difficulty].count,
++    available: await Question.countDocuments({ roundType: test.roundType, category: { $in: test.categories }, difficulty, status: 'active' }),
++  })));
++  const issues = levels.filter(level => level.available < level.required)
++    .map(level => `${level.difficulty}: need ${level.required}, available ${level.available}`);
++  return { ready: issues.length === 0, levels, issues };
++}
++
++export async function requireAvailableQuestions(test: IAptitudeTest) {
++  const availability = await testAvailability(test);
++  if (!availability.ready) invalidInput(`Add active questions before publishing (${availability.issues.join('; ')}).`, 422);
++}
+--- a/backend/src/utils/aptitudeImageUpload.ts
++++ b/backend/src/utils/aptitudeImageUpload.ts
+@@ -1,63 +1,46 @@
+ import { v2 as cloudinary } from 'cloudinary';
+-import streamifier from 'streamifier';
+-import logger from './logger';
++import sharp from 'sharp';
++import { promises as fs } from 'fs';
++import path from 'path';
++import { randomUUID } from 'crypto';
++import { invalidInput } from '../middleware/aptitudeValidation';
+ 
+-export interface UploadResult {
+-  url: string;
+-  publicId: string;
++export const questionImageDirectory = path.resolve(__dirname, '../../uploads/aptitude');
++export interface UploadResult { url: string; publicId: string }
++
++export async function uploadQuestionImage(buffer: Buffer): Promise<UploadResult> {
++  let normalized: Buffer;
++  try {
++    const input = sharp(buffer, { limitInputPixels: 25000000 });
++    const metadata = await input.metadata();
++    if (!['jpeg', 'png', 'webp', 'gif'].includes(metadata.format || '')) invalidInput('Use a PNG, JPEG, WebP or GIF image.');
++    normalized = await input.rotate().webp({ quality: 90 }).toBuffer();
++  } catch { return invalidInput('The uploaded file is not a valid supported image.'); }
++  if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
++    cloudinary.config({ cloud_name: process.env.CLOUDINARY_CLOUD_NAME, api_key: process.env.CLOUDINARY_API_KEY,
++      api_secret: process.env.CLOUDINARY_API_SECRET, secure: true });
++    try {
++      return await new Promise<UploadResult>((resolve, reject) => {
++        const stream = cloudinary.uploader.upload_stream({ folder: 'smart-interview-ai/aptitude-questions', resource_type: 'image', timeout: 10000 },
++          (error, result) => error || !result ? reject(error) : resolve({ url: result.secure_url, publicId: result.public_id }));
++        stream.on('error', reject);
++        stream.end(normalized);
++      });
++    } catch { /* Keep local development usable when optional cloud storage is unavailable. */ }
++  }
++  // Store each image once; embedding 100 images in an attempt can exceed MongoDB's document limit.
++  await fs.mkdir(questionImageDirectory, { recursive: true });
++  const name = `${randomUUID()}.webp`;
++  await fs.writeFile(path.join(questionImageDirectory, name), normalized);
++  return { url: `/api/aptitude/images/${name}`, publicId: `disk:${name}` };
+ }
+ 
+-function ensureCloudinaryConfig() {
+-  if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+-    cloudinary.config({
+-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+-      api_key: process.env.CLOUDINARY_API_KEY,
+-      api_secret: process.env.CLOUDINARY_API_SECRET,
+-      secure: true,
+-    });
++export async function deleteQuestionImage(publicId: string): Promise<void> {
++  if (publicId.startsWith('disk:')) {
++    const name = publicId.slice(5);
++    if (/^[a-f0-9-]{36}\.webp$/.test(name)) await fs.unlink(path.join(questionImageDirectory, name)).catch(() => {});
++    return;
+   }
++  if (!publicId.startsWith('smart-interview-ai/aptitude-questions/')) return;
++  await cloudinary.uploader.destroy(publicId).catch(() => {});
+ }
+-
+-export function uploadQuestionImage(buffer: Buffer, folder = 'smart-interview-ai/aptitude-questions'): Promise<UploadResult> {
+-  return new Promise((resolve) => {
+-    try {
+-      ensureCloudinaryConfig();
+-      if (!process.env.CLOUDINARY_CLOUD_NAME) {
+-        // Fallback to data URI for local/offline environments
+-        const dataUrl = `data:image/png;base64,${buffer.toString('base64')}`;
+-        return resolve({ url: dataUrl, publicId: `local_${Date.now()}` });
+-      }
+-
+-      const stream = cloudinary.uploader.upload_stream(
+-        { folder, resource_type: 'image' },
+-        (error, result) => {
+-          if (error || !result) {
+-            logger.warn('Cloudinary upload failed, falling back to data URL:', error?.message);
+-            const dataUrl = `data:image/png;base64,${buffer.toString('base64')}`;
+-            return resolve({ url: dataUrl, publicId: `local_${Date.now()}` });
+-          }
+-          resolve({ url: result.secure_url, publicId: result.public_id });
+-        }
+-      );
+-      streamifier.createReadStream(buffer).pipe(stream);
+-    } catch (err: any) {
+-      logger.warn('Cloudinary stream error, falling back to data URL:', err?.message);
+-      const dataUrl = `data:image/png;base64,${buffer.toString('base64')}`;
+-      resolve({ url: dataUrl, publicId: `local_${Date.now()}` });
+-    }
+-  });
+-}
+-
+-export function deleteQuestionImage(publicId: string): Promise<void> {
+-  return new Promise((resolve) => {
+-    if (!publicId || publicId.startsWith('local_')) {
+-      return resolve();
+-    }
+-    ensureCloudinaryConfig();
+-    cloudinary.uploader.destroy(publicId, (error) => {
+-      if (error) logger.debug('Cloudinary destroy error:', error);
+-      resolve();
+-    });
+-  });
+-}
+-
+--- a/backend/tests/aptitude-admin.test.js
++++ b/backend/tests/aptitude-admin.test.js
+@@ -0,0 +1,61 @@
++const { Types } = require('mongoose');
++const Question = require('../dist/models/AptitudeQuestion').default;
++const Test = require('../dist/models/AptitudeTest').default;
++const controller = require('../dist/controllers/adminAptitude.controller');
++const { uploadQuestionImage, deleteQuestionImage, questionImageDirectory } = require('../dist/utils/aptitudeImageUpload');
++const fs = require('fs/promises');
++const path = require('path');
++const sharp = require('sharp');
++const validQuestion = { category: 'logical-reasoning', difficulty: 'easy', correctOption: 'B', questionText: '2 + 2?', options: { A: '3', B: '4', C: '5', D: '6' } };
++const validTest = { title: 'Aptitude', roundType: 'aptitude', categories: ['logical-reasoning'], durationMinutes: 5,
++  difficultyPlan: { easy: { count: 2, marksPerQuestion: 1 }, medium: { count: 0, marksPerQuestion: 2 }, hard: { count: 0, marksPerQuestion: 3 } } };
++const response = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
++afterEach(() => jest.restoreAllMocks());
++
++test('rejects blank questions, incomplete text options, invalid marks and unknown categories', async () => {
++  for (const change of [{ questionText: ' ' }, { options: { A: 'x' } }, { marks: -1 }, { marks: 0 }, { category: 'unknown' }]) {
++    await expect(new Question({ ...validQuestion, ...change }).validate()).rejects.toThrow();
++  }
++  await expect(new Question(validQuestion).validate()).resolves.toBeUndefined();
++  await expect(new Question({ ...validQuestion, questionText: '', options: {}, imageUrl: 'https://example.com/question.png' }).validate()).resolves.toBeUndefined();
++});
++
++test('creates drafts and rejects publishing when the active bank is short', async () => {
++  jest.spyOn(Test.prototype, 'save').mockImplementation(function () { return Promise.resolve(this); });
++  const res = response();
++  await controller.createTest({ user: { userId: String(new Types.ObjectId()) }, body: validTest }, res);
++  expect(res.json.mock.calls[0][0].test.isPublished).toBe(false);
++  jest.spyOn(Question, 'countDocuments').mockResolvedValue(1);
++  await expect(controller.createTest({ user: { userId: String(new Types.ObjectId()) }, body: { ...validTest, isPublished: true } }, response()))
++    .rejects.toMatchObject({ statusCode: 422 });
++});
++
++test('status and publishing APIs reject strings instead of coercing booleans or storing invalid states', async () => {
++  await expect(controller.toggleQuestionStatus({ body: { status: 'broken' } }, response())).rejects.toMatchObject({ statusCode: 400 });
++  await expect(controller.togglePublishTest({ body: { isPublished: 'false' } }, response())).rejects.toMatchObject({ statusCode: 400 });
++  await expect(controller.toggleStudentBlock({ body: { isBlocked: 'false' } }, response())).rejects.toMatchObject({ statusCode: 400 });
++});
++
++test('bulk metadata must be an array and every entry must contain a valid question and answer', async () => {
++  await expect(controller.bulkCreateQuestions({ body: { meta: '{}' } }, response())).rejects.toMatchObject({ statusCode: 400 });
++  const res = response();
++  await controller.bulkCreateQuestions({ body: { questions: [{ ...validQuestion, correctOption: undefined }, {}] } }, res);
++  expect(res.json.mock.calls[0][0]).toMatchObject({ createdCount: 0, failedCount: 2 });
++});
++
++test('rejects invalid images and stores a real JPEG as a separate normalized asset offline', async () => {
++  const previous = process.env.CLOUDINARY_CLOUD_NAME;
++  delete process.env.CLOUDINARY_CLOUD_NAME;
++  let uploaded;
++  try {
++    await expect(uploadQuestionImage(Buffer.from('not an image'))).rejects.toMatchObject({ statusCode: 400 });
++    const jpeg = await sharp({ create: { width: 40, height: 30, channels: 3, background: 'white' } }).jpeg().toBuffer();
++    uploaded = await uploadQuestionImage(jpeg);
++    expect(uploaded.url).toMatch(/^\/api\/aptitude\/images\/[a-f0-9-]+\.webp$/);
++    const bytes = await fs.readFile(path.join(questionImageDirectory, uploaded.publicId.slice(5)));
++    expect((await sharp(bytes).metadata()).format).toBe('webp');
++  } finally {
++    if (uploaded) await deleteQuestionImage(uploaded.publicId);
++    if (previous !== undefined) process.env.CLOUDINARY_CLOUD_NAME = previous;
++  }
++});
+--- a/backend/tests/aptitude-selection.test.js
++++ b/backend/tests/aptitude-selection.test.js
+@@ -4,7 +4,7 @@
+ const Test = require('../dist/models/AptitudeTest').default;
+ const { buildQuestionSet } = require('../dist/services/questionSelector.service');
+ const plan = { easy: { count: 15, marksPerQuestion: 1 }, medium: { count: 15, marksPerQuestion: 2 }, hard: { count: 15, marksPerQuestion: 3 } };
+-const testData = () => ({ _id: new Types.ObjectId(), title: 'Audit', roundType: 'aptitude', categories: ['quantitative'], difficultyPlan: plan, createdBy: new Types.ObjectId() });
++const testData = () => ({ _id: new Types.ObjectId(), title: 'Audit', roundType: 'aptitude', categories: ['quantitative-aptitude'], difficultyPlan: plan, createdBy: new Types.ObjectId() });
+ afterEach(() => jest.restoreAllMocks());
+ 
+ test('selects 15 questions in each difficulty, without duplicates', async () => {
+--- a/frontend/src/lib/aptitudeApi.ts
++++ b/frontend/src/lib/aptitudeApi.ts
+@@ -6,3 +6,8 @@
+   baseURL: apiBaseURL.replace(/\/api$/, ''),
+   timeout: 60000,
+ }));
++
++export function aptitudeImageUrl(url?: string): string {
++  if (!url) return '';
++  return url.startsWith('/api/') ? `${apiBaseURL.replace(/\/api$/, '')}${url}` : url;
++}
+--- a/frontend/src/pages/admin/aptitude/QuestionManager.tsx
++++ b/frontend/src/pages/admin/aptitude/QuestionManager.tsx
+@@ -1,5 +1,6 @@
+-import { useEffect, useState, FormEvent } from 'react';
+-import api from '../../../lib/aptitudeApi';
++import { Link } from 'react-router-dom';
++import { useEffect, useState, useRef, FormEvent } from 'react';
++import api, { aptitudeImageUrl } from '../../../lib/aptitudeApi';
+ 
+ 
+ const CATEGORIES = [
+@@ -11,15 +12,18 @@
+   'technical-quiz',
+ ];
+ const DIFFICULTIES = ['easy', 'medium', 'hard'];
+-const ROUND_TYPES = ['aptitude', 'technical', 'coding'];
++const ROUND_TYPES = ['aptitude', 'technical'];
+ 
+ function extractErrorMessage(err: any): string {
+-  return err?.response?.data?.message || err?.message || 'Something went wrong. Please try again.';
++  return err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Something went wrong. Please try again.';
+ }
+ 
+ interface QuestionRow {
+   _id: string;
+   imageUrl: string;
++  questionText?: string;
++  options?: Record<string, string>;
++  explanation?: string;
+   roundType: string;
+   category: string;
+   difficulty: string;
+@@ -38,17 +42,25 @@
+   const [saving, setSaving] = useState(false);
+   const [page, setPage] = useState(1);
+   const [pages, setPages] = useState(1);
++  const [editing, setEditing] = useState<QuestionRow | null>(null);
++  const [loading, setLoading] = useState(true);
++  const requestId = useRef(0);
++  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+ 
+   const fetchQuestions = async () => {
++    const current = ++requestId.current;
++    setLoading(true);
+     try {
+       const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
+       const { data } = await api.get('/api/admin/aptitude/questions', { params: { ...params, page, limit: 20 } });
++      if (current !== requestId.current) return;
++      setError(null);
+       setQuestions(data.questions);
+       setPages(Math.max(1, data.pages));
+       if (page > Math.max(1, data.pages)) setPage(Math.max(1, data.pages));
+     } catch (err) {
+-      setError(extractErrorMessage(err));
+-    }
++      if (current === requestId.current) setError(extractErrorMessage(err));
++    } finally { if (current === requestId.current) setLoading(false); }
+   };
+ 
+   useEffect(() => {
+@@ -63,8 +75,12 @@
+     setSaving(true);
+     try {
+       const form = new FormData(e.currentTarget);
+-      await api.post('/api/admin/aptitude/questions', form, { headers: { 'Content-Type': 'multipart/form-data' } });
++      const file = form.get('image') as File;
++      if (!file?.size) form.delete('image');
++      if (editing) await api.put(`/api/admin/aptitude/questions/${editing._id}`, form);
++      else await api.post('/api/admin/aptitude/questions', form);
+       setShowUploadForm(false);
++      setEditing(null);
+       setPreview(null);
+       await fetchQuestions();
+     } catch (err) {
+@@ -95,7 +111,8 @@
+ 
+   return (
+     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
+-      <div className="mb-6 flex items-center justify-between">
++      <Link to="/admin/aptitude" className="mb-4 inline-block text-sm text-primary">Back to Aptitude Admin</Link>
++      <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
+         <h1 className="text-xl font-bold">Question Bank</h1>
+         <div className="flex items-center gap-3 text-sm">
+           <button disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+@@ -105,7 +122,7 @@
+         <div className="flex gap-2">
+           <BulkUploadButton onDone={fetchQuestions} onError={setError} />
+           <button
+-            onClick={() => setShowUploadForm((v) => !v)}
++            onClick={() => { setEditing(null); setPreview(null); setShowUploadForm(v => !v); }}
+             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+           >
+             + Add Question
+@@ -123,35 +140,42 @@
+       )}
+ 
+       {showUploadForm && (
+-        <form onSubmit={handleUpload} className="mb-6 grid gap-3 rounded-xl border border-border bg-card p-5 sm:grid-cols-2">
+-          <Field label="Question Image">
++        <form key={editing?._id || 'new'} onSubmit={handleUpload} className="mb-6 grid gap-3 rounded-xl border border-border bg-card p-5 sm:grid-cols-2">
++          <p className="text-sm text-muted-foreground sm:col-span-2">Use a complete question image, or enter a statement and all four options. Test difficulty weights determine the exam marks.</p>
++          <Field label="Question Image (optional)">
+             <input
+               type="file"
+               name="image"
+-              accept="image/*"
+-              required
++              accept="image/png,image/jpeg,image/webp,image/gif"
+               onChange={(e) => setPreview(e.target.files?.[0] ? URL.createObjectURL(e.target.files[0]) : null)}
+               className="w-full text-sm"
+             />
+           </Field>
+           <Field label="Round Type">
+-            <Select name="roundType" options={ROUND_TYPES} />
++            <Select name="roundType" options={ROUND_TYPES} defaultValue={editing?.roundType} />
+           </Field>
+           <Field label="Category">
+-            <Select name="category" options={CATEGORIES} />
++            <Select name="category" options={CATEGORIES} defaultValue={editing?.category} />
+           </Field>
+           <Field label="Difficulty">
+-            <Select name="difficulty" options={DIFFICULTIES} />
++            <Select name="difficulty" options={DIFFICULTIES} defaultValue={editing?.difficulty} />
+           </Field>
+           <Field label="Correct Option">
+-            <Select name="correctOption" options={['A', 'B', 'C', 'D']} />
++            <Select name="correctOption" options={['A', 'B', 'C', 'D']} defaultValue={editing?.correctOption} />
+           </Field>
+           <Field label="Marks">
+-            <input name="marks" type="number" defaultValue={1} min={0} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
+-          </Field>
++            <input name="marks" type="number" defaultValue={editing?.marks ?? 1} min={0.01} max={1000} step="any" required className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
++          </Field>
++          <div className="sm:col-span-2">
++            <Field label="Question statement"><textarea name="questionText" defaultValue={editing?.questionText} rows={3} className="w-full rounded-md bg-secondary px-3 py-2" /></Field>
++          </div>
++          {['A', 'B', 'C', 'D'].map(option => <Field key={option} label={`Option ${option}`}>
++            <input name={`option${option}`} defaultValue={editing?.options?.[option]} className="w-full rounded-md bg-secondary px-3 py-2" />
++          </Field>)}
++          {editing?.imageUrl && !preview && <img src={aptitudeImageUrl(editing.imageUrl)} alt="Current question" className="max-h-40 sm:col-span-2" />}
+           <div className="sm:col-span-2">
+             <Field label="Explanation">
+-              <textarea name="explanation" rows={2} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
++              <textarea name="explanation" defaultValue={editing?.explanation} rows={2} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" />
+             </Field>
+           </div>
+           {preview && <img src={preview} alt="preview" className="max-h-40 rounded-lg sm:col-span-2" />}
+@@ -175,11 +199,11 @@
+         <FilterSelect value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })} options={['active', 'inactive']} placeholder="All statuses" />
+       </div>
+ 
+-      <div className="overflow-hidden rounded-xl border border-border">
++      <div className="overflow-x-auto rounded-xl border border-border">
+         <table className="w-full text-sm">
+           <thead className="bg-card text-muted-foreground">
+             <tr>
+-              <th className="p-3 text-left">Image</th>
++              <th className="p-3 text-left">Question</th>
+               <th className="p-3 text-left">Round</th>
+               <th className="p-3 text-left">Category</th>
+               <th className="p-3 text-left">Difficulty</th>
+@@ -194,7 +218,8 @@
+             {questions.map((q) => (
+               <tr key={q._id} className="border-t border-border">
+                 <td className="p-3">
+-                  <img src={q.imageUrl} alt="" className="h-12 w-16 rounded object-cover" />
++                  {q.imageUrl && <img src={aptitudeImageUrl(q.imageUrl)} alt="Question" className="h-12 w-16 rounded object-cover" />}
++                  <p className="max-w-xs line-clamp-3 whitespace-pre-wrap">{q.questionText}</p>
+                 </td>
+                 <td className="p-3">{q.roundType}</td>
+                 <td className="p-3">{q.category.replace(/-/g, ' ')}</td>
+@@ -206,6 +231,7 @@
+                   <span className={q.status === 'active' ? 'text-emerald-700' : 'text-muted-foreground'}>{q.status}</span>
+                 </td>
+                 <td className="p-3">
++                  <button disabled={q.timesUsed > 0} title={q.timesUsed > 0 ? 'Used questions are preserved for results.' : 'Edit question'} onClick={() => { setEditing(q); setPreview(null); setShowUploadForm(true); window.scrollTo(0, 0); }} className="mr-3 text-primary disabled:opacity-40">Edit</button>
+                   <button onClick={() => toggleStatus(q._id, q.status)} className="mr-3 text-primary hover:underline">
+                     {q.status === 'active' ? 'Deactivate' : 'Activate'}
+                   </button>
+@@ -218,7 +244,7 @@
+             {questions.length === 0 && (
+               <tr>
+                 <td colSpan={9} className="p-6 text-center text-muted-foreground">
+-                  No questions match these filters.
++                  {loading ? 'Loading questions?' : 'No questions match these filters.'}
+                 </td>
+               </tr>
+             )}
+@@ -244,7 +270,9 @@
+     try {
+       const form = new FormData(e.currentTarget);
+       form.set('meta', metaJson);
+-      const { data } = await api.post('/api/admin/aptitude/questions/bulk', form, { headers: { 'Content-Type': 'multipart/form-data' } });
++      const files = form.getAll('images') as File[];
++      if (!files.some(file => file.size)) form.delete('images');
++      const { data } = await api.post('/api/admin/aptitude/questions/bulk', form);
+       if (data.failedCount > 0) {
+         setLocalError(`${data.createdCount} succeeded, ${data.failedCount} failed: ${JSON.stringify(data.failed)}`);
+       } else {
+@@ -252,7 +280,7 @@
+       }
+       onDone();
+     } catch (err: any) {
+-      const msg = err?.response?.data?.message || err?.message || 'Bulk upload failed.';
++      const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Bulk upload failed.';
+       setLocalError(msg);
+       onError(msg);
+     } finally {
+@@ -276,7 +304,7 @@
+             {localError && (
+               <div className="mb-3 rounded-lg border border-destructive/30 bg-red-50 p-2 text-xs text-destructive">{localError}</div>
+             )}
+-            <input type="file" name="images" accept="image/*" multiple required className="mb-3 w-full text-sm" />
++            <input type="file" name="images" accept="image/*" multiple className="mb-3 w-full text-sm" />
+             <textarea
+               value={metaJson}
+               onChange={(e) => setMetaJson(e.target.value)}
+@@ -307,9 +335,9 @@
+   );
+ }
+ 
+-function Select({ name, options }: { name: string; options: string[] }) {
+-  return (
+-    <select name={name} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" required>
++function Select({ name, options, defaultValue }: { name: string; options: string[]; defaultValue?: string }) {
++  return (
++    <select name={name} defaultValue={defaultValue} className="w-full rounded-md bg-secondary px-3 py-2 text-sm" required>
+       {options.map((o) => (
+         <option key={o} value={o}>
+           {o.replace(/-/g, ' ')}
+--- a/frontend/src/pages/admin/aptitude/StudentManager.tsx
++++ b/frontend/src/pages/admin/aptitude/StudentManager.tsx
+@@ -1,4 +1,5 @@
+-import { useEffect, useState } from 'react';
++import { Link } from 'react-router-dom';
++import { useEffect, useState, useRef } from 'react';
+ import api from '../../../lib/aptitudeApi';
+ 
+ 
+@@ -15,16 +16,22 @@
+ export default function StudentManager() {
+   const [students, setStudents] = useState<StudentRow[]>([]);
+   const [search, setSearch] = useState('');
++  const [loading, setLoading] = useState(true);
++  const [updating, setUpdating] = useState<string | null>(null);
++  const requestId = useRef(0);
+   const [error, setError] = useState<string | null>(null);
+ 
+   const fetchStudents = async () => {
++    const current = ++requestId.current;
++    setLoading(true);
+     try {
+       const { data } = await api.get('/api/admin/aptitude/students', { params: { search } });
++      if (current !== requestId.current) return;
+       setStudents(data.students);
+       setError(null);
+     } catch (error: any) {
+-      setError(error?.response?.data?.message || 'Could not load students. Please retry.');
+-    }
++      if (current === requestId.current) setError(error?.response?.data?.message || error?.response?.data?.error || 'Could not load students. Please retry.');
++    } finally { if (current === requestId.current) setLoading(false); }
+   };
+ 
+   useEffect(() => {
+@@ -34,18 +41,21 @@
+   }, [search]);
+ 
+   const toggleBlock = async (userId: string, isBlocked: boolean) => {
++    if (updating) return;
++    setUpdating(userId);
+     try {
+       await api.patch(`/api/admin/aptitude/students/${userId}/block`, { isBlocked: !isBlocked });
+       await fetchStudents();
+     } catch (error: any) {
+       setError(error?.response?.data?.message || 'Could not update the student. Please retry.');
+-    }
++    } finally { setUpdating(null); }
+   };
+ 
+   return (
+     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
+       {error && <p role="alert" className="my-4 text-destructive">{error}</p>}
+-      <div className="mb-6 flex items-center justify-between">
++      <Link to="/admin/aptitude" className="mb-4 inline-block text-sm text-primary">Back to Aptitude Admin</Link>
++      <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
+         <h1 className="text-xl font-bold">Students</h1>
+         <input
+           value={search}
+@@ -55,7 +65,8 @@
+         />
+       </div>
+ 
+-      <div className="overflow-hidden rounded-xl border border-border">
++      <p className="mb-4 text-sm text-muted-foreground">Blocking prevents this student from signing in across the platform. Unblocked students can sign in again.</p>
++      <div className="overflow-x-auto rounded-xl border border-border">
+         <table className="w-full text-sm">
+           <thead className="bg-card text-muted-foreground">
+             <tr>
+@@ -80,7 +91,7 @@
+                   <span className={s.isBlocked ? 'text-destructive' : 'text-emerald-700'}>{s.isBlocked ? 'Blocked' : 'Active'}</span>
+                 </td>
+                 <td className="p-3">
+-                  <button onClick={() => toggleBlock(s.userId, s.isBlocked)} className="text-primary hover:underline">
++                  <button disabled={!!updating} onClick={() => toggleBlock(s.userId, s.isBlocked)} className="text-primary hover:underline">
+                     {s.isBlocked ? 'Unblock' : 'Block'}
+                   </button>
+                 </td>
+@@ -89,7 +100,7 @@
+             {students.length === 0 && (
+               <tr>
+                 <td colSpan={7} className="p-6 text-center text-muted-foreground">
+-                  No students found.
++                  {loading ? 'Loading students?' : 'No students with completed attempts found.'}
+                 </td>
+               </tr>
+             )}
+--- a/frontend/src/pages/admin/aptitude/TestManager.tsx
++++ b/frontend/src/pages/admin/aptitude/TestManager.tsx
+@@ -1,3 +1,4 @@
++import { Link } from 'react-router-dom';
+ import { useEffect, useState, FormEvent } from 'react';
+ import api from '../../../lib/aptitudeApi';
+ 
+@@ -12,7 +13,7 @@
+ ];
+ 
+ function extractErrorMessage(err: any): string {
+-  return err?.response?.data?.message || err?.message || 'Something went wrong. Please try again.';
++  return err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Something went wrong. Please try again.';
+ }
+ 
+ interface TestRow {
+@@ -23,6 +24,8 @@
+   durationMinutes: number;
+   totalMarks: number;
+   isPublished: boolean;
++  difficultyPlan: Record<string, { count: number; marksPerQuestion: number }>;
++  availability: { ready: boolean; issues: string[] };
+ }
+ 
+ export default function TestManager() {
+@@ -30,14 +33,18 @@
+   const [showForm, setShowForm] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [saving, setSaving] = useState(false);
++  const [editing, setEditing] = useState<TestRow | null>(null);
++  const [publishing, setPublishing] = useState<string | null>(null);
++  const [loading, setLoading] = useState(true);
+ 
+   const fetchTests = async () => {
+     try {
+       const { data } = await api.get('/api/admin/aptitude/tests');
+       setTests(data.tests);
++      setError(null);
+     } catch (err) {
+       setError(extractErrorMessage(err));
+-    }
++    } finally { setLoading(false); }
+   };
+ 
+   useEffect(() => {
+@@ -70,8 +77,10 @@
+ 
+     setSaving(true);
+     try {
+-      await api.post('/api/admin/aptitude/tests', payload);
++      if (editing) await api.put(`/api/admin/aptitude/tests/${editing._id}`, payload);
++      else await api.post('/api/admin/aptitude/tests', payload);
+       setShowForm(false);
++      setEditing(null);
+       await fetchTests();
+     } catch (err) {
+       setError(extractErrorMessage(err));
+@@ -81,19 +90,23 @@
+   };
+ 
+   const togglePublish = async (id: string, isPublished: boolean) => {
++    if (publishing) return;
++    setPublishing(id);
++    setError(null);
+     try {
+       await api.patch(`/api/admin/aptitude/tests/${id}/publish`, { isPublished: !isPublished });
+       await fetchTests();
+     } catch (err) {
+       setError(extractErrorMessage(err));
+-    }
++    } finally { setPublishing(null); }
+   };
+ 
+   return (
+     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
+-      <div className="mb-6 flex items-center justify-between">
++      <Link to="/admin/aptitude" className="mb-4 inline-block text-sm text-primary">Back to Aptitude Admin</Link>
++      <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
+         <h1 className="text-xl font-bold">Test Management</h1>
+-        <button onClick={() => setShowForm((v) => !v)} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
++        <button onClick={() => { setEditing(null); setShowForm(v => !v); }} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+           + Create Test
+         </button>
+       </div>
+@@ -108,29 +121,27 @@
+       )}
+ 
+       <p className="mb-4 rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-primary">
+-        Note: a test doesn't include questions directly — it pulls a random set from your Question Bank
+-        matching the categories and difficulty counts you set below. Make sure you have enough <strong>active</strong> questions
+-        in each selected category/difficulty before publishing, or students will hit an error when they try to start it.
+-        Also remember: after creating a test, you still need to click <strong>Publish</strong> below — drafts are never shown to students.
++        Tests draw active questions from the selected categories, with a separate count and mark weight for each difficulty.
++        New tests are drafts. Publishing checks that enough questions are available. Existing attempts keep their original questions, duration and marks.
+       </p>
+ 
+       {showForm && (
+-        <form onSubmit={handleCreate} className="mb-6 grid gap-4 rounded-xl border border-border bg-card p-5">
++        <form key={editing?._id || 'new'} onSubmit={handleCreate} className="mb-6 grid gap-4 rounded-xl border border-border bg-card p-5">
+           <div className="grid gap-3 sm:grid-cols-3">
+             <label className="text-sm">
+               <span className="mb-1 block text-muted-foreground">Title</span>
+-              <input name="title" required className="w-full rounded-md bg-secondary px-3 py-2" placeholder="Round 1: Aptitude" />
++              <input name="title" defaultValue={editing?.title} required className="w-full rounded-md bg-secondary px-3 py-2" placeholder="Round 1: Aptitude" />
+             </label>
+             <label className="text-sm">
+               <span className="mb-1 block text-muted-foreground">Round Type</span>
+-              <select name="roundType" className="w-full rounded-md bg-secondary px-3 py-2">
++              <select name="roundType" defaultValue={editing?.roundType} className="w-full rounded-md bg-secondary px-3 py-2">
+                 <option value="aptitude">Aptitude</option>
+                 <option value="technical">Technical Quiz</option>
+               </select>
+             </label>
+             <label className="text-sm">
+               <span className="mb-1 block text-muted-foreground">Duration (minutes)</span>
+-              <input name="durationMinutes" type="number" defaultValue={45} className="w-full rounded-md bg-secondary px-3 py-2" />
++              <input name="durationMinutes" type="number" defaultValue={editing?.durationMinutes ?? 45} min={1} max={1440} step={1} required className="w-full rounded-md bg-secondary px-3 py-2" />
+             </label>
+           </div>
+ 
+@@ -139,7 +150,7 @@
+             <div className="flex flex-wrap gap-3">
+               {CATEGORIES.map((c) => (
+                 <label key={c} className="flex items-center gap-1.5 text-sm">
+-                  <input type="checkbox" name="categories" value={c} />
++                  <input type="checkbox" name="categories" value={c} defaultChecked={editing?.categories.includes(c)} />
+                   {c.replace(/-/g, ' ')}
+                 </label>
+               ))}
+@@ -147,9 +158,9 @@
+           </div>
+ 
+           <div className="grid gap-3 sm:grid-cols-3">
+-            <DifficultyBlock level="easy" defaultCount={15} defaultMarks={1} />
+-            <DifficultyBlock level="medium" defaultCount={15} defaultMarks={2} />
+-            <DifficultyBlock level="hard" defaultCount={15} defaultMarks={3} />
++            <DifficultyBlock level="easy" defaultCount={editing?.difficultyPlan.easy.count ?? 15} defaultMarks={editing?.difficultyPlan.easy.marksPerQuestion ?? 1} />
++            <DifficultyBlock level="medium" defaultCount={editing?.difficultyPlan.medium.count ?? 15} defaultMarks={editing?.difficultyPlan.medium.marksPerQuestion ?? 2} />
++            <DifficultyBlock level="hard" defaultCount={editing?.difficultyPlan.hard.count ?? 15} defaultMarks={editing?.difficultyPlan.hard.marksPerQuestion ?? 3} />
+           </div>
+ 
+           <button
+@@ -162,7 +173,7 @@
+         </form>
+       )}
+ 
+-      <div className="overflow-hidden rounded-xl border border-border">
++      <div className="overflow-x-auto rounded-xl border border-border">
+         <table className="w-full text-sm">
+           <thead className="bg-card text-muted-foreground">
+             <tr>
+@@ -177,7 +188,7 @@
+           <tbody>
+             {tests.map((t) => (
+               <tr key={t._id} className="border-t border-border">
+-                <td className="p-3 font-medium">{t.title}</td>
++                <td className="p-3 font-medium">{t.title}{!t.availability.ready && <p className="mt-1 text-xs text-amber-700">Question shortage: {t.availability.issues.join('; ')}</p>}</td>
+                 <td className="p-3">{t.roundType}</td>
+                 <td className="p-3">{t.durationMinutes} min</td>
+                 <td className="p-3">{t.totalMarks}</td>
+@@ -187,7 +198,8 @@
+                   </span>
+                 </td>
+                 <td className="p-3">
+-                  <button onClick={() => togglePublish(t._id, t.isPublished)} className="text-primary hover:underline">
++                  <button onClick={() => { setEditing(t); setShowForm(true); window.scrollTo(0, 0); }} className="mr-3 text-primary">Edit</button>
++                  <button disabled={!!publishing || (!t.isPublished && !t.availability.ready)} onClick={() => togglePublish(t._id, t.isPublished)} className="text-primary hover:underline">
+                     {t.isPublished ? 'Unpublish' : 'Publish'}
+                   </button>
+                 </td>
+@@ -196,7 +208,7 @@
+             {tests.length === 0 && (
+               <tr>
+                 <td colSpan={6} className="p-6 text-center text-muted-foreground">
+-                  No tests created yet.
++                  {loading ? 'Loading tests?' : 'No tests created yet.'}
+                 </td>
+               </tr>
+             )}
+@@ -213,11 +225,11 @@
+       <p className="mb-2 text-sm font-medium uppercase text-muted-foreground">{level}</p>
+       <label className="mb-2 block text-xs">
+         Question count
+-        <input name={`${level}Count`} type="number" defaultValue={defaultCount} className="mt-1 w-full rounded-md bg-secondary px-2 py-1.5 text-sm" />
++        <input name={`${level}Count`} type="number" defaultValue={defaultCount} min={0} max={100} step={1} required className="mt-1 w-full rounded-md bg-secondary px-2 py-1.5 text-sm" />
+       </label>
+       <label className="block text-xs">
+         Marks per question
+-        <input name={`${level}Marks`} type="number" defaultValue={defaultMarks} className="mt-1 w-full rounded-md bg-secondary px-2 py-1.5 text-sm" />
++        <input name={`${level}Marks`} type="number" defaultValue={defaultMarks} min={0.01} max={1000} step="any" required className="mt-1 w-full rounded-md bg-secondary px-2 py-1.5 text-sm" />
+       </label>
+     </div>
+   );
+--- a/frontend/src/pages/aptitude/ExamRoom.tsx
++++ b/frontend/src/pages/aptitude/ExamRoom.tsx
+@@ -1,3 +1,4 @@
++import { aptitudeImageUrl } from '../../lib/aptitudeApi';
+ import { useEffect, useCallback, useState, useRef } from 'react';
+ import { useParams, useNavigate } from 'react-router-dom';
+ import { useAptitudeStore } from '../../store/aptitudeStore';
+@@ -122,7 +123,7 @@
+ 
+             <div className="flex justify-center overflow-auto rounded-lg bg-white p-4" style={{ maxHeight: '60vh' }}>
+               {q.imageUrl && <img
+-                src={q.imageUrl}
++                src={aptitudeImageUrl(q.imageUrl)}
+                 alt={`Question ${currentIndex + 1}`}
+                 style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
+                 className="select-none transition-transform"
+--- a/frontend/src/pages/aptitude/ResultsDashboard.tsx
++++ b/frontend/src/pages/aptitude/ResultsDashboard.tsx
+@@ -1,6 +1,6 @@
+ import { useEffect, useState } from 'react';
+ import { useParams } from 'react-router-dom';
+-import api from '../../lib/aptitudeApi';
++import api, { aptitudeImageUrl } from '../../lib/aptitudeApi';
+ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+ 
+ 
+@@ -146,7 +146,7 @@
+                     {item.isCorrect ? 'Correct' : item.selectedOption ? 'Incorrect' : 'Not Answered'}
+                   </span>
+                 </div>
+-                {item.questionImageUrl && <img src={item.questionImageUrl} alt={`Question ${i + 1}`} className="mt-3 max-h-64 rounded-lg bg-white" />}
++                {item.questionImageUrl && <img src={aptitudeImageUrl(item.questionImageUrl)} alt={`Question ${i + 1}`} className="mt-3 max-h-64 rounded-lg bg-white" />}
+                 {item.questionText && <p className="mt-3 whitespace-pre-wrap">{item.questionText}</p>}
+                 {item.options && <ul className="mt-3 space-y-1 text-sm">
+                   {Object.entries(item.options).map(([option, text]) => <li key={option}><strong>{option}.</strong> {text}</li>)}

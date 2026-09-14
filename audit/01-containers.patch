@@ -1,0 +1,186 @@
+--- a/backend/Dockerfile
++++ b/backend/Dockerfile
+@@ -1,5 +1,5 @@
+ # Backend Dockerfile — production build
+-FROM node:18-alpine
++FROM node:22-alpine AS builder
+ 
+ WORKDIR /app
+ 
+@@ -7,10 +7,18 @@
+ RUN apk add --no-cache python3 make g++
+ 
+ COPY package*.json ./
+-RUN npm ci --only=production
++RUN npm ci
+ 
+ COPY . .
+ RUN npm run build
++RUN npm prune --omit=dev
++
++FROM node:22-alpine
++WORKDIR /app
++ENV NODE_ENV=production
++COPY --from=builder /app/package*.json ./
++COPY --from=builder /app/node_modules ./node_modules
++COPY --from=builder /app/dist ./dist
+ 
+ RUN mkdir -p uploads logs
+ 
+--- a/frontend/Dockerfile
++++ b/frontend/Dockerfile
+@@ -3,17 +3,19 @@
+ # This Dockerfile is for self-hosted / Docker Compose deployments only.
+ 
+ # Stage 1: build
+-FROM node:18-alpine AS builder
++FROM node:22-alpine AS builder
+ WORKDIR /app
+ COPY package*.json ./
+ RUN npm ci
+ COPY . .
++ARG VITE_API_BASE_URL=/api
++ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ RUN npm run build
+ 
+ # Stage 2: serve with nginx
+ FROM nginx:alpine
+ COPY --from=builder /app/dist /usr/share/nginx/html
+ # SPA routing — all paths serve index.html
+-RUN printf 'server {\n  listen 80;\n  root /usr/share/nginx/html;\n  index index.html;\n  location / {\n    try_files $uri $uri/ /index.html;\n  }\n  location /assets/ {\n    expires 1y;\n    add_header Cache-Control "public, immutable";\n  }\n}\n' > /etc/nginx/conf.d/default.conf
++COPY nginx.conf /etc/nginx/conf.d/default.conf
+ EXPOSE 80
+ CMD ["nginx", "-g", "daemon off;"]
+--- a/frontend/nginx.conf
++++ b/frontend/nginx.conf
+@@ -0,0 +1,28 @@
++server {
++    listen 80;
++    root /usr/share/nginx/html;
++    index index.html;
++    client_max_body_size 10m;
++
++    location /api/ {
++        proxy_pass http://backend:5001;
++        proxy_set_header Host $host;
++        proxy_set_header X-Forwarded-Proto $scheme;
++        proxy_read_timeout 120s;
++    }
++    location /socket.io/ {
++        proxy_pass http://backend:5001;
++        proxy_http_version 1.1;
++        proxy_set_header Upgrade $http_upgrade;
++        proxy_set_header Connection "upgrade";
++        proxy_read_timeout 120s;
++    }
++    location /assets/ {
++        try_files $uri =404;
++        expires 1y;
++        add_header Cache-Control "public, immutable";
++    }
++    location / {
++        try_files $uri $uri/ /index.html;
++    }
++}
+--- a/backend/.dockerignore
++++ b/backend/.dockerignore
+@@ -0,0 +1,9 @@
++node_modules
++dist
++.env
++.env.*
++uploads
++logs
++coverage
++.git
++*.log
+--- a/frontend/.dockerignore
++++ b/frontend/.dockerignore
+@@ -0,0 +1,7 @@
++node_modules
++dist
++.env
++.env.*
++coverage
++.git
++*.log
+--- a/ai-server/.dockerignore
++++ b/ai-server/.dockerignore
+@@ -0,0 +1,12 @@
++venv
++.venv
++__pycache__
++**/__pycache__
++*.pyc
++.env
++.env.*
++models
++temp
++logs
++.git
++*.log
+--- a/.gitignore
++++ b/.gitignore
+@@ -81,8 +81,7 @@
+ dist/
+ .eggs/
+ 
+-# ── Docker ────────────────────────────────────────────────────────────────────
+-.dockerignore
++# Docker build exclusions are source-controlled alongside each Dockerfile.
+ 
+ # ── Misc ──────────────────────────────────────────────────────────────────────
+ *.pem
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,18 +1,13 @@
+-version: '3.8'
+-
+ services:
+   # Frontend (React + Vite)
+   frontend:
+     build:
+       context: ./frontend
+       dockerfile: Dockerfile
++      args:
++        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+     ports:
+       - "5174:80"
+-    environment:
+-      - VITE_API_BASE_URL=http://localhost:5001
+-      - VITE_AUTH0_DOMAIN=${VITE_AUTH0_DOMAIN}
+-      - VITE_AUTH0_CLIENT_ID=${VITE_AUTH0_CLIENT_ID}
+-      - VITE_AUTH0_AUDIENCE=${VITE_AUTH0_AUDIENCE}
+     depends_on:
+       - backend
+     networks:
+@@ -99,10 +94,8 @@
+     image: nginx:alpine
+     ports:
+       - "80:80"
+-      - "443:443"
+     volumes:
+       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+-      - ./nginx/ssl:/etc/nginx/ssl:ro
+     depends_on:
+       - frontend
+       - backend
+--- a/nginx/nginx.conf
++++ b/nginx/nginx.conf
+@@ -0,0 +1,16 @@
++events {}
++http {
++    server {
++        listen 80;
++        client_max_body_size 10m;
++        location / {
++            proxy_pass http://frontend:80;
++            proxy_set_header Host $host;
++            proxy_set_header X-Forwarded-Proto $scheme;
++            proxy_http_version 1.1;
++            proxy_set_header Upgrade $http_upgrade;
++            proxy_set_header Connection "upgrade";
++            proxy_read_timeout 120s;
++        }
++    }
++}

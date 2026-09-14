@@ -1,0 +1,1094 @@
+--- a/backend/src/utils/auth.ts
++++ b/backend/src/utils/auth.ts
+@@ -3,6 +3,8 @@
+ 
+ export interface TokenPayload {
+   userId: string;
++  type: 'access' | 'refresh';
++  tokenVersion: number;
+   email?: string;
+   iat?: number;
+   exp?: number;
+@@ -14,17 +16,17 @@
+ }
+ 
+ // Generate JWT tokens
+-export function generateTokens(userId: string): AuthTokens {
+-  const payload = { userId };
++export function generateTokens(userId: string, tokenVersion = 0): AuthTokens {
++  const payload = { userId, tokenVersion };
+   
+   const accessToken = jwt.sign(
+-    payload,
++    { ...payload, type: 'access' },
+     process.env.JWT_ACCESS_SECRET!,
+     { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m' } as jwt.SignOptions
+   );
+ 
+   const refreshToken = jwt.sign(
+-    payload,
++    { ...payload, type: 'refresh' },
+     process.env.JWT_REFRESH_SECRET!,
+     { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' } as jwt.SignOptions
+   );
+@@ -33,8 +35,13 @@
+ }
+ 
+ // Verify JWT token
+-export function verifyToken(token: string, secret: string): TokenPayload {
+-  return jwt.verify(token, secret) as TokenPayload;
++export function verifyToken(token: string, secret: string, type: 'access' | 'refresh' = 'access'): TokenPayload {
++  const payload = jwt.verify(token, secret, { algorithms: ['HS256'] }) as TokenPayload;
++  if (!payload || payload.type !== type || typeof payload.userId !== 'string' ||
++      !/^[a-f\d]{24}$/i.test(payload.userId) || !Number.isInteger(payload.tokenVersion) || payload.tokenVersion < 0) {
++    throw new Error('Invalid token purpose or payload');
++  }
++  return payload;
+ }
+ 
+ // Extract token from request
+@@ -60,15 +67,7 @@
+     // TODO: Implement Auth0 token verification
+     // This would typically involve verifying the JWT with Auth0's public key
+     // For now, we'll decode without verification (not recommended for production)
+-    const decoded = jwt.decode(token) as any;
+-    
+-    if (decoded && decoded.sub) {
+-      return {
+-        userId: decoded.sub,
+-        email: decoded.email,
+-      };
+-    }
+-    
++    // Auth0 is not configured: decoding alone never authenticates an identity.
+     return null;
+   } catch (error) {
+     console.error('Auth0 token verification error:', error);
+--- a/backend/src/models/User.ts
++++ b/backend/src/models/User.ts
+@@ -25,6 +25,7 @@
+     stripeSubscriptionId?: string;
+   };
+   auth: {
++    tokenVersion: number;
+     isVerified: boolean;
+     verificationToken?: string;
+     resetPasswordToken?: string;
+@@ -54,7 +55,7 @@
+     unique: true,
+     lowercase: true,
+     trim: true,
+-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email'],
++    match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Please enter a valid email'],
+   },
+   password: {
+     type: String,
+@@ -137,6 +138,7 @@
+     },
+   },
+   auth: {
++    tokenVersion: { type: Number, default: 0, min: 0 },
+     isVerified: {
+       type: Boolean,
+       default: false,
+--- a/backend/src/middleware/auth.ts
++++ b/backend/src/middleware/auth.ts
+@@ -43,23 +43,12 @@
+     // Check DB connectivity — in production, never bypass with a mock user
+     const isMongoConnected = mongoose.connection.readyState === 1;
+     if (!isMongoConnected) {
+-      if (process.env.NODE_ENV === 'production') {
+-        res.status(503).json({ success: false, error: 'Service temporarily unavailable' });
+-        return;
+-      }
+-      // Development only: allow request through with token payload
+-      logger.warn('No DB connection — using token payload as user (dev only)');
+-      req.user = {
+-        userId: decoded.userId,
+-        email: decoded.email || '',
+-        role: decoded.plan || 'free',
+-      };
+-      next();
++      res.status(503).json({ success: false, error: 'Service temporarily unavailable' });
+       return;
+     }
+ 
+     const user = await User.findById(decoded.userId);
+-    if (!user) {
++    if (!user || decoded.tokenVersion !== (user.auth.tokenVersion ?? 0)) {
+       res.status(401).json({ success: false, error: 'User not found' });
+       return;
+     }
+@@ -90,7 +79,7 @@
+       try {
+         const decoded = verifyToken(token, process.env.JWT_ACCESS_SECRET!);
+         const user = await User.findById(decoded.userId);
+-        if (user && !user.isAccountLocked()) {
++        if (user && !user.isAccountLocked() && decoded.tokenVersion === (user.auth.tokenVersion ?? 0)) {
+           req.user = { userId: user._id.toString(), email: user.email, role: user.subscription.plan };
+         }
+       } catch {
+--- a/backend/src/routes/auth.ts
++++ b/backend/src/routes/auth.ts
+@@ -4,7 +4,7 @@
+ import { body, validationResult } from 'express-validator';
+ import User from '../models/User';
+ import { authenticateToken } from '../middleware/auth';
+-import { generateTokens } from '../utils/auth';
++import { generateTokens, verifyToken } from '../utils/auth';
+ import { 
+   registrationValidation, 
+   loginValidation, 
+@@ -13,6 +13,7 @@
+ } from '../utils/validation';
+ import logger from '../utils/logger';
+ import emailService from '../services/email';
++import { passwordResetLimiter } from '../middleware/rateLimiter';
+ 
+ const router = express.Router();
+ 
+@@ -65,7 +66,7 @@
+     await user.save();
+ 
+     // Generate tokens
+-    const tokens = generateTokens(user._id.toString());
++    const tokens = generateTokens(user._id.toString(), user.auth.tokenVersion ?? 0);
+ 
+     // Update last login
+     user.auth.lastLogin = new Date();
+@@ -153,7 +154,7 @@
+     }
+ 
+     // Generate tokens
+-    const tokens = generateTokens(user._id.toString());
++    const tokens = generateTokens(user._id.toString(), user.auth.tokenVersion ?? 0);
+ 
+     // Update last login
+     user.auth.lastLogin = new Date();
+@@ -179,95 +180,9 @@
+   }
+ });
+ 
+-// Auth0 profile creation/update
+-router.post('/create-profile', async (req: Request, res: Response): Promise<void> => {
+-  try {
+-    const { email, profile, preferences } = req.body;
+-    
+-    if (!email) {
+-      res.status(400).json({
+-        success: false,
+-        error: 'Email is required',
+-      });
+-      return;
+-    }
+-
+-    // Check if MongoDB is connected
+-    const isMongoConnected = mongoose.connection.readyState === 1;
+-
+-    if (!isMongoConnected) {
+-      if (process.env.NODE_ENV === 'production') {
+-        res.status(503).json({ success: false, error: 'Service temporarily unavailable' });
+-        return;
+-      }
+-      // Development only: return a mock profile
+-      logger.warn('No database connection - returning mock user profile for development');
+-      res.json({
+-        success: true,
+-        data: {
+-          id: 'dev-user-' + Date.now(),
+-          email,
+-          profile: profile || { firstName: email.split('@')[0] || 'Dev', lastName: 'User' },
+-          preferences: preferences || { role: '', experienceLevel: 'entry', industries: [], interviewTypes: [] },
+-          subscription: { plan: 'free', status: 'active' },
+-          stats: { totalInterviews: 0, averageScore: 0, improvementRate: 0 },
+-        },
+-        message: 'Profile created (development mode)',
+-      });
+-      return;
+-    }
+-
+-    // Check if user already exists
+-    let user = await User.findOne({ email: email });
+-
+-    if (user) {
+-      // Update existing user
+-      if (profile) {
+-        user.profile = { ...user.profile, ...profile };
+-      }
+-      if (preferences) {
+-        user.preferences = { ...user.preferences, ...preferences };
+-      }
+-      user.auth.lastLogin = new Date();
+-      await user.save();
+-    } else {
+-      // Create new user for Auth0
+-      user = new User({
+-        email,
+-        password: 'auth0-managed', // Placeholder password for Auth0 users
+-        profile: profile || {
+-          firstName: email.split('@')[0] || 'User',
+-          lastName: '',
+-        },
+-        preferences: preferences || {
+-          role: '',
+-          experienceLevel: 'entry',
+-          industries: [],
+-          interviewTypes: [],
+-        },
+-        auth: {
+-          isVerified: true, // Auth0 users are pre-verified
+-          lastLogin: new Date(),
+-        },
+-      });
+-      await user.save();
+-    }
+-
+-    logger.info(`Auth0 user profile created/updated: ${email}`);
+-
+-    res.json({
+-      success: true,
+-      data: user.toJSON(),
+-      message: 'Profile created/updated successfully',
+-    });
+-  } catch (error: any) {
+-    logger.error('Profile creation error:', error);
+-    res.status(500).json({
+-      success: false,
+-      error: 'Profile creation failed',
+-      message: error.message,
+-    });
+-  }
++// Password authentication owns profile creation; unverified Auth0 claims are not accepted.
++router.post('/create-profile', (_req, res) => {
++  res.status(410).json({ success: false, error: 'Use registration to create an account and /api/user/profile to update your authenticated profile.' });
+ });
+ 
+ // Refresh token
+@@ -284,7 +199,7 @@
+     }
+ 
+     // Verify refresh token
+-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as any;
++    const decoded = verifyToken(refreshToken, process.env.JWT_REFRESH_SECRET!, 'refresh');
+     
+     // Find user
+     const user = await User.findById(decoded.userId);
+@@ -296,8 +211,13 @@
+       return;
+     }
+ 
++    if (user.isAccountLocked() || decoded.tokenVersion !== (user.auth.tokenVersion ?? 0)) {
++      res.status(401).json({ success: false, error: 'Session expired or account locked' });
++      return;
++    }
++
+     // Generate new tokens
+-    const tokens = generateTokens(user._id.toString());
++    const tokens = generateTokens(user._id.toString(), user.auth.tokenVersion ?? 0);
+ 
+     res.json({
+       success: true,
+@@ -316,8 +236,7 @@
+ // Logout
+ router.post('/logout', authenticateToken, async (req, res): Promise<void> => {
+   try {
+-    // In a production app, you might want to blacklist the token
+-    // For now, we'll just return success as the client will remove the token
++    await User.updateOne({ _id: req.user!.userId }, { $inc: { 'auth.tokenVersion': 1 } });
+     
+     logger.info(`User logged out: ${req.user?.userId}`);
+ 
+@@ -336,7 +255,7 @@
+ });
+ 
+ // Forgot password
+-router.post('/forgot-password', emailValidation(), async (req, res): Promise<void> => {
++router.post('/forgot-password', passwordResetLimiter, emailValidation(), async (req, res): Promise<void> => {
+   try {
+     const errors = validationResult(req);
+     if (!errors.isEmpty()) {
+@@ -445,6 +364,7 @@
+ 
+     // Update password
+     user.password = password;
++    user.auth.tokenVersion = (user.auth.tokenVersion ?? 0) + 1;
+     user.auth.resetPasswordToken = undefined;
+     user.auth.resetPasswordExpires = undefined;
+     user.auth.loginAttempts = 0;
+@@ -508,6 +428,11 @@
+       return;
+     }
+ 
++    if (user.auth.verificationToken !== token) {
++      res.status(400).json({ success: false, error: 'Invalid or expired verification token' });
++      return;
++    }
++
+     // Verify email
+     user.auth.isVerified = true;
+     user.auth.verificationToken = undefined;
+@@ -533,7 +458,7 @@
+ });
+ 
+ // Resend verification email
+-router.post('/resend-verification', [
++router.post('/resend-verification', passwordResetLimiter, [
+   body('email').isEmail().normalizeEmail(),
+ ], async (req, res): Promise<void> => {
+   try {
+@@ -598,36 +523,9 @@
+   }
+ });
+ 
+-// Verify OTP (placeholder for future implementation)
+-router.post('/verify-otp', [
+-  body('email').isEmail().normalizeEmail(),
+-  body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
+-], async (req, res): Promise<void> => {
+-  try {
+-    const errors = validationResult(req);
+-    if (!errors.isEmpty()) {
+-      res.status(400).json({
+-        success: false,
+-        error: 'Validation failed',
+-        details: errors.array(),
+-      });
+-      return;
+-    }
+-
+-    // TODO: Implement OTP verification logic
+-    // For now, we'll just return success
+-    res.json({
+-      success: true,
+-      data: { verified: true },
+-      message: 'OTP verified successfully',
+-    });
+-  } catch (error: any) {
+-    logger.error('OTP verification error:', error);
+-    res.status(500).json({
+-      success: false,
+-      error: 'OTP verification failed',
+-    });
+-  }
++// Email verification uses signed, single-use links. No OTP issuer is configured.
++router.post('/verify-otp', (_req, res) => {
++  res.status(501).json({ success: false, error: 'OTP verification is unavailable. Use the email verification link.' });
+ });
+ 
+ export default router;
+--- a/backend/src/middleware/sanitizer.ts
++++ b/backend/src/middleware/sanitizer.ts
+@@ -1,105 +1,24 @@
+-import mongoSanitize from 'express-mongo-sanitize';
+ import { Request, Response, NextFunction } from 'express';
+ 
+-// MongoDB injection sanitizer
+-export const sanitizeData = mongoSanitize({
+-  replaceWith: '_',
+-  onSanitize: ({ req, key }) => {
+-    console.warn(`Sanitized potentially malicious data in ${key}`);
+-  },
+-});
++// Validate structure without rewriting passwords, source code or user text.
++// HTML escaping belongs at the rendering/export boundary.
++function invalidInput(value: unknown, depth = 0): boolean {
++  if (depth > 100) return true;
++  if (typeof value === 'string') return value.length > 2 * 1024 * 1024;
++  if (!value || typeof value !== 'object' || Buffer.isBuffer(value)) return false;
++  return Object.entries(value).some(([key, child]) =>
++    key.startsWith('$') || key.includes('.') || key === '__proto__' ||
++    key === 'prototype' || invalidInput(child, depth + 1));
++}
+ 
+-// XSS protection middleware
+-export const xssProtection = (req: Request, res: Response, next: NextFunction) => {
+-  // Sanitize request body
+-  if (req.body) {
+-    req.body = sanitizeObject(req.body);
++export const validateInput = (req: Request, res: Response, next: NextFunction): void => {
++  if ([req.body, req.query, req.params].some((value) => invalidInput(value))) {
++    res.status(400).json({ success: false, error: 'Invalid request structure or input size' });
++    return;
+   }
+-
+-  // Sanitize query parameters (Express 5: req.query is read-only)
+-  if (req.query) {
+-    for (const key of Object.keys(req.query)) {
+-      (req.query as any)[key] = sanitizeObject((req.query as any)[key]);
+-    }
+-  }
+-
+-  // Sanitize URL parameters
+-  if (req.params) {
+-    for (const key of Object.keys(req.params)) {
+-      (req.params as any)[key] = sanitizeObject((req.params as any)[key]);
+-    }
+-  }
+-
+   next();
+ };
+ 
+-// Helper function to sanitize objects recursively
+-function sanitizeObject(obj: any): any {
+-  if (typeof obj !== 'object' || obj === null) {
+-    return sanitizeString(obj);
+-  }
+-
+-  if (Array.isArray(obj)) {
+-    return obj.map(item => sanitizeObject(item));
+-  }
+-
+-  const sanitized: any = {};
+-  for (const key in obj) {
+-    if (obj.hasOwnProperty(key)) {
+-      sanitized[key] = sanitizeObject(obj[key]);
+-    }
+-  }
+-
+-  return sanitized;
+-}
+-
+-// Helper function to sanitize strings
+-function sanitizeString(value: any): any {
+-  if (typeof value !== 'string') {
+-    return value;
+-  }
+-
+-  // Remove potentially dangerous characters
+-  return value
+-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
+-    .replace(/javascript:/gi, '') // Remove javascript: protocol
+-    .replace(/on\w+\s*=/gi, '') // Remove event handlers
+-    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '') // Remove iframes
+-    .trim();
+-}
+-
+-// Input validation middleware
+-export const validateInput = (req: Request, res: Response, next: NextFunction): void => {
+-  // Check for excessively long inputs
+-  const maxLength = 2 * 1024 * 1024; // 10KB
+-
+-  const checkLength = (obj: any, path: string = ''): boolean => {
+-    if (typeof obj === 'string' && obj.length > maxLength) {
+-      console.warn(`Input too long at ${path}: ${obj.length} characters`);
+-      return false;
+-    }
+-
+-    if (typeof obj === 'object' && obj !== null) {
+-      for (const key in obj) {
+-        if (obj.hasOwnProperty(key)) {
+-          if (!checkLength(obj[key], `${path}.${key}`)) {
+-            return false;
+-          }
+-        }
+-      }
+-    }
+-
+-    return true;
+-  };
+-
+-  if (req.body && !checkLength(req.body, 'body')) {
+-    res.status(400).json({
+-      success: false,
+-      error: 'Input too long',
+-      message: 'Request data exceeds maximum allowed length',
+-    });
+-    return;
+-  }
+-
+-  next();
+-};
++// Compatibility exports for existing callers; values are never mutated.
++export const xssProtection = validateInput;
++export const sanitizeData = validateInput;
+--- a/backend/src/app.ts
++++ b/backend/src/app.ts
+@@ -24,7 +24,7 @@
+ import { notFound } from './middleware/notFound';
+ import { authenticateToken, requireAdmin } from './middleware/auth';
+ import { apiLimiter, authLimiter, passwordResetLimiter, uploadLimiter } from './middleware/rateLimiter';
+-import { xssProtection, validateInput } from './middleware/sanitizer';
++import { validateInput } from './middleware/sanitizer';
+ import logger from './utils/logger';
+ 
+ /**
+@@ -106,7 +106,6 @@
+   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+ 
+   // Security middleware - Sanitization
+-  app.use(xssProtection);
+   app.use(validateInput);
+ 
+   // Compression middleware
+--- a/backend/src/services/socket.ts
++++ b/backend/src/services/socket.ts
+@@ -1,5 +1,7 @@
+ import { Server, Socket } from 'socket.io';
+-import jwt from 'jsonwebtoken';
++import { verifyToken } from '../utils/auth';
++import User from '../models/User';
++import Interview from '../models/Interview';
+ import axios from 'axios';
+ import logger from '../utils/logger';
+ import webrtcService from './webrtc';
+@@ -25,7 +27,7 @@
+ 
+ export function setupSocketHandlers(io: Server) {
+   // Authentication middleware
+-  io.use((socket: AuthenticatedSocket, next) => {
++  io.use(async (socket: AuthenticatedSocket, next) => {
+     const token = socket.handshake.auth.token;
+     
+     if (!token) {
+@@ -33,7 +35,11 @@
+     }
+ 
+     try {
+-      const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as any;
++      const decoded = verifyToken(token, process.env.JWT_ACCESS_SECRET!);
++      const user = await User.findById(decoded.userId);
++      if (!user || user.isAccountLocked() || decoded.tokenVersion !== (user.auth.tokenVersion ?? 0)) {
++        return next(new Error('Authentication error'));
++      }
+       socket.userId = decoded.userId;
+       next();
+     } catch (error) {
+@@ -45,6 +51,25 @@
+   webrtcService.setupWebRTCHandlers(io);
+ 
+   io.on('connection', (socket: AuthenticatedSocket) => {
++    // Covers every application packet, including WebRTC handlers.
++    socket.use(async ([event, data], next) => {
++      try {
++        const decoded = verifyToken(socket.handshake.auth.token, process.env.JWT_ACCESS_SECRET!);
++        const user = await User.findById(decoded.userId);
++        if (!user || user.isAccountLocked() || decoded.tokenVersion !== (user.auth.tokenVersion ?? 0)) {
++          throw new Error('Session expired');
++        }
++        const interviewId = event === 'join-interview' || event === 'leave-interview' ? data : data?.interviewId;
++        if (typeof interviewId !== 'string' || !/^[a-f\d]{24}$/i.test(interviewId) ||
++            !await Interview.exists({ _id: interviewId, userId: socket.userId })) {
++          throw new Error('Interview access denied');
++        }
++        next();
++      } catch {
++        socket.emit('authorization-error', { error: 'Session expired or interview access denied' });
++        next(new Error('Unauthorized interview event'));
++      }
++    });
+     logger.info(`Socket connected: ${socket.id}, User: ${socket.userId}`);
+ 
+     // Join interview room
+--- a/backend/src/routes/resume.ts
++++ b/backend/src/routes/resume.ts
+@@ -86,7 +86,7 @@
+     mimetype: req.file.mimetype,
+     size: req.file.size
+   }) : 'N/A'}`);
+-  logger.info(`Headers: ${JSON.stringify(req.headers)}`);
++  logger.info(`Content type: ${req.headers['content-type'] || 'unknown'}`);
+ 
+   // Check if file exists
+   if (!req.file) {
+@@ -710,7 +710,7 @@
+     // Local storage
+     const path = require('path');
+     const fs = require('fs');
+-    const urlPath = resume.fileUrl.replace(/^https?:\/\/[^/]+/, '');
++    const urlPath = resume.fileUrl.replace(/^https?:\/\/[^\/]+/, '');
+     const filePath = path.join(process.cwd(), 'uploads', urlPath.replace('/uploads/', ''));
+     if (!fs.existsSync(filePath)) {
+       return res.status(404).json({ success: false, error: 'Resume file not found on server' });
+@@ -751,7 +751,7 @@
+     // Local storage
+     const path = require('path');
+     const fs = require('fs');
+-    const urlPath = resume.fileUrl.replace(/^https?:\/\/[^/]+/, '');
++    const urlPath = resume.fileUrl.replace(/^https?:\/\/[^\/]+/, '');
+     const filePath = path.join(process.cwd(), 'uploads', urlPath.replace('/uploads/', ''));
+     if (!fs.existsSync(filePath)) {
+       return res.status(404).json({ success: false, error: 'Resume file not found on server' });
+--- a/backend/src/middleware/debugLogger.ts
++++ b/backend/src/middleware/debugLogger.ts
+@@ -12,11 +12,8 @@
+   logger.info('📥 Incoming Request', {
+     method: req.method,
+     path: req.path,
+-    query: req.query,
+-    body: req.body && Object.keys(req.body).length > 0 ? {
+-      ...req.body,
+-      password: req.body.password ? '***HIDDEN***' : undefined,
+-    } : undefined,
++    queryKeys: Object.keys(req.query),
++    bodyKeys: req.body ? Object.keys(req.body) : [],
+     headers: {
+       'content-type': req.headers['content-type'],
+       'authorization': req.headers.authorization ? 'Bearer ***' : undefined,
+@@ -69,7 +66,7 @@
+     if (value) {
+       // Hide sensitive values
+       if (key.includes('SECRET') || key.includes('KEY') || key.includes('PASSWORD') || key.includes('URI')) {
+-        logger.info(`  ✅ ${key}: ${value.substring(0, 10)}...`);
++        logger.info(`  ✅ ${key}: Configured`);
+       } else {
+         logger.info(`  ✅ ${key}: ${value}`);
+       }
+--- a/frontend/src/app/services/http.ts
++++ b/frontend/src/app/services/http.ts
+@@ -0,0 +1,56 @@
++import axios, { AxiosInstance } from 'axios';
++
++const raw = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api';
++export const apiBaseURL = raw.replace(/\/$/, '').endsWith('/api')
++  ? raw.replace(/\/$/, '') : raw.replace(/\/$/, '') + '/api';
++
++let refreshPromise: Promise<string> | null = null;
++
++function expireSession() {
++  localStorage.removeItem('accessToken');
++  localStorage.removeItem('refreshToken');
++  window.dispatchEvent(new Event('auth:expired'));
++}
++
++export function attachAuthentication(client: AxiosInstance): AxiosInstance {
++  client.interceptors.request.use((config) => {
++    const token = localStorage.getItem('accessToken');
++    if (token) config.headers.Authorization = `Bearer ${token}`;
++    return config;
++  });
++  client.interceptors.response.use((response) => response, async (error) => {
++    const request = error.config;
++    if (!request || error.response?.status !== 401 || request._retry || /\/auth\//.test(request.url || '')) {
++      return Promise.reject(error);
++    }
++    request._retry = true;
++    const refreshToken = localStorage.getItem('refreshToken');
++    if (!refreshToken) {
++      expireSession();
++      return Promise.reject(error);
++    }
++    try {
++      if (!refreshPromise) {
++        // Plain axios prevents the refresh request from intercepting itself.
++        refreshPromise = axios.post(`${apiBaseURL}/auth/refresh`, { refreshToken }, { timeout: 15000 })
++          .then(({ data }) => {
++            const tokens = data?.data;
++            if (!data?.success || !tokens?.accessToken || !tokens?.refreshToken) {
++              expireSession();
++              throw new Error('Invalid refresh response');
++            }
++            localStorage.setItem('accessToken', tokens.accessToken);
++            localStorage.setItem('refreshToken', tokens.refreshToken);
++            return tokens.accessToken as string;
++          }).finally(() => { refreshPromise = null; });
++      }
++      const token = await refreshPromise;
++      request.headers.Authorization = `Bearer ${token}`;
++      return await client(request);
++    } catch (refreshError: any) {
++      if ([401, 403, 423].includes(refreshError.response?.status)) expireSession();
++      return Promise.reject(refreshError);
++    }
++  });
++  return client;
++}
+--- a/frontend/src/app/services/api.ts
++++ b/frontend/src/app/services/api.ts
+@@ -1,77 +1,20 @@
+ import axios, { AxiosInstance, AxiosResponse } from 'axios';
+ import { APIResponse, PaginatedResponse } from '../types';
++import { apiBaseURL, attachAuthentication } from './http';
+ 
+ class APIService {
+   private api: AxiosInstance;
+ 
+   constructor() {
+-    // Ensure baseURL always ends with /api
+-    // Guards against VITE_API_BASE_URL being set without the /api suffix
+-    const raw = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5001/api';
+-    const baseURL = raw.endsWith('/api') ? raw : raw.replace(/\/$/, '') + '/api';
+-
+     this.api = axios.create({
+-      baseURL,
++      baseURL: apiBaseURL,
+       timeout: 60000,
+       headers: {
+         'Content-Type': 'application/json',
+       },
+     });
+ 
+-    this.setupInterceptors();
+-  }
+-
+-  private setupInterceptors() {
+-    // Request interceptor to add auth token
+-    this.api.interceptors.request.use(
+-      (config) => {
+-        const token = localStorage.getItem('accessToken');
+-        if (token) {
+-          config.headers.Authorization = `Bearer ${token}`;
+-        }
+-        return config;
+-      },
+-      (error) => Promise.reject(error)
+-    );
+-
+-    // Response interceptor to handle token refresh
+-    this.api.interceptors.response.use(
+-      (response) => response,
+-      async (error) => {
+-        const originalRequest = error.config;
+-
+-        if (error.response?.status === 401 && !originalRequest._retry) {
+-          originalRequest._retry = true;
+-
+-          try {
+-            const refreshToken = localStorage.getItem('refreshToken');
+-            if (refreshToken) {
+-              const response = await this.api.post('/auth/refresh', {
+-                refreshToken,
+-              });
+-
+-              const { accessToken } = response.data.data;
+-              localStorage.setItem('accessToken', accessToken);
+-
+-              originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+-              return this.api(originalRequest);
+-            }
+-          } catch (refreshError) {
+-            console.error('Token refresh failed:', refreshError);
+-            localStorage.removeItem('accessToken');
+-            localStorage.removeItem('refreshToken');
+-            
+-            if (!window.location.pathname.includes('/login') && 
+-                !window.location.pathname.includes('/signup') &&
+-                !window.location.pathname.includes('/')) {
+-              window.location.href = '/login';
+-            }
+-          }
+-        }
+-
+-        return Promise.reject(error);
+-      }
+-    );
++    attachAuthentication(this.api);
+   }
+ 
+   // Generic request methods
+--- a/frontend/src/lib/aptitudeApi.ts
++++ b/frontend/src/lib/aptitudeApi.ts
+@@ -1,24 +1,8 @@
+ import axios from 'axios';
++import { apiBaseURL, attachAuthentication } from '../app/services/http';
+ 
+-// Shared axios instance for the aptitude module. Kept separate from the main
+-// apiService because the aptitude backend returns raw JSON payloads directly
+-// (e.g. { attemptId, ... }), not the { success, data } envelope the rest of
+-// this app's API responses use. This instance still attaches the real auth
+-// token from localStorage, same as the main apiService does.
+-const raw = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5001';
+-
+-// Strip a trailing /api if present — every request path below already
+-// includes its own leading /api/..., so this avoids a doubled /api/api/.
+-const base = raw.replace(/\/$/, '').replace(/\/api$/, '');
+-
+-const aptitudeApi = axios.create({ baseURL: base });
+-
+-aptitudeApi.interceptors.request.use((config) => {
+-  const token = localStorage.getItem('accessToken');
+-  if (token) {
+-    config.headers.Authorization = `Bearer ${token}`;
+-  }
+-  return config;
+-});
+-
+-export default aptitudeApi;
++// Aptitude paths already contain /api and return raw response payloads.
++export default attachAuthentication(axios.create({
++  baseURL: apiBaseURL.replace(/\/api$/, ''),
++  timeout: 60000,
++}));
+--- a/frontend/src/app/pages/VerifyEmailPage.tsx
++++ b/frontend/src/app/pages/VerifyEmailPage.tsx
+@@ -0,0 +1,22 @@
++import { useEffect, useState } from 'react';
++import { Link, useSearchParams } from 'react-router-dom';
++import { apiService } from '../services/api';
++
++export function VerifyEmailPage() {
++  const [params] = useSearchParams();
++  const token = params.get('token');
++  const [message, setMessage] = useState('Verifying your email…');
++  useEffect(() => {
++    let active = true;
++    if (!token) { setMessage('The verification link is missing its token.'); return; }
++    apiService.get('/auth/verify-email', { token }).then((result) => {
++      if (active) setMessage(result.success ? 'Your email is verified.' : result.error || 'This link is invalid or expired.');
++    });
++    return () => { active = false; };
++  }, [token]);
++  return <main className="min-h-screen pt-32 px-6 text-center">
++    <h1 className="text-2xl font-semibold">Email verification</h1>
++    <p role="status" className="my-6">{message}</p>
++    <Link to="/login" className="text-primary underline">Continue to sign in</Link>
++  </main>;
++}
+--- a/frontend/src/app/App.tsx
++++ b/frontend/src/app/App.tsx
+@@ -7,6 +7,7 @@
+ import { SignupPage } from './pages/SignupPage';
+ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+ import { ResetPasswordPage } from './pages/ResetPasswordPage';
++import { VerifyEmailPage } from './pages/VerifyEmailPage';
+ import { useAuthStore } from './stores/authStore';
+ import { LoadingSpinner } from './components/ui/loading-spinner';
+ 
+@@ -95,12 +96,19 @@
+ }
+ 
+ function AppContent() {
++  useEffect(() => {
++    const expired = () => useAuthStore.setState({ user: null, isAuthenticated: false, isLoading: false });
++    window.addEventListener('auth:expired', expired);
++    void useAuthStore.getState().checkAuth();
++    return () => window.removeEventListener('auth:expired', expired);
++  }, []);
+   return (
+     <div className="min-h-screen bg-background text-foreground">
+       <Header />
+       <Routes>
+         {/* Public Routes */}
+         <Route path="/" element={<LandingPage />} />
++        <Route path="/verify-email" element={<VerifyEmailPage />} />
+         <Route path="/login" element={
+           <PublicRoute>
+             <LoginPage />
+--- a/frontend/src/app/components/Header.tsx
++++ b/frontend/src/app/components/Header.tsx
+@@ -8,11 +8,11 @@
+   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+   const location = useLocation();
+   const { logout, isAuthenticated, user } = useAuthStore();
+-  const isLoggedIn = isAuthenticated || location.pathname.includes('/dashboard') || location.pathname.includes('/interview') || location.pathname.includes('/admin');
++  const isLoggedIn = isAuthenticated;
+   const isAdmin = user?.auth?.role === 'admin';
+ 
+-  const handleLogout = () => {
+-    logout();
++  const handleLogout = async () => {
++    await logout();
+     window.location.href = '/';
+   };
+ 
+--- a/frontend/src/app/stores/authStore.ts
++++ b/frontend/src/app/stores/authStore.ts
+@@ -12,7 +12,7 @@
+   // Actions
+   login: (email: string, password: string) => Promise<{ user: User; tokens: { accessToken: string; refreshToken: string } }>;
+   signup: (userData: SignupForm) => Promise<void>;
+-  logout: () => void;
++  logout: () => Promise<void>;
+   clearError: () => void;
+   setUser: (user: User) => void;
+   checkAuth: () => Promise<void>;
+@@ -23,7 +23,7 @@
+     (set) => ({
+       user: null,
+       isAuthenticated: false,
+-      isLoading: false,
++      isLoading: true,
+       error: null,
+ 
+       login: async (email: string, password: string) => {
+@@ -110,7 +110,8 @@
+         }
+       },
+ 
+-      logout: () => {
++      logout: async () => {
++        await apiService.post('/auth/logout').catch(() => undefined);
+         localStorage.removeItem('accessToken');
+         localStorage.removeItem('refreshToken');
+         
+@@ -122,10 +123,11 @@
+       },
+ 
+       checkAuth: async () => {
++        set({ isLoading: true });
+         const token = localStorage.getItem('accessToken');
+         
+         if (!token) {
+-          set({ isAuthenticated: false, user: null });
++          set({ isAuthenticated: false, user: null, isLoading: false });
+           return;
+         }
+ 
+@@ -136,14 +138,15 @@
+             set({
+               user: response.data,
+               isAuthenticated: true,
++              isLoading: false,
+             });
+           } else {
+-            set({ isAuthenticated: false, user: null });
++            set({ isAuthenticated: false, user: null, isLoading: false });
+             localStorage.removeItem('accessToken');
+             localStorage.removeItem('refreshToken');
+           }
+         } catch (error) {
+-          set({ isAuthenticated: false, user: null });
++          set({ isAuthenticated: false, user: null, isLoading: false });
+           localStorage.removeItem('accessToken');
+           localStorage.removeItem('refreshToken');
+         }
+--- a/backend/tests/auth.test.js
++++ b/backend/tests/auth.test.js
+@@ -0,0 +1,68 @@
++const jwt = require('jsonwebtoken');
++const mongoose = require('mongoose');
++const request = require('supertest');
++const User = require('../dist/models/User').default;
++const { generateTokens, verifyToken } = require('../dist/utils/auth');
++const { validateInput } = require('../dist/middleware/sanitizer');
++const { authenticateToken } = require('../dist/middleware/auth');
++
++const id = '507f1f77bcf86cd799439011';
++process.env.JWT_ACCESS_SECRET = 'audit-test-access-secret';
++process.env.JWT_REFRESH_SECRET = 'audit-test-refresh-secret';
++const app = require('../dist/app').createApp();
++afterEach(() => jest.restoreAllMocks());
++
++test.each(['password-reset', 'email-verification', 'refresh', undefined])('access verification rejects %s tokens', (type) => {
++  const token = jwt.sign({ userId: id, tokenVersion: 0, type }, process.env.JWT_ACCESS_SECRET);
++  expect(() => verifyToken(token, process.env.JWT_ACCESS_SECRET)).toThrow();
++});
++test('access and refresh tokens preserve purpose and session version', () => {
++  const tokens = generateTokens(id, 3);
++  expect(verifyToken(tokens.accessToken, process.env.JWT_ACCESS_SECRET).tokenVersion).toBe(3);
++  expect(verifyToken(tokens.refreshToken, process.env.JWT_REFRESH_SECRET, 'refresh').type).toBe('refresh');
++});
++test('sanitization preserves exact passwords/code and tolerates hasOwnProperty input', () => {
++  const body = { password: ' Onclick=123 ', code: 'const money=1; const only=2;', hasOwnProperty: 'text' };
++  const next = jest.fn();
++  validateInput({ body, query: Object.create(null), params: {} }, {}, next);
++  expect(next).toHaveBeenCalledTimes(1);
++  expect(body.password).toBe(' Onclick=123 ');
++  expect(body.code).toBe('const money=1; const only=2;');
++});
++test('query operators are rejected without rewriting an Express 5 query getter', () => {
++  const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
++  const next = jest.fn();
++  validateInput({ body: { email: { $ne: null } }, get query() { return {}; } }, res, next);
++  expect(res.status).toHaveBeenCalledWith(400);
++  expect(next).not.toHaveBeenCalled();
++});
++test('placeholder identity endpoints never report verification success or mutate users', async () => {
++  const find = jest.spyOn(User, 'findOne');
++  expect((await request(app).post('/api/auth/create-profile').send({ email: 'victim@example.com' })).status).toBe(410);
++  const otp = await request(app).post('/api/auth/verify-otp').send({ email: 'victim@example.com', otp: '123456' });
++  expect(otp.status).toBe(501);
++  expect(otp.body.success).toBe(false);
++  expect(find).not.toHaveBeenCalled();
++});
++test('locked accounts and revoked sessions cannot refresh', async () => {
++  const tokens = generateTokens(id, 0);
++  const user = { _id: id, auth: { tokenVersion: 0 }, isAccountLocked: () => true };
++  jest.spyOn(User, 'findById').mockResolvedValue(user);
++  expect((await request(app).post('/api/auth/refresh').send({ refreshToken: tokens.refreshToken })).status).toBe(401);
++  user.isAccountLocked = () => false;
++  user.auth.tokenVersion = 1;
++  expect((await request(app).post('/api/auth/refresh').send({ refreshToken: tokens.refreshToken })).status).toBe(401);
++});
++test('revoked access token fails authentication against the account version', async () => {
++  jest.replaceProperty(mongoose.connection, '_readyState', 1);
++  jest.spyOn(User, 'findById').mockResolvedValue({ auth: { tokenVersion: 1 } });
++  const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
++  const next = jest.fn();
++  await authenticateToken({ headers: { authorization: `Bearer ${generateTokens(id).accessToken}` }, query: {} }, res, next);
++  expect(res.status).toHaveBeenCalledWith(401);
++  expect(next).not.toHaveBeenCalled();
++});
++test('plus addressing and long TLDs validate in the model', () => {
++  const user = new User({ email: 'audit+test@example.technology', password: 'example123', profile: { firstName: 'Audit', lastName: 'Test' } });
++  expect(user.validateSync()).toBeUndefined();
++});
+--- a/backend/tests/browser-auth.test.js
++++ b/backend/tests/browser-auth.test.js
+@@ -0,0 +1,41 @@
++const fs = require('fs');
++const path = require('path');
++const vm = require('vm');
++const ts = require('typescript');
++const axios = require('axios');
++
++function browserClient() {
++  const entries = new Map([['accessToken', 'expired'], ['refreshToken', 'old-refresh']]);
++  const localStorage = { getItem: key => entries.get(key), setItem: (key, value) => entries.set(key, value), removeItem: key => entries.delete(key) };
++  const window = { dispatchEvent: jest.fn() };
++  const source = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/app/services/http.ts'), 'utf8')
++    .replace('import.meta.env.VITE_API_BASE_URL', "'/api'");
++  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText;
++  const exports = {};
++  vm.runInNewContext(compiled, { require, exports, localStorage, window, Event: class { constructor(type) { this.type = type; } } });
++  const make = () => exports.attachAuthentication(axios.create({ adapter: async config => {
++    if (config.headers.Authorization !== 'Bearer fresh') throw { config, response: { status: 401 } };
++    return { status: 200, data: 'ok', config };
++  } }));
++  return { make, entries, window };
++}
++afterEach(() => jest.restoreAllMocks());
++test('main and aptitude requests share one refresh and retain both replacement tokens', async () => {
++  const refresh = jest.spyOn(axios, 'post').mockImplementation(async () => {
++    await new Promise(resolve => setTimeout(resolve, 5));
++    return { data: { success: true, data: { accessToken: 'fresh', refreshToken: 'new-refresh' } } };
++  });
++  const { make, entries } = browserClient();
++  const results = await Promise.all([make().get('/user/profile'), make().get('/api/aptitude/tests')]);
++  expect(results.map(result => result.status)).toEqual([200, 200]);
++  expect(refresh).toHaveBeenCalledTimes(1);
++  expect(entries.get('refreshToken')).toBe('new-refresh');
++});
++test('rejected refresh stops once and expires the browser session', async () => {
++  const refresh = jest.spyOn(axios, 'post').mockRejectedValue({ response: { status: 401 } });
++  const { make, entries, window } = browserClient();
++  await expect(make().get('/user/profile')).rejects.toBeDefined();
++  expect(refresh).toHaveBeenCalledTimes(1);
++  expect(entries.has('accessToken')).toBe(false);
++  expect(window.dispatchEvent).toHaveBeenCalledTimes(1);
++});
+--- a/backend/tests/socket-auth.test.js
++++ b/backend/tests/socket-auth.test.js
+@@ -0,0 +1,33 @@
++const User = require('../dist/models/User').default;
++const Interview = require('../dist/models/Interview').default;
++const { generateTokens } = require('../dist/utils/auth');
++const { setupSocketHandlers } = require('../dist/services/socket');
++const id = '507f1f77bcf86cd799439011';
++const interviewId = '507f1f77bcf86cd799439012';
++process.env.JWT_ACCESS_SECRET = 'audit-socket-access';
++process.env.JWT_REFRESH_SECRET = 'audit-socket-refresh';
++afterEach(() => jest.restoreAllMocks());
++
++test('socket packets enforce ownership for rooms and WebRTC signaling', async () => {
++  const connections = [];
++  let authenticate;
++  const io = { use: fn => { authenticate = fn; }, on: (_event, fn) => connections.push(fn) };
++  setupSocketHandlers(io);
++  const socket = { id: 'audit', handshake: { auth: { token: generateTokens(id).accessToken } }, on: jest.fn(), emit: jest.fn(), use: fn => { socket.guard = fn; } };
++  jest.spyOn(User, 'findById').mockResolvedValue({ auth: { tokenVersion: 0 }, isAccountLocked: () => false });
++  const exists = jest.spyOn(Interview, 'exists').mockResolvedValue(null);
++  const connected = jest.fn();
++  await authenticate(socket, connected);
++  expect(connected).toHaveBeenCalledWith();
++  connections.forEach(fn => fn(socket));
++  for (const packet of [['join-interview', interviewId], ['webrtc:offer', { interviewId, offer: {} }]]) {
++    const next = jest.fn();
++    await socket.guard(packet, next);
++    expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
++  }
++  expect(exists).toHaveBeenCalledWith({ _id: interviewId, userId: id });
++  exists.mockResolvedValue({ _id: interviewId });
++  const next = jest.fn();
++  await socket.guard(['join-interview', interviewId], next);
++  expect(next).toHaveBeenCalledWith();
++});

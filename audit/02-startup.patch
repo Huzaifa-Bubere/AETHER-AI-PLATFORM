@@ -1,0 +1,297 @@
+--- a/backend/src/config/environment.ts
++++ b/backend/src/config/environment.ts
+@@ -0,0 +1,24 @@
++import dotenv from 'dotenv';
++import path from 'path';
++
++export function validateEnvironment(env: NodeJS.ProcessEnv): void {
++  const missing = ['MONGODB_URI', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']
++    .filter((name) => !env[name]?.trim());
++  if (missing.length) throw new Error(`Missing required configuration: ${missing.join(', ')}`);
++  if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) {
++    throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different');
++  }
++  const port = Number(env.PORT || '5001');
++  if (!Number.isInteger(port) || port < 1 || port > 65535) {
++    throw new Error('PORT must be an integer between 1 and 65535');
++  }
++  if (!/^mongodb(?:\+srv)?:\/\//.test(env.MONGODB_URI!)) {
++    throw new Error('MONGODB_URI must use mongodb:// or mongodb+srv://');
++  }
++}
++
++export function loadEnvironment(): void {
++  // Both src/config and dist/config resolve to backend/.env.
++  dotenv.config({ path: path.resolve(__dirname, '../../.env') });
++  validateEnvironment(process.env);
++}
+--- a/backend/src/server.ts
++++ b/backend/src/server.ts
+@@ -1,10 +1,6 @@
+ // Load environment variables FIRST before any other imports
+-import dotenv from 'dotenv';
+-dotenv.config();
+-
+-// Override DNS to use Google's servers — fixes querySrv ECONNREFUSED on restrictive ISP DNS
+-import dns from 'dns';
+-dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
++import { loadEnvironment } from './config/environment';
++loadEnvironment();
+ 
+ import { createServer } from 'http';
+ import { Server } from 'socket.io';
+--- a/backend/src/services/gemini.ts
++++ b/backend/src/services/gemini.ts
+@@ -2,18 +2,18 @@
+ import logger from "../utils/logger";
+ 
+ class GeminiService {
+-  private genAI: GoogleGenerativeAI;
+-  private model: any;
+-
+-  constructor() {
++  private configuredModel: any;
++
++  private get model(): any {
++    if (this.configuredModel) return this.configuredModel;
+     const apiKey = process.env.GEMINI_API_KEY;
+     if (!apiKey) {
+       throw new Error("GEMINI_API_KEY is not defined in environment variables");
+     }
+-    this.genAI = new GoogleGenerativeAI(apiKey);
++    const genAI = new GoogleGenerativeAI(apiKey);
+     const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+-    this.model = this.genAI.getGenerativeModel({ model: modelName });
+-    console.log("✅ Gemini service initialized with model:", modelName);
++    this.configuredModel = genAI.getGenerativeModel({ model: modelName });
++    return this.configuredModel;
+   }
+ 
+   // ── Question generation ───────────────────────────────────────────────────
+--- a/backend/src/services/codeExecution.ts
++++ b/backend/src/services/codeExecution.ts
+@@ -62,6 +62,9 @@
+ 
+   // ── Local execution fallback ────────────────────────────────────────────────
+   private async executeLocally(request: CodeExecutionRequest): Promise<CodeExecutionResult> {
++    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_UNSAFE_LOCAL_CODE_EXECUTION !== 'true') {
++      return { success: false, error: 'Local code execution is disabled. Configure an isolated execution service.' };
++    }
+     const language = request.language;
+     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mock-interview-exec-'));
+     const fileName = this.getFileName(language);
+@@ -730,7 +733,8 @@
+ 
+     // 1. LOCAL EXECUTION FIRST (Python + JS always available on the server)
+     const localLanguages = ['python', 'javascript', 'typescript'];
+-    if (localLanguages.includes(request.language)) {
++    const allowLocal = process.env.NODE_ENV !== 'production' && process.env.ALLOW_UNSAFE_LOCAL_CODE_EXECUTION === 'true';
++    if (allowLocal && localLanguages.includes(request.language)) {
+       try {
+         const localResult = await this.executeLocally(request);
+         // Use local result if it ran (success OR user-code error — not a "not found" error)
+@@ -769,7 +773,10 @@
+ 
+     // 3. LAST RESORT — local for non-Python/JS languages (Java, C++, etc.)
+     //    Will fail gracefully if the runtime isn't installed
+-    logger.warn(`All execution paths failed for ${request.language}, trying local last-resort`);
++    if (!allowLocal) {
++      return { success: false, error: 'The isolated code execution service is unavailable. Please try again later.' };
++    }
++    logger.warn(`All execution paths failed for ${request.language}, trying explicitly enabled local execution`);
+     return await this.executeLocally(request);
+   }
+ 
+--- a/backend/src/routes/health.ts
++++ b/backend/src/routes/health.ts
+@@ -3,6 +3,7 @@
+ import axios from 'axios';
+ import { asyncHandler } from '../middleware/errorHandler';
+ import logger from '../utils/logger';
++import { authenticateToken, requireAdmin } from '../middleware/auth';
+ 
+ const router = express.Router();
+ 
+@@ -44,29 +45,9 @@
+ }
+ 
+ async function checkGemini(): Promise<ServiceStatus> {
+-  const start = Date.now();
+   const apiKey = process.env.GEMINI_API_KEY;
+   if (!apiKey) return { status: 'error', detail: 'GEMINI_API_KEY not set' };
+-
+-  try {
+-    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+-    const res = await axios.post(
+-      url,
+-      { contents: [{ parts: [{ text: 'ping' }] }] },
+-      { timeout: 8000 }
+-    );
+-    if (res.status === 200) {
+-      return { status: 'ok', latencyMs: Date.now() - start };
+-    }
+-    return { status: 'error', latencyMs: Date.now() - start, detail: `HTTP ${res.status}` };
+-  } catch (err: any) {
+-    return {
+-      status: 'error',
+-      latencyMs: Date.now() - start,
+-      detail: err.response?.data?.error?.message || err.message,
+-    };
+-  }
++  return { status: 'skipped', detail: 'Configured; paid generation is not used for health checks' };
+ }
+ 
+ async function checkPythonAiServer(): Promise<ServiceStatus> {
+@@ -120,12 +101,20 @@
+   const url = process.env.REDIS_URL;
+   if (!url) return { status: 'skipped', detail: 'REDIS_URL not set' };
+ 
++  let client: any;
+   try {
+     // Dynamically import to avoid crashing if redis package missing
+     const { createClient } = await import('redis');
+-    const client = createClient({ url });
++    client = createClient({ url, socket: { connectTimeout: 3000, reconnectStrategy: false } });
++    client.on('error', () => { /* Report connection failure below. */ });
+     await client.connect();
+-    await client.ping();
++    await Promise.race([
++      client.ping(),
++      new Promise((_, reject) => {
++        const timeout = setTimeout(() => reject(new Error('Redis probe timed out')), 3000);
++        timeout.unref();
++      }),
++    ]);
+     await client.disconnect();
+     return { status: 'ok', latencyMs: Date.now() - start };
+   } catch (err: any) {
+@@ -134,6 +123,8 @@
+       latencyMs: Date.now() - start,
+       detail: `Redis unavailable (optional): ${err.message}`,
+     };
++  } finally {
++    if (client?.isOpen) await client.disconnect().catch(() => undefined);
+   }
+ }
+ 
+@@ -141,6 +132,8 @@
+ 
+ router.get(
+   '/full-check',
++  authenticateToken,
++  requireAdmin,
+   asyncHandler(async (_req: Request, res: Response) => {
+     logger.info('Health full-check requested');
+ 
+--- a/backend/tests/startup.test.js
++++ b/backend/tests/startup.test.js
+@@ -0,0 +1,35 @@
++const { validateEnvironment } = require('../dist/config/environment');
++
++describe('startup configuration', () => {
++  const valid = { MONGODB_URI: 'mongodb://localhost/audit', JWT_ACCESS_SECRET: 'test-access', JWT_REFRESH_SECRET: 'test-refresh' };
++  test('reports missing configuration without exposing values', () => {
++    expect(() => validateEnvironment({})).toThrow('Missing required configuration: MONGODB_URI, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET');
++  });
++  test('rejects invalid ports and reused signing secrets', () => {
++    expect(() => validateEnvironment({ ...valid, PORT: '5001bad' })).toThrow('PORT');
++    expect(() => validateEnvironment({ ...valid, JWT_REFRESH_SECRET: 'test-access' })).toThrow('must be different');
++    expect(() => validateEnvironment(valid)).not.toThrow();
++  });
++});
++
++describe('code execution containment', () => {
++  const executor = require('../dist/services/codeExecution').default;
++  const oldEnv = { ...process.env };
++  afterEach(() => { process.env = { ...oldEnv }; jest.restoreAllMocks(); });
++  test.each(['production', 'development'])('%s never falls back to host execution by default', async (mode) => {
++    process.env.NODE_ENV = mode;
++    delete process.env.ALLOW_UNSAFE_LOCAL_CODE_EXECUTION;
++    const local = jest.spyOn(executor, 'executeLocally');
++    jest.spyOn(executor, 'executeWithPiston').mockRejectedValue(new Error('unavailable'));
++    const result = await executor.execute({ language: 'python', code: 'print(1)' });
++    expect(result.success).toBe(false);
++    expect(local).not.toHaveBeenCalled();
++  });
++  test('production ignores an unsafe local opt-in', async () => {
++    process.env.NODE_ENV = 'production';
++    process.env.ALLOW_UNSAFE_LOCAL_CODE_EXECUTION = 'true';
++    const result = await executor.executeLocally({ language: 'python', code: 'print(1)' });
++    expect(result.success).toBe(false);
++    expect(result.error).toContain('disabled');
++  });
++});
+--- a/ai-server/src/services/gemini_service.py
++++ b/ai-server/src/services/gemini_service.py
+@@ -8,26 +8,18 @@
+ class GeminiService:
+     def __init__(self):
+         self.api_key = os.getenv("GEMINI_API_KEY")
+-        print("=" * 60)
+-        print("GEMINI_API_KEY =", self.api_key)
+-        print("MODEL =", os.getenv("GEMINI_MODEL"))
+-        print("=" * 60)
++        self.model = None
+         if not self.api_key:
+-            raise ValueError("GEMINI_API_KEY environment variable is required")
++            logger.warning("Gemini is not configured")
++            return
+         
+         genai.configure(api_key=self.api_key)
+         self.model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+         logger.info("Gemini service initialized successfully")
+ 
+     async def health_check(self) -> Dict[str, str]:
+-        """Check if Gemini service is healthy"""
+-        try:
+-            # Simple test generation
+-            response = await self.model.generate_content_async("Test")
+-            return {"status": "healthy", "service": "gemini"}
+-        except Exception as e:
+-            logger.error(f"Gemini health check failed: {e}")
+-            return {"status": "unhealthy", "service": "gemini", "error": str(e)}
++        """Report configuration without spending generation quota."""
++        return {"status": "configured" if self.model else "unconfigured", "service": "gemini"}
+ 
+     async def generate_interview_questions(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+         """Generate interview questions based on parameters"""
+--- a/ai-server/src/main.py
++++ b/ai-server/src/main.py
+@@ -4,6 +4,7 @@
+ import uvicorn
+ import os
+ import base64
++from pathlib import Path
+ from dotenv import load_dotenv
+ from loguru import logger
+ 
+@@ -27,7 +28,7 @@
+ )
+ 
+ # Load environment variables
+-load_dotenv()
++load_dotenv(Path(__file__).resolve().parents[1] / '.env')
+ 
+ # Initialize FastAPI app
+ app = FastAPI(
+@@ -82,7 +83,7 @@
+ async def health_check():
+     """Detailed health check"""
+     return {
+-        "status": "healthy",
++        "status": "running",
+         "services": {
+             "gemini": await gemini_service.health_check(),
+             "audio": audio_service.health_check(),
+--- a/ai-server/Dockerfile
++++ b/ai-server/Dockerfile
+@@ -43,7 +43,7 @@
+ 
+ # Health check
+ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
++    CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5).raise_for_status()" || exit 1
+ 
+ # Start the application
+ CMD ["python", "src/main.py"]

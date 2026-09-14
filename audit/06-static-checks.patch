@@ -1,0 +1,909 @@
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -4,8 +4,9 @@
+   "version": "0.0.1",
+   "type": "module",
+   "scripts": {
+-    "build": "vite build",
+-    "dev": "vite"
++    "build": "npm run typecheck && vite build",
++    "dev": "vite",
++    "typecheck": "tsc --noEmit"
+   },
+   "dependencies": {
+     "@auth0/auth0-react": "^2.13.0",
+@@ -93,8 +94,12 @@
+   },
+   "devDependencies": {
+     "@tailwindcss/vite": "4.1.12",
++    "@types/node": "^20.10.4",
++    "@types/react": "^18.3.27",
++    "@types/react-dom": "^18.3.0",
+     "@vitejs/plugin-react": "4.7.0",
+     "tailwindcss": "4.1.12",
++    "typescript": "^5.3.3",
+     "vite": "6.3.5"
+   },
+   "peerDependencies": {
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -61,10 +61,12 @@
+         "motion": "12.23.24",
+         "next-themes": "0.4.6",
+         "prismjs": "^1.29.0",
++        "react": "18.3.1",
+         "react-chartjs-2": "^5.2.0",
+         "react-day-picker": "8.10.1",
+         "react-dnd": "16.0.1",
+         "react-dnd-html5-backend": "16.0.1",
++        "react-dom": "18.3.1",
+         "react-dropzone": "^14.2.3",
+         "react-hook-form": "7.55.0",
+         "react-hot-toast": "^2.4.1",
+@@ -91,8 +93,12 @@
+       },
+       "devDependencies": {
+         "@tailwindcss/vite": "4.1.12",
++        "@types/node": "^20.10.4",
++        "@types/react": "^18.3.27",
++        "@types/react-dom": "^18.3.0",
+         "@vitejs/plugin-react": "4.7.0",
+         "tailwindcss": "4.1.12",
++        "typescript": "^5.3.3",
+         "vite": "6.3.5"
+       },
+       "peerDependencies": {
+@@ -3854,6 +3860,16 @@
+       "integrity": "sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==",
+       "license": "MIT"
+     },
++    "node_modules/@types/node": {
++      "version": "20.10.4",
++      "resolved": "https://registry.npmjs.org/@types/node/-/node-20.10.4.tgz",
++      "integrity": "sha512-D08YG6rr8X90YB56tSIuBaddy/UXAA9RKJoFvrsnogAum/0pmjkgi4+2nx96A330FmioegBWmEYQ+syqCFaveg==",
++      "devOptional": true,
++      "license": "MIT",
++      "dependencies": {
++        "undici-types": "~5.26.4"
++      }
++    },
+     "node_modules/@types/offscreencanvas": {
+       "version": "2019.7.3",
+       "resolved": "https://registry.npmjs.org/@types/offscreencanvas/-/offscreencanvas-2019.7.3.tgz",
+@@ -3887,6 +3903,16 @@
+       "dependencies": {
+         "@types/prop-types": "*",
+         "csstype": "^3.2.2"
++      }
++    },
++    "node_modules/@types/react-dom": {
++      "version": "18.3.0",
++      "resolved": "https://registry.npmjs.org/@types/react-dom/-/react-dom-18.3.0.tgz",
++      "integrity": "sha512-EhwApuTmMBmXuFOikhQLIBUn6uFg81SwLMOAUgodJF14SOBOCMdU04gDoYi0WOJJHD144TL32z4yDqCW3dnkQg==",
++      "devOptional": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/react": "*"
+       }
+     },
+     "node_modules/@types/react-reconciler": {
+@@ -7713,7 +7739,6 @@
+       "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz",
+       "integrity": "sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==",
+       "license": "MIT",
+-      "peer": true,
+       "dependencies": {
+         "loose-envify": "^1.1.0"
+       },
+@@ -7801,7 +7826,6 @@
+       "resolved": "https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz",
+       "integrity": "sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw==",
+       "license": "MIT",
+-      "peer": true,
+       "dependencies": {
+         "loose-envify": "^1.1.0",
+         "scheduler": "^0.23.2"
+@@ -8590,7 +8614,6 @@
+       "resolved": "https://registry.npmjs.org/scheduler/-/scheduler-0.23.2.tgz",
+       "integrity": "sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==",
+       "license": "MIT",
+-      "peer": true,
+       "dependencies": {
+         "loose-envify": "^1.1.0"
+       }
+@@ -9132,6 +9155,27 @@
+       "funding": {
+         "url": "https://github.com/sponsors/Wombosvideo"
+       }
++    },
++    "node_modules/typescript": {
++      "version": "5.3.3",
++      "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.3.3.tgz",
++      "integrity": "sha512-pXWcraxM0uxAS+tN0AG/BF2TyqmHO014Z070UsJ+pFvYuRSq8KH8DmWpnbXe0pEPDHXZV3FcAbJkijJ5oNEnWw==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "bin": {
++        "tsc": "bin/tsc",
++        "tsserver": "bin/tsserver"
++      },
++      "engines": {
++        "node": ">=14.17"
++      }
++    },
++    "node_modules/undici-types": {
++      "version": "5.26.5",
++      "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-5.26.5.tgz",
++      "integrity": "sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA==",
++      "devOptional": true,
++      "license": "MIT"
+     },
+     "node_modules/unified": {
+       "version": "11.0.5",
+--- a/frontend/tsconfig.json
++++ b/frontend/tsconfig.json
+@@ -0,0 +1,19 @@
++{
++  "compilerOptions": {
++    "target": "ES2020",
++    "lib": ["ES2020", "DOM", "DOM.Iterable"],
++    "module": "ESNext",
++    "moduleResolution": "Bundler",
++    "jsx": "react-jsx",
++    "noEmit": true,
++    "allowImportingTsExtensions": true,
++    "esModuleInterop": true,
++    "resolveJsonModule": true,
++    "skipLibCheck": true,
++    "forceConsistentCasingInFileNames": true,
++    "types": ["vite/client", "node"],
++    "baseUrl": ".",
++    "paths": { "@/*": ["src/*"] }
++  },
++  "include": ["src", "vite.config.ts"]
++}
+--- a/frontend/vite.config.ts
++++ b/frontend/vite.config.ts
+@@ -6,7 +6,7 @@
+ export default defineConfig({
+   plugins: [
+     // The React and Tailwind plugins are both required for Make, even if
+-    // Tailwind is not being actively used – do not remove them
++    // Tailwind is not being actively used â€“ do not remove them
+     react(),
+     tailwindcss(),
+   ],
+@@ -56,11 +56,9 @@
+     sourcemap: false,
+     // Target modern browsers for better optimization
+     target: 'es2020',
+-    // Drop console and debugger in production
+-    esbuild: {
+-      drop: ['console', 'debugger'],
+-    },
+   },
++
++  esbuild: { drop: ['console', 'debugger'] },
+ 
+   // Performance optimizations
+   optimizeDeps: {
+--- a/frontend/src/app/hooks/useWebRTC.ts
++++ b/frontend/src/app/hooks/useWebRTC.ts
+@@ -104,7 +104,7 @@
+ 
+       socket.emit('webrtc:offer', {
+         interviewId,
+-        offer: offer.toJSON(),
++        offer,
+       });
+ 
+       console.log('Offer created and sent');
+@@ -128,7 +128,7 @@
+       if (socket) {
+         socket.emit('webrtc:answer', {
+           interviewId,
+-          answer: answer.toJSON(),
++          answer,
+         });
+       }
+ 
+--- a/frontend/src/app/types/index.ts
++++ b/frontend/src/app/types/index.ts
+@@ -79,7 +79,7 @@
+   completedAt?: string;
+ }
+ 
+-export type InterviewType = 'behavioral' | 'technical' | 'coding' | 'system-design';
++export type InterviewType = 'behavioral' | 'technical' | 'coding' | 'system-design' | 'skill-based';
+ export type InterviewStatus = 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
+ 
+ export interface InterviewSettings {
+--- a/frontend/src/app/pages/InterviewRoomPage.tsx
++++ b/frontend/src/app/pages/InterviewRoomPage.tsx
+@@ -239,7 +239,7 @@
+     try {
+       const duration = Math.round((Date.now() - responseStartTime) / 1000);
+       // Bug 6 fix: await submitResponse so the response is saved before fetching next question
+-      await submitResponse({ questionId: currentQuestion.id, answer: currentAnswer, duration, timestamp: new Date() });
++      await submitResponse({ questionId: currentQuestion.id, answer: currentAnswer, duration, timestamp: new Date().toISOString() });
+       setCurrentAnswer('');
+       setIsListening(false); // Bug 7 fix: stop listening before fetching next question
+       await getNextQuestion();
+--- a/frontend/src/app/pages/ProfilePage.tsx
++++ b/frontend/src/app/pages/ProfilePage.tsx
+@@ -48,7 +48,7 @@
+   useEffect(() => {
+     const fetchPaymentHistory = async () => {
+       try {
+-        const response = await apiService.get('/payment/history');
++        const response = await apiService.get<any[]>('/payment/history');
+         if (response.success && response.data) {
+           setPaymentHistory(response.data);
+         }
+--- a/frontend/src/app/pages/SubscriptionPage.tsx
++++ b/frontend/src/app/pages/SubscriptionPage.tsx
+@@ -21,7 +21,7 @@
+ 
+   const fetchPlans = async () => {
+     try {
+-      const response = await apiService.get('/payment/plans');
++      const response = await apiService.get<any[]>('/payment/plans');
+       if (response.success) {
+         setPlans(response.data);
+       }
+@@ -32,7 +32,7 @@
+ 
+   const fetchCurrentSubscription = async () => {
+     try {
+-      const response = await apiService.get('/payment/subscription');
++      const response = await apiService.get<{ plan: string }>('/payment/subscription');
+       if (response.success) {
+         setCurrentPlan(response.data.plan || 'free');
+       }
+@@ -43,13 +43,13 @@
+ 
+   const handleUpgrade = async (planId: string) => {
+     if (planId === 'free') {
+-      toast.info('You are already on the free plan');
++      toast('You are already on the free plan');
+       return;
+     }
+ 
+     setLoading(true);
+     try {
+-      const response = await apiService.post('/payment/create-checkout-session', {
++      const response = await apiService.post<{ url: string }>('/payment/create-checkout-session', {
+         plan: planId,
+       });
+ 
+@@ -69,7 +69,7 @@
+   const handleManageSubscription = async () => {
+     setLoading(true);
+     try {
+-      const response = await apiService.post('/payment/create-portal-session', {});
++      const response = await apiService.post<{ url: string }>('/payment/create-portal-session', {});
+       
+       if (response.success && response.data.url) {
+         window.location.href = response.data.url;
+@@ -164,7 +164,7 @@
+                     if (plan.id === currentPlan) {
+                       handleManageSubscription();
+                     } else if (plan.id === 'free') {
+-                      toast.info('You are already on the free plan');
++                      toast('You are already on the free plan');
+                     } else {
+                       handleUpgrade(plan.id);
+                     }
+--- a/frontend/src/app/pages/ForgotPasswordPage.tsx
++++ b/frontend/src/app/pages/ForgotPasswordPage.tsx
+@@ -96,7 +96,7 @@
+                 />
+               </div>
+ 
+-              <Button type="submit" variant="primary" className="w-full" disabled={loading}>
++              <Button type="submit" variant="default" className="w-full" disabled={loading}>
+                 {loading ? (
+                   <>
+                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+--- a/frontend/src/app/pages/LandingPage.tsx
++++ b/frontend/src/app/pages/LandingPage.tsx
+@@ -26,7 +26,7 @@
+               </p>
+               <div className="flex flex-col sm:flex-row gap-4">
+                 <Link to="/signup">
+-                  <Button variant="primary" size="lg">
++                  <Button variant="default" size="lg">
+                     Start Free Interview
+                     <ChevronRight className="ml-2 w-5 h-5" />
+                   </Button>
+@@ -56,7 +56,7 @@
+             </div>
+             
+             <div className="relative">
+-              <Card hover>
++              <Card>
+                 <img
+                   src="https://images.unsplash.com/photo-1767950467836-ef59566126c3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxBSSUyMHJvYm90JTIwcHJvZmVzc2lvbmFsJTIwaW50ZXJ2aWV3fGVufDF8fHx8MTc2OTg3MTEyM3ww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+                   alt="AI Interviewer"
+@@ -118,7 +118,7 @@
+                 color: 'bg-orange-500'
+               }
+             ].map((feature, index) => (
+-              <Card key={index} hover className="p-6">
++              <Card key={index} className="p-6">
+                 <div className={`w-14 h-14 ${feature.color} rounded-xl flex items-center justify-center mb-4`}>
+                   <feature.icon className="w-7 h-7 text-white" />
+                 </div>
+@@ -216,7 +216,7 @@
+                 text: 'Best investment for interview prep. The personalized feedback saved me months of practice.'
+               }
+             ].map((testimonial, index) => (
+-              <Card key={index} hover className="h-full p-6">
++              <Card key={index} className="h-full p-6">
+                 <div className="flex items-center gap-1 text-yellow-500 mb-4">
+                   {[...Array(5)].map((_, i) => (
+                     <Star key={i} className="w-4 h-4 fill-current" />
+@@ -357,7 +357,7 @@
+               Join thousands of successful candidates who improved their interview skills with AI
+             </p>
+             <Link to="/signup">
+-              <Button variant="primary" size="lg">
++              <Button variant="default" size="lg">
+                 Start Your Free Interview
+                 <ChevronRight className="ml-2 w-5 h-5" />
+               </Button>
+--- a/frontend/src/app/pages/OnboardingPage.tsx
++++ b/frontend/src/app/pages/OnboardingPage.tsx
+@@ -216,7 +216,7 @@
+               Back
+             </Button>
+             <Button
+-              variant="primary"
++              variant="default"
+               onClick={handleNext}
+               disabled={!canProceed()}
+             >
+--- a/frontend/src/pages/AdminDashboardPage.tsx
++++ b/frontend/src/pages/AdminDashboardPage.tsx
+@@ -1,433 +1 @@
+-import { useEffect, useState } from 'react';
+-import { Link } from 'react-router-dom';
+-import { Users, Video, TrendingUp, AlertTriangle, Activity, Award, ClipboardList, Plus } from 'lucide-react';
+-import { Card } from '../components/ui/card';
+-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+-import adminService, { PlatformStats, SystemMetrics, AIMetrics, Activity as ActivityType } from '../services/admin';
+-import toast from 'react-hot-toast';
+-
+-export function AdminDashboardPage() {
+-  const [stats, setStats] = useState<PlatformStats | null>(null);
+-  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
+-  const [aiMetrics, setAIMetrics] = useState<AIMetrics | null>(null);
+-  const [activity, setActivity] = useState<ActivityType[]>([]);
+-  const [loading, setLoading] = useState(true);
+-
+-  useEffect(() => {
+-    loadDashboardData();
+-  }, []);
+-
+-  const loadDashboardData = async () => {
+-    try {
+-      setLoading(true);
+-      
+-      console.log('Loading admin dashboard data...');
+-      
+-      // Load data sequentially to identify which endpoint fails
+-      console.log('Fetching stats...');
+-      const statsData = await adminService.getStats();
+-      console.log('Stats loaded:', statsData);
+-      setStats(statsData);
+-
+-      console.log('Fetching system metrics...');
+-      const metricsData = await adminService.getSystemMetrics();
+-      console.log('System metrics loaded:', metricsData);
+-      setSystemMetrics(metricsData);
+-
+-      console.log('Fetching AI metrics...');
+-      const aiData = await adminService.getAIMetrics();
+-      console.log('AI metrics loaded:', aiData);
+-      setAIMetrics(aiData);
+-
+-      console.log('Fetching activity...');
+-      const activityData = await adminService.getActivity(20);
+-      console.log('Activity loaded:', activityData);
+-      setActivity(activityData);
+-
+-      console.log('✅ All dashboard data loaded successfully');
+-    } catch (error: any) {
+-      console.error('❌ Failed to load dashboard data:', error);
+-      console.error('Error details:', {
+-        message: error.message,
+-        response: error.response?.data,
+-        status: error.response?.status
+-      });
+-      
+-      const errorMessage = error.response?.data?.error || error.message || 'Failed to load dashboard data';
+-      toast.error(errorMessage);
+-    } finally {
+-      setLoading(false);
+-    }
+-  };
+-
+-  if (loading) {
+-    return (
+-      <div className="min-h-screen py-20 px-4 flex items-center justify-center">
+-        <div className="text-center">
+-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+-          <p className="text-muted-foreground">Loading dashboard...</p>
+-        </div>
+-      </div>
+-    );
+-  }
+-
+-  // Show partial data if some endpoints failed
+-  if (!stats && !systemMetrics && !aiMetrics) {
+-    return (
+-      <div className="min-h-screen py-20 px-4 flex items-center justify-center">
+-        <div className="text-center max-w-md">
+-          <AlertTriangle className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
+-          <h2 className="text-2xl gradient-text mb-2">Unable to Load Dashboard</h2>
+-          <p className="text-muted-foreground mb-6">
+-            Failed to load admin dashboard data. Please check your connection and try again.
+-          </p>
+-          <button
+-            onClick={loadDashboardData}
+-            className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+-          >
+-            Retry
+-          </button>
+-        </div>
+-      </div>
+-    );
+-  }
+-
+-  const statCards = [
+-    { 
+-      label: 'Total Users', 
+-      value: stats?.users?.total?.toLocaleString() || '0', 
+-      change: '+23%', 
+-      icon: Users, 
+-      color: 'from-indigo-500 to-purple-500' 
+-    },
+-    { 
+-      label: 'Total Interviews', 
+-      value: stats?.interviews?.total?.toLocaleString() || '0', 
+-      change: '+18%', 
+-      icon: Video, 
+-      color: 'from-purple-500 to-pink-500' 
+-    },
+-    { 
+-      label: 'Avg Success Rate', 
+-      value: `${stats?.interviews?.avgSuccessRate || 0}%`, 
+-      change: '+5%', 
+-      icon: TrendingUp, 
+-      color: 'from-pink-500 to-red-500' 
+-    },
+-    { 
+-      label: 'Active Issues', 
+-      value: '23', 
+-      change: '-12%', 
+-      icon: AlertTriangle, 
+-      color: 'from-orange-500 to-yellow-500' 
+-    }
+-  ];
+-
+-  // Transform user growth data for chart
+-  const userGrowthData = stats?.users?.growth?.map(item => ({
+-    month: new Date(item._id.year, item._id.month - 1).toLocaleDateString('en-US', { month: 'short' }),
+-    users: item.count
+-  })) || [];
+-
+-  // Transform interview type data for chart
+-  const interviewTypeData = stats?.interviews?.byType?.map(item => ({
+-    type: item._id.charAt(0).toUpperCase() + item._id.slice(1),
+-    count: item.count
+-  })) || [];
+-
+-  const aiPerformanceData = aiMetrics ? [
+-    { metric: 'Accuracy', value: aiMetrics.accuracy },
+-    { metric: 'Response Time', value: aiMetrics.responseTime },
+-    { metric: 'User Satisfaction', value: aiMetrics.userSatisfaction },
+-    { metric: 'Question Quality', value: aiMetrics.questionQuality },
+-    { metric: 'Feedback Accuracy', value: aiMetrics.feedbackAccuracy }
+-  ] : [];
+-
+-  // Mock system metrics data for chart (in production, fetch historical data)
+-  const systemMetricsData = systemMetrics ? [
+-    { time: '00:00', cpu: 45, memory: 62, requests: 234 },
+-    { time: '04:00', cpu: 38, memory: 58, requests: 156 },
+-    { time: '08:00', cpu: 72, memory: 75, requests: 456 },
+-    { time: '12:00', cpu: 85, memory: 82, requests: 678 },
+-    { time: '16:00', cpu: 78, memory: 79, requests: 589 },
+-    { time: '20:00', cpu: systemMetrics.cpu, memory: systemMetrics.memory, requests: 423 }
+-  ] : [];
+-
+-  const formatTimeAgo = (date: Date) => {
+-    const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
+-    if (seconds < 60) return `${seconds} sec ago`;
+-    const minutes = Math.floor(seconds / 60);
+-    if (minutes < 60) return `${minutes} min ago`;
+-    const hours = Math.floor(minutes / 60);
+-    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+-    const days = Math.floor(hours / 24);
+-    return `${days} day${days > 1 ? 's' : ''} ago`;
+-  };
+-
+-  return (
+-    <div className="min-h-screen py-20 px-4">
+-      <div className="max-w-7xl mx-auto space-y-8">
+-        {/* Header */}
+-        <div className="flex flex-wrap items-center justify-between gap-4">
+-          <div>
+-            <h1 className="text-4xl gradient-text mb-2">Admin Dashboard</h1>
+-            <p className="text-muted-foreground">Monitor platform performance and user activity</p>
+-          </div>
+-          <Link
+-            to="/admin/aptitude/questions"
+-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+-          >
+-            <Plus className="w-4 h-4" />
+-            Add Aptitude Question
+-          </Link>
+-        </div>
+-
+-        {/* Aptitude Module */}
+-        <Card>
+-          <div className="flex items-center gap-2 mb-6">
+-            <ClipboardList className="w-5 h-5 text-primary" />
+-            <h3 className="text-xl">Aptitude Module</h3>
+-          </div>
+-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+-            <Link
+-              to="/admin/aptitude"
+-              className="rounded-lg border border-border bg-secondary/50 p-4 text-center hover:bg-secondary transition-colors"
+-            >
+-              <p className="text-sm font-medium">Overview</p>
+-            </Link>
+-            <Link
+-              to="/admin/aptitude/questions"
+-              className="rounded-lg border border-border bg-secondary/50 p-4 text-center hover:bg-secondary transition-colors"
+-            >
+-              <p className="text-sm font-medium">Questions</p>
+-            </Link>
+-            <Link
+-              to="/admin/aptitude/tests"
+-              className="rounded-lg border border-border bg-secondary/50 p-4 text-center hover:bg-secondary transition-colors"
+-            >
+-              <p className="text-sm font-medium">Tests</p>
+-            </Link>
+-            <Link
+-              to="/admin/aptitude/students"
+-              className="rounded-lg border border-border bg-secondary/50 p-4 text-center hover:bg-secondary transition-colors"
+-            >
+-              <p className="text-sm font-medium">Students</p>
+-            </Link>
+-          </div>
+-        </Card>
+-
+-        {/* Stats Grid - Responsive */}
+-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+-          {statCards.map((stat, index) => (
+-            <Card key={index} className="p-6">
+-              <div className={`w-12 h-12 bg-gradient-to-br ${stat.color} rounded-xl flex items-center justify-center mb-4`}>
+-                <stat.icon className="w-6 h-6 text-white" />
+-              </div>
+-              <p className="text-2xl sm:text-3xl gradient-text mb-1">{stat.value}</p>
+-              <div className="flex items-center justify-between">
+-                <p className="text-sm text-muted-foreground">{stat.label}</p>
+-                <span className={`text-sm ${
+-                  stat.change.startsWith('+') ? 'text-green-400' : 'text-red-400'
+-                }`}>
+-                  {stat.change}
+-                </span>
+-              </div>
+-            </Card>
+-          ))}
+-        </div>
+-
+-        {/* Charts Row 1 - Responsive */}
+-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+-          <Card>
+-            <div className="flex items-center gap-2 mb-6">
+-              <Users className="w-5 h-5 text-primary" />
+-              <h3 className="text-xl">User Growth</h3>
+-            </div>
+-            <ResponsiveContainer width="100%" height={300}>
+-              <AreaChart data={userGrowthData}>
+-                <defs>
+-                  <linearGradient id="userGradient" x1="0" y1="0" x2="0" y2="1">
+-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8}/>
+-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+-                  </linearGradient>
+-                </defs>
+-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(99, 102, 241, 0.1)" />
+-                <XAxis dataKey="month" tick={{ fill: '#a1a1aa', fontSize: 12 }} />
+-                <YAxis tick={{ fill: '#a1a1aa', fontSize: 12 }} />
+-                <Tooltip 
+-                  contentStyle={{ 
+-                    backgroundColor: '#1e1e2e', 
+-                    border: '1px solid rgba(99, 102, 241, 0.3)',
+-                    borderRadius: '8px'
+-                  }}
+-                />
+-                <Area 
+-                  type="monotone" 
+-                  dataKey="users" 
+-                  stroke="#6366f1" 
+-                  fillOpacity={1} 
+-                  fill="url(#userGradient)" 
+-                />
+-              </AreaChart>
+-            </ResponsiveContainer>
+-          </Card>
+-
+-          <Card>
+-            <div className="flex items-center gap-2 mb-6">
+-              <Video className="w-5 h-5 text-primary" />
+-              <h3 className="text-xl">Interview Types</h3>
+-            </div>
+-            <ResponsiveContainer width="100%" height={300}>
+-              <BarChart data={interviewTypeData}>
+-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(99, 102, 241, 0.1)" />
+-                <XAxis dataKey="type" tick={{ fill: '#a1a1aa', fontSize: 12 }} />
+-                <YAxis tick={{ fill: '#a1a1aa', fontSize: 12 }} />
+-                <Tooltip 
+-                  contentStyle={{ 
+-                    backgroundColor: '#1e1e2e', 
+-                    border: '1px solid rgba(99, 102, 241, 0.3)',
+-                    borderRadius: '8px'
+-                  }}
+-                />
+-                <Bar dataKey="count" fill="#6366f1" radius={[8, 8, 0, 0]} />
+-              </BarChart>
+-            </ResponsiveContainer>
+-          </Card>
+-        </div>
+-
+-        {/* AI Performance */}
+-        <Card>
+-          <div className="flex items-center gap-2 mb-6">
+-            <Activity className="w-5 h-5 text-primary" />
+-            <h3 className="text-xl">AI Model Performance Metrics</h3>
+-          </div>
+-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 lg:gap-6">
+-            {aiPerformanceData.map((metric, index) => (
+-              <div key={index} className="text-center">
+-                <div className="relative inline-block mb-3">
+-                  <svg className="w-24 h-24 transform -rotate-90">
+-                    <circle
+-                      cx="48"
+-                      cy="48"
+-                      r="40"
+-                      stroke="rgba(99, 102, 241, 0.2)"
+-                      strokeWidth="8"
+-                      fill="none"
+-                    />
+-                    <circle
+-                      cx="48"
+-                      cy="48"
+-                      r="40"
+-                      stroke="#6366f1"
+-                      strokeWidth="8"
+-                      fill="none"
+-                      strokeDasharray={`${(metric.value / 100) * 251} 251`}
+-                      strokeLinecap="round"
+-                    />
+-                  </svg>
+-                  <div className="absolute inset-0 flex items-center justify-center">
+-                    <span className="text-xl gradient-text">{metric.value}%</span>
+-                  </div>
+-                </div>
+-                <p className="text-sm text-muted-foreground">{metric.metric}</p>
+-              </div>
+-            ))}
+-          </div>
+-        </Card>
+-
+-        {/* System Metrics & Recent Activity - Responsive */}
+-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+-          <div className="lg:col-span-2">
+-            <Card>
+-              <div className="flex items-center gap-2 mb-6">
+-                <TrendingUp className="w-5 h-5 text-primary" />
+-                <h3 className="text-xl">System Metrics</h3>
+-              </div>
+-              <ResponsiveContainer width="100%" height={300}>
+-                <LineChart data={systemMetricsData}>
+-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(99, 102, 241, 0.1)" />
+-                  <XAxis dataKey="time" tick={{ fill: '#a1a1aa', fontSize: 12 }} />
+-                  <YAxis tick={{ fill: '#a1a1aa', fontSize: 12 }} />
+-                  <Tooltip 
+-                    contentStyle={{ 
+-                      backgroundColor: '#1e1e2e', 
+-                      border: '1px solid rgba(99, 102, 241, 0.3)',
+-                      borderRadius: '8px'
+-                    }}
+-                  />
+-                  <Line type="monotone" dataKey="cpu" stroke="#6366f1" strokeWidth={2} />
+-                  <Line type="monotone" dataKey="memory" stroke="#8b5cf6" strokeWidth={2} />
+-                  <Line type="monotone" dataKey="requests" stroke="#ec4899" strokeWidth={2} />
+-                </LineChart>
+-              </ResponsiveContainer>
+-              <div className="flex justify-center gap-6 mt-4">
+-                <div className="flex items-center gap-2">
+-                  <div className="w-3 h-3 bg-[#6366f1] rounded-full"></div>
+-                  <span className="text-sm">CPU %</span>
+-                </div>
+-                <div className="flex items-center gap-2">
+-                  <div className="w-3 h-3 bg-[#8b5cf6] rounded-full"></div>
+-                  <span className="text-sm">Memory %</span>
+-                </div>
+-                <div className="flex items-center gap-2">
+-                  <div className="w-3 h-3 bg-[#ec4899] rounded-full"></div>
+-                  <span className="text-sm">Requests</span>
+-                </div>
+-              </div>
+-            </Card>
+-          </div>
+-
+-          <Card>
+-            <div className="flex items-center gap-2 mb-6">
+-              <Award className="w-5 h-5 text-primary" />
+-              <h3 className="text-lg">Recent Activity</h3>
+-            </div>
+-            <div className="space-y-4 max-h-80 overflow-y-auto">
+-              {activity.map((act, index) => (
+-                <div key={index} className="pb-4 border-b border-border last:border-0">
+-                  <div className="flex items-start justify-between gap-2 mb-1">
+-                    <p className="text-sm font-medium truncate">{act.user}</p>
+-                    {act.score !== null && (
+-                      <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded shrink-0">
+-                        {act.score}%
+-                      </span>
+-                    )}
+-                  </div>
+-                  <p className="text-sm text-muted-foreground mb-1">{act.action}</p>
+-                  <p className="text-xs text-muted-foreground">{formatTimeAgo(act.time)}</p>
+-                </div>
+-              ))}
+-            </div>
+-          </Card>
+-        </div>
+-
+-        {/* Error Logs */}
+-        <Card>
+-          <div className="flex items-center gap-2 mb-6">
+-            <AlertTriangle className="w-5 h-5 text-yellow-400" />
+-            <h3 className="text-xl">Recent Error Logs</h3>
+-          </div>
+-          <div className="space-y-2">
+-            {[
+-              { severity: 'warning', message: 'High API response time detected', time: '10 min ago' },
+-              { severity: 'error', message: 'Database connection timeout', time: '1 hour ago' },
+-              { severity: 'warning', message: 'Memory usage above 80%', time: '2 hours ago' },
+-              { severity: 'info', message: 'Scheduled backup completed', time: '3 hours ago' }
+-            ].map((log, index) => (
+-              <div key={index} className="p-3 bg-secondary rounded-lg flex items-center justify-between">
+-                <div className="flex items-center gap-3">
+-                  <div className={`w-2 h-2 rounded-full ${
+-                    log.severity === 'error' ? 'bg-red-400' :
+-                    log.severity === 'warning' ? 'bg-yellow-400' : 'bg-blue-400'
+-                  }`}></div>
+-                  <span className="text-sm">{log.message}</span>
+-                </div>
+-                <span className="text-xs text-muted-foreground">{log.time}</span>
+-              </div>
+-            ))}
+-          </div>
+-        </Card>
+-      </div>
+-    </div>
+-  );
+-}
++export { AdminDashboardPage } from '../app/pages/AdminDashboardPage';
+--- a/backend/.eslintrc.cjs
++++ b/backend/.eslintrc.cjs
+@@ -0,0 +1,14 @@
++module.exports = {
++  root: true,
++  parser: '@typescript-eslint/parser',
++  plugins: ['@typescript-eslint'],
++  env: { node: true, es2020: true },
++  extends: ['eslint:recommended'],
++  parserOptions: { ecmaVersion: 2020, sourceType: 'module' },
++  rules: {
++    // TypeScript checks names; core no-undef misidentifies type declarations.
++    'no-undef': 'off',
++    'no-unused-vars': 'off',
++    'no-empty': ['error', { allowEmptyCatch: true }],
++  },
++};
+--- a/backend/src/utils/auth.ts
++++ b/backend/src/utils/auth.ts
+@@ -61,18 +61,9 @@
+   return null;
+ }
+ 
+-// Verify Auth0 token (for future implementation)
+-export async function verifyAuth0Token(token: string): Promise<TokenPayload | null> {
+-  try {
+-    // TODO: Implement Auth0 token verification
+-    // This would typically involve verifying the JWT with Auth0's public key
+-    // For now, we'll decode without verification (not recommended for production)
+-    // Auth0 is not configured: decoding alone never authenticates an identity.
+-    return null;
+-  } catch (error) {
+-    console.error('Auth0 token verification error:', error);
+-    return null;
+-  }
++// Auth0 is unavailable until an issuer/audience and signature verifier are configured.
++export async function verifyAuth0Token(_token: string): Promise<TokenPayload | null> {
++  return null;
+ }
+ 
+ // Generate random string for tokens
+--- a/backend/src/routes/interview.ts
++++ b/backend/src/routes/interview.ts
+@@ -84,7 +84,6 @@
+         });
+         if (resume) {
+           resumeData = resume;
+-        } else {
+         }
+       } else {
+         // Get latest resume
+@@ -95,7 +94,6 @@
+ 
+         if (latestResume) {
+           resumeData = latestResume;
+-        } else {
+         }
+       }
+ 
+--- a/backend/src/routes/resume.ts
++++ b/backend/src/routes/resume.ts
+@@ -657,7 +657,7 @@
+       try {
+         const path = require('path');
+         const fs = require('fs');
+-        const urlPath = resume.fileUrl.replace(/^https?:\/\/[^\/]+/, '');
++        const urlPath = resume.fileUrl.replace(/^https?:\/\/[^/]+/, '');
+         const filePath = path.join(process.cwd(), 'uploads', urlPath.replace('/uploads/', ''));
+         if (fs.existsSync(filePath)) {
+           fs.unlinkSync(filePath);
+@@ -710,7 +710,7 @@
+     // Local storage
+     const path = require('path');
+     const fs = require('fs');
+-    const urlPath = resume.fileUrl.replace(/^https?:\/\/[^\/]+/, '');
++    const urlPath = resume.fileUrl.replace(/^https?:\/\/[^/]+/, '');
+     const filePath = path.join(process.cwd(), 'uploads', urlPath.replace('/uploads/', ''));
+     if (!fs.existsSync(filePath)) {
+       return res.status(404).json({ success: false, error: 'Resume file not found on server' });
+@@ -751,7 +751,7 @@
+     // Local storage
+     const path = require('path');
+     const fs = require('fs');
+-    const urlPath = resume.fileUrl.replace(/^https?:\/\/[^\/]+/, '');
++    const urlPath = resume.fileUrl.replace(/^https?:\/\/[^/]+/, '');
+     const filePath = path.join(process.cwd(), 'uploads', urlPath.replace('/uploads/', ''));
+     if (!fs.existsSync(filePath)) {
+       return res.status(404).json({ success: false, error: 'Resume file not found on server' });
+--- a/backend/src/utils/validation.ts
++++ b/backend/src/utils/validation.ts
+@@ -50,7 +50,7 @@
+   return body('profile.phone')
+     .optional()
+     .trim()
+-    .matches(/^[\d\s\-\+\(\)]+$/)
++    .matches(/^[\d\s+()-]+$/)
+     .withMessage('Please provide a valid phone number')
+     .isLength({ min: 10, max: 20 })
+     .withMessage('Phone number must be between 10 and 20 characters');
+@@ -246,7 +246,7 @@
+       .custom((value) => {
+         // Allow empty string or valid phone
+         if (!value || value === '') return true;
+-        if (!/^[\d\s\-\+\(\)]+$/.test(value)) {
++        if (!/^[\d\s+()-]+$/.test(value)) {
+           throw new Error('Please provide a valid phone number');
+         }
+         if (value.length < 10 || value.length > 20) {

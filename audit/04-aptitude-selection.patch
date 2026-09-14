@@ -1,0 +1,155 @@
+--- a/backend/src/services/questionSelector.service.ts
++++ b/backend/src/services/questionSelector.service.ts
+@@ -41,42 +41,15 @@
+     const seen = pool.filter((q) => seenIds.has(q._id.toString()));
+ 
+     const candidates = [...shuffle(unseen), ...shuffle(seen)];
+-    for (const q of candidates) {
+-      if (selectedIds.size >= 100) break;
+-      selectedIds.add(q._id.toString());
+-      if (selectedIds.size >= plan.count) break;
++    if (candidates.length < plan.count) {
++      throw new Error(`Insufficient ${difficulty} questions for this test: need ${plan.count}, found ${candidates.length}.`);
+     }
+-  }
+-
+-  // 2. Second pass: if nothing or very few selected, get ANY active question for this roundType/categories
+-  if (selectedIds.size === 0) {
+-    const fallbackPool = await AptitudeQuestion.find({
+-      roundType: test.roundType,
+-      category: { $in: test.categories },
+-      status: 'active',
+-    })
+-      .select('_id')
+-      .lean();
+-
+-    const candidates = shuffle(fallbackPool);
+-    for (const q of candidates) {
++    for (const q of candidates.slice(0, plan.count)) {
+       selectedIds.add(q._id.toString());
+     }
+   }
+ 
+-  // 3. Third pass: if still empty, get ANY active question across the database
+-  if (selectedIds.size === 0) {
+-    const allActive = await AptitudeQuestion.find({ status: 'active' }).select('_id').limit(20).lean();
+-    for (const q of allActive) {
+-      selectedIds.add(q._id.toString());
+-    }
+-  }
+-
+-  if (selectedIds.size === 0) {
+-    throw new Error(
+-      `No active questions found for round "${test.roundType}". Please add questions in the Admin Question Bank first.`
+-    );
+-  }
++  if (selectedIds.size === 0) throw new Error('The test must request at least one question.');
+ 
+   const selectedObjectIds = Array.from(selectedIds).map((id) => new Types.ObjectId(id));
+ 
+--- a/backend/src/models/AptitudeTest.ts
++++ b/backend/src/models/AptitudeTest.ts
+@@ -29,8 +29,8 @@
+ 
+ const DifficultyPlanSchema = new Schema<DifficultyPlan>(
+   {
+-    count: { type: Number, required: true, min: 0 },
+-    marksPerQuestion: { type: Number, required: true, default: 1 },
++    count: { type: Number, required: true, min: 0, max: 100, validate: Number.isInteger },
++    marksPerQuestion: { type: Number, required: true, default: 1, min: 0.0001 },
+   },
+   { _id: false }
+ );
+@@ -45,7 +45,7 @@
+       medium: { type: DifficultyPlanSchema, required: true },
+       hard: { type: DifficultyPlanSchema, required: true },
+     },
+-    durationMinutes: { type: Number, required: true, default: 45 },
++    durationMinutes: { type: Number, required: true, default: 45, min: 1, max: 1440, validate: Number.isInteger },
+     totalMarks: { type: Number, required: true, default: 0 },
+     isPublished: { type: Boolean, default: false, index: true },
+     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+@@ -55,12 +55,15 @@
+ 
+ AptitudeTestSchema.pre('validate', function (next) {
+   const plan = this.difficultyPlan;
+-  if (plan) {
++  if (plan?.easy && plan?.medium && plan?.hard) {
++    const count = plan.easy.count + plan.medium.count + plan.hard.count;
++    if (count < 1 || count > 100) this.invalidate('difficultyPlan', 'A test must contain between 1 and 100 questions.');
+     this.totalMarks =
+       plan.easy.count * plan.easy.marksPerQuestion +
+       plan.medium.count * plan.medium.marksPerQuestion +
+       plan.hard.count * plan.hard.marksPerQuestion;
+   }
++  if (!this.categories?.length) this.invalidate('categories', 'Select at least one category.');
+   next();
+ });
+ 
+--- a/backend/src/controllers/adminAptitude.controller.ts
++++ b/backend/src/controllers/adminAptitude.controller.ts
+@@ -295,11 +295,15 @@
+ 
+ /** PUT /api/admin/aptitude/tests/:id */
+ export async function updateTest(req: Request, res: Response): Promise<void> {
+-  const test = await AptitudeTest.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
++  const test = await AptitudeTest.findById(req.params.id);
+   if (!test) {
+     res.status(404).json({ message: 'Test not found.' });
+     return;
+   }
++  for (const field of ['title', 'roundType', 'categories', 'difficultyPlan', 'durationMinutes', 'isPublished']) {
++    if (req.body[field] !== undefined) test.set(field, req.body[field]);
++  }
++  await test.save(); // Runs total-marks calculation and complete plan validation.
+   res.json({ test });
+ }
+ 
+--- a/backend/tests/aptitude-selection.test.js
++++ b/backend/tests/aptitude-selection.test.js
+@@ -0,0 +1,45 @@
++const { Types } = require('mongoose');
++const Question = require('../dist/models/AptitudeQuestion').default;
++const Attempt = require('../dist/models/AptitudeAttempt').default;
++const Test = require('../dist/models/AptitudeTest').default;
++const { buildQuestionSet } = require('../dist/services/questionSelector.service');
++const plan = { easy: { count: 15, marksPerQuestion: 1 }, medium: { count: 15, marksPerQuestion: 2 }, hard: { count: 15, marksPerQuestion: 3 } };
++const testData = () => ({ _id: new Types.ObjectId(), title: 'Audit', roundType: 'aptitude', categories: ['quantitative'], difficultyPlan: plan, createdBy: new Types.ObjectId() });
++afterEach(() => jest.restoreAllMocks());
++
++test('selects 15 questions in each difficulty, without duplicates', async () => {
++  const pools = Object.fromEntries(['easy','medium','hard'].map(d => [d, Array.from({ length: 20 }, () => ({ _id: new Types.ObjectId() }))]));
++  jest.spyOn(Attempt, 'find').mockReturnValue({ select: () => ({ lean: async () => [] }) });
++  const find = jest.spyOn(Question, 'find').mockImplementation(filter => ({ select: () => ({ lean: async () => pools[filter.difficulty] }) }));
++  jest.spyOn(Question, 'updateMany').mockResolvedValue({});
++  const ids = await buildQuestionSet(testData(), new Types.ObjectId());
++  expect(ids).toHaveLength(45);
++  expect(new Set(ids.map(String)).size).toBe(45);
++  for (const difficulty of Object.keys(pools)) {
++    expect(ids.filter(id => pools[difficulty].some(q => String(q._id) === String(id)))).toHaveLength(15);
++  }
++  expect(find).toHaveBeenCalledTimes(3);
++});
++test('insufficient bank rejects the test instead of borrowing unrelated questions', async () => {
++  jest.spyOn(Attempt, 'find').mockReturnValue({ select: () => ({ lean: async () => [] }) });
++  const find = jest.spyOn(Question, 'find').mockReturnValue({ select: () => ({ lean: async () => [] }) });
++  await expect(buildQuestionSet(testData(), new Types.ObjectId())).rejects.toThrow('Insufficient easy');
++  expect(find).toHaveBeenCalledTimes(1);
++});
++test('validation calculates weights and recalculates them after edits', async () => {
++  const test = new Test(testData());
++  await test.validate();
++  expect(test.totalMarks).toBe(90);
++  test.difficultyPlan.hard.marksPerQuestion = 4;
++  await test.validate();
++  expect(test.totalMarks).toBe(105);
++});
++test('incomplete and fractional plans and invalid durations are rejected', async () => {
++  const incomplete = new Test({ ...testData(), difficultyPlan: { easy: plan.easy } });
++  await expect(incomplete.validate()).rejects.toThrow();
++  const fractional = new Test(testData());
++  fractional.difficultyPlan.easy.count = 1.5;
++  await expect(fractional.validate()).rejects.toThrow();
++  const invalid = new Test({ ...testData(), durationMinutes: 0 });
++  await expect(invalid.validate()).rejects.toThrow();
++});

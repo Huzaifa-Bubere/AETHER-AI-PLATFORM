@@ -1,0 +1,848 @@
+--- a/backend/src/models/Interview.ts
++++ b/backend/src/models/Interview.ts
+@@ -7,6 +7,7 @@
+   status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
+   scheduledTime?: Date;
+   settings: {
++    domain?: string;
+     role: string;
+     difficulty: 'easy' | 'medium' | 'hard';
+     duration: number; // in minutes
+@@ -17,13 +18,14 @@
+   questions: Array<{
+     id: string;
+     text: string;
+-    type: 'behavioral' | 'technical' | 'coding' | 'skill-based';
++    type: 'behavioral' | 'technical' | 'coding' | 'skill-based' | 'system-design';
+     difficulty: string;
+     expectedDuration: number;
+     followUpQuestions?: string[];
+     category?: string;
+   }>;
+   responses: Array<{
++    analysis?: any;
+     questionId: string;
+     answer: string;
+     audioUrl?: string;
+@@ -158,6 +160,7 @@
+     index: true,
+   },
+   settings: {
++    domain: { type: String, default: '' },
+     role: {
+       type: String,
+       required: true,
+@@ -206,6 +209,7 @@
+         'behavioral',
+         'technical',
+         'coding',
++        'system-design',
+         'skill-based'
+       ],
+     },
+@@ -238,6 +242,7 @@
+     }],
+   }],
+   responses: [{
++    analysis: { type: Schema.Types.Mixed, default: null },
+     questionId: {
+       type: String,
+       required: true,
+--- a/backend/src/services/gemini.ts
++++ b/backend/src/services/gemini.ts
+@@ -29,7 +29,7 @@
+     console.log("=== GENERATING INTERVIEW QUESTIONS ===");
+     try {
+       const prompt = this.buildQuestionGenerationPrompt(params);
+-      const result = await this.model.generateContent(prompt);
++      const result = await this.model.generateContent(prompt, { timeout: 45000 });
+       const text = result.response.text();
+       let questions;
+       try {
+@@ -118,7 +118,7 @@
+   }): Promise<any> {
+     try {
+       const prompt = this.buildResponseAnalysisPrompt(params);
+-      const result = await this.model.generateContent(prompt);
++      const result = await this.model.generateContent(prompt, { timeout: 45000 });
+       const text = result.response.text();
+       try {
+         const clean = text
+@@ -188,7 +188,7 @@
+   }): Promise<any> {
+     try {
+       const prompt = this.buildFeedbackPrompt(params);
+-      const result = await this.model.generateContent(prompt);
++      const result = await this.model.generateContent(prompt, { timeout: 45000 });
+       const text = result.response.text();
+       try {
+         const clean = text
+@@ -247,7 +247,7 @@
+   }): Promise<string[]> {
+     try {
+       const prompt = this.buildFollowUpPrompt(params);
+-      const result = await this.model.generateContent(prompt);
++      const result = await this.model.generateContent(prompt, { timeout: 45000 });
+       const text = result.response.text();
+       const clean = text
+         .replace(/```json\n?/g, "")
+@@ -268,7 +268,7 @@
+   }): Promise<any> {
+     try {
+       const prompt = this.buildResumeAnalysisPrompt(params);
+-      const result = await this.model.generateContent(prompt);
++      const result = await this.model.generateContent(prompt, { timeout: 45000 });
+       const text = result.response.text();
+       const clean = text
+         .replace(/```json\n?/g, "")
+@@ -289,7 +289,7 @@
+   }): Promise<any> {
+     try {
+       const prompt = this.buildRecommendationsPrompt(params);
+-      const result = await this.model.generateContent(prompt);
++      const result = await this.model.generateContent(prompt, { timeout: 45000 });
+       const text = result.response.text();
+       const clean = text
+         .replace(/```json\n?/g, "")
+@@ -309,7 +309,7 @@
+   }): Promise<any> {
+     try {
+       const prompt = `You are an AI interview analysis expert.\nAnalyze this interview transcript for role: ${params.role}\n\nTRANSCRIPT:\n${params.transcript}\n\nReturn ONLY valid JSON:\n{"emotionAnalysis":[{"name":"Confident","value":0}],"fillerWords":[{"word":"um","count":0}],"speakingConfidence":0,"answerQuality":0,"timeline":[]}`;
+-      const result = await this.model.generateContent(prompt);
++      const result = await this.model.generateContent(prompt, { timeout: 45000 });
+       const text = result.response.text();
+       const clean = text
+         .replace(/```json\n?/g, "")
+--- a/backend/src/routes/interview.ts
++++ b/backend/src/routes/interview.ts
+@@ -90,7 +90,7 @@
+ 
+         const latestResume = await Resume.findOne({
+           userId: req.user.userId,
+-        }).sort({ uploadDate: -1 });
++        }).sort({ createdAt: -1 });
+ 
+         if (latestResume) {
+           resumeData = latestResume;
+@@ -116,12 +116,12 @@
+       };
+ 
+       // Add resume context if available
+-      if (resumeData && resumeData.parsedData) {
++      if (resumeData?.metadata?.parsedData) {
+         questionParams.resumeContext = {
+-          skills: resumeData.extractedSkills || [],
+-          experience: resumeData.parsedData.experience || [],
+-          projects: resumeData.parsedData.projects || [],
+-          summary: resumeData.parsedData.summary || "",
++          skills: resumeData.analysis?.skills || [],
++          experience: resumeData.metadata.parsedData.experience || [],
++          projects: resumeData.metadata.parsedData.projects || [],
++          summary: resumeData.metadata.parsedData.summary || "",
+         };
+       }
+ 
+@@ -129,32 +129,8 @@
+         `Generating ${questionParams.count} questions for ${settings.role} with resume context: ${!!resumeData}`,
+       );
+ 
+-      // Generate questions using Gemini AI with timeout
+-
+-      const questionGenerationPromise =
+-        geminiService.generateInterviewQuestions(questionParams);
+-      const timeoutPromise = new Promise(
+-        (_, reject) =>
+-          setTimeout(
+-            () => reject(new Error("Question generation timeout")),
+-            60000,
+-          ), // Bug 3 fix: 60s
+-      );
+-
+-      let questions;
+-      try {
+-        questions = (await Promise.race([
+-          questionGenerationPromise,
+-          timeoutPromise,
+-        ])) as any[];
+-        console.log(`Generated ${questions.length} questions successfully`);
+-      } catch (timeoutError: any) {
+-        logger.warn("Question generation timed out, using fallback");
+-        logger.warn("Question generation timeout, using fallback");
+-        // Use fallback - will be handled by gemini service
+-        questions =
+-          await geminiService.generateInterviewQuestions(questionParams);
+-      }
++      // Gemini's request timeout also bounds fallback latency; do not retry without a deadline.
++      const questions = await geminiService.generateInterviewQuestions(questionParams);
+ 
+       // Create interview in database
+       const interview = new Interview({
+@@ -164,6 +140,7 @@
+         status: "scheduled",
+         settings: {
+           role: settings.role,
++          domain: settings.domain || "",
+           difficulty: settings.difficulty,
+           duration: settings.duration,
+           includeVideo: settings.includeVideo !== false,
+@@ -314,6 +291,21 @@
+         });
+       }
+ 
++      // Scheduled sessions generate their questions when first started.
++      if (!interview.questions.length) {
++        const generated = await geminiService.generateInterviewQuestions({
++          role: interview.settings.role, experienceLevel: "mid", interviewType: interview.type,
++          difficulty: interview.settings.difficulty, domain: interview.settings.domain,
++          count: Math.min(5, Math.max(1, Math.floor(interview.settings.duration / 5))),
++        });
++        interview.set("questions", generated.map((q: any, index: number) => ({
++          ...q, id: q.id || `q_${interview._id}_${index}`,
++          text: q.text || q.question || q.title || `Question ${index + 1}`,
++          type: q.type || interview.type, difficulty: q.difficulty || interview.settings.difficulty,
++          expectedDuration: q.expectedDuration || 5,
++        })));
++      }
++
+       // Update interview status and start time
+       interview.status = "in-progress";
+       interview.session.startTime = new Date();
+@@ -372,6 +364,13 @@
+         });
+       }
+ 
++      if (interview.status === "completed") {
++        return res.json({ success: true, data: interview, message: "Interview already completed" });
++      }
++      if (interview.status !== "in-progress") {
++        return res.status(409).json({ success: false, error: "Start the interview before ending it" });
++      }
++
+       // Update interview status and end time
+       interview.status = "completed";
+       interview.session.endTime = new Date();
+@@ -473,7 +472,7 @@
+   [
+     body("questionId").notEmpty(),
+     body("answer").optional({ nullable: true }).trim(),
+-    body("duration").isNumeric(),
++    body("duration").isFloat({ min: 0, max: 86400 }).toFloat(),
+   ],
+   asyncHandler(async (req, res) => {
+     const errors = validationResult(req);
+@@ -514,6 +513,15 @@
+           success: false,
+           error: "Question not found",
+         });
++      }
++
++      if (interview.status !== "in-progress") {
++        return res.status(409).json({ success: false, error: "The interview is not in progress" });
++      }
++      const existing = interview.responses.find(r => r.questionId === questionId);
++      if (existing) {
++        if (existing.answer === effectiveAnswer) return res.json({ success: true, message: "Answer already saved" });
++        return res.status(409).json({ success: false, error: "This question has already been answered" });
+       }
+ 
+       // STEP 1 - SAVE RESPONSE FIRST (FAST)
+@@ -527,13 +535,10 @@
+         timestamp: new Date(),
+       };
+ 
+-      console.log("=== RESPONSE DATA ===");
+-
+-      console.log(JSON.stringify(responseData, null, 2));
+-
+-      await Interview.findByIdAndUpdate(id, {
+-        $push: { responses: responseData },
+-      });
++      const saved = await Interview.findOneAndUpdate({
++        _id: id, userId: req.user!.userId, status: "in-progress", "responses.questionId": { $ne: questionId },
++      }, { $push: { responses: responseData } }, { new: true });
++      if (!saved) return res.status(409).json({ success: false, error: "Answer already saved or interview ended" });
+ 
+       // STEP 2 - RETURN RESPONSE IMMEDIATELY (NO WAIT)
+       res.json({
+@@ -554,47 +559,26 @@
+ 
+           if (!analysis?.scores) return;
+ 
+-          // Fetch current state to compute running average across all responses
+-          const current =
+-            await Interview.findById(id).select("analysis responses");
+-          const existingMetrics = current?.analysis?.contentMetrics;
+-          const responseCount = Math.max(1, current?.responses?.length || 1);
+-
+-          const runningAvg = (oldVal: number, newVal: number) =>
+-            Math.round(
+-              ((oldVal || 0) * (responseCount - 1) + (newVal || 0)) /
+-                responseCount,
+-            );
+-
+-          await Interview.findByIdAndUpdate(id, {
+-            $set: {
+-              "analysis.contentMetrics.relevanceScore": runningAvg(
+-                existingMetrics?.relevanceScore || 0,
+-                analysis.scores.relevance || 0,
+-              ),
+-              "analysis.contentMetrics.technicalAccuracy": runningAvg(
+-                existingMetrics?.technicalAccuracy || 0,
+-                analysis.scores.technicalAccuracy || 0,
+-              ),
+-              "analysis.contentMetrics.communicationClarity": runningAvg(
+-                existingMetrics?.communicationClarity || 0,
+-                analysis.scores.clarity || 0,
+-              ),
+-              "analysis.contentMetrics.structureScore": runningAvg(
+-                existingMetrics?.structureScore || 0,
+-                analysis.scores.structure || 0,
+-              ),
+-              "analysis.overallScore": runningAvg(
+-                current?.analysis?.overallScore || 0,
+-                analysis.overallScore || 0,
+-              ),
+-            },
+-            $addToSet: {
+-              "analysis.contentMetrics.keywordMatches": {
+-                $each: analysis.keywordMatches || [],
+-              },
+-            },
++          const score = (value: unknown) => Math.max(0, Math.min(100, Number(value) || 0));
++          const storedAnalysis = {
++            scores: { relevance: score(analysis.scores.relevance), technicalAccuracy: score(analysis.scores.technicalAccuracy),
++              clarity: score(analysis.scores.clarity), structure: score(analysis.scores.structure) },
++            overallScore: score(analysis.overallScore), keywordMatches: Array.isArray(analysis.keywordMatches) ? analysis.keywordMatches : [],
++          };
++          await Interview.updateOne({ _id: id, "responses.questionId": questionId }, {
++            $set: { "responses.$.analysis": storedAnalysis },
+           });
++          // Each atomic aggregation sees all analyses saved so far, regardless of completion order.
++          const average = (field: string) => ({ $round: [{ $ifNull: [{ $avg: `$responses.analysis.${field}` }, 0] }, 0] });
++          await Interview.updateOne({ _id: id }, [{ $set: {
++            "analysis.contentMetrics.relevanceScore": average("scores.relevance"),
++            "analysis.contentMetrics.technicalAccuracy": average("scores.technicalAccuracy"),
++            "analysis.contentMetrics.communicationClarity": average("scores.clarity"),
++            "analysis.contentMetrics.structureScore": average("scores.structure"),
++            "analysis.overallScore": average("overallScore"),
++            "analysis.contentMetrics.keywordMatches": { $reduce: { input: "$responses", initialValue: [],
++              in: { $setUnion: ["$$value", { $ifNull: ["$$this.analysis.keywordMatches", []] }] } } },
++          } }]);
+ 
+           logger.info("Background AI analysis completed successfully");
+         } catch (err) {
+--- a/frontend/src/app/stores/interviewStore.ts
++++ b/frontend/src/app/stores/interviewStore.ts
+@@ -52,6 +52,9 @@
+   clearError: () => void;
+   resetSession: () => void;
+ }
++
++const starting = new Map<string, Promise<void>>();
++let loadingInterviewId = '';
+ 
+ export const useInterviewStore = create<InterviewState>((set, get) => ({
+   // Initial state
+@@ -69,6 +72,7 @@
+   peerConnection: null,
+ 
+   createInterview: async (setup: InterviewSetupForm) => {
++    get().resetSession();
+     console.log('Creating interview with setup:', setup);
+     set({ isLoading: true, error: null });
+     
+@@ -117,191 +121,77 @@
+     }
+   },
+ 
+-  startInterview: async (interviewId: string) => {
+-    console.log('=== STARTING INTERVIEW ===');
+-    console.log('Interview ID:', interviewId);
+-    
++  startInterview: (interviewId: string) => {
++    const existing = starting.get(interviewId);
++    if (existing) return existing;
++    loadingInterviewId = interviewId;
++    get().resetSession();
+     set({ isLoading: true, error: null });
+-    
+-    try {
+-      // First, try to get the interview details if we don't have it
+-      const { currentInterview } = get();
+-      if (!currentInterview) {
+-        console.log('No current interview, fetching interview details...');
+-        const interviewResponse = await interviewService.getInterview(interviewId);
+-        if (interviewResponse.success && interviewResponse.data) {
+-          console.log('Interview details fetched:', interviewResponse.data);
+-          set({ currentInterview: interviewResponse.data });
+-        }
+-      }
+-      
+-      console.log('Starting interview session...');
+-      const response = await interviewService.startInterview(interviewId);
+-      console.log('Start interview response:', response);
+-      
+-      if (response.success && response.data) {
+-        console.log('Interview session started successfully');
+-        set({
+-          currentSession: response.data,
+-          isLoading: false,
+-        });
+-        
+-        // Only auto-fetch the first question if we don't already have one.
+-        // CodingInterviewPage fetches its own question on mount — avoid duplicate.
+-        const { currentQuestion } = get();
+-        if (!currentQuestion) {
+-          console.log('Getting first question...');
+-          await get().getNextQuestion();
+-        }
+-      } else {
+-        const errorMsg = response.error || 'Failed to start interview';
+-        console.error('Failed to start interview:', errorMsg);
+-        set({
+-          error: errorMsg,
+-          isLoading: false,
+-        });
+-      }
+-    } catch (error: any) {
+-      console.error('Start interview error:', error);
+-      const errorMsg = error.message || 'Failed to start interview';
+-      set({
+-        error: errorMsg,
+-        isLoading: false,
+-      });
+-    }
++    const task = (async () => {
++      try {
++        const session = await interviewService.startInterview(interviewId);
++        if (!session.success || !session.data) throw new Error(session.error || 'Failed to start interview');
++        const detail = await interviewService.getInterview(interviewId);
++        if (!detail.success || !detail.data) throw new Error(detail.error || 'Failed to load interview');
++        if (loadingInterviewId !== interviewId) return;
++        set({ currentInterview: detail.data, currentSession: session.data, isLoading: false });
++        await get().getNextQuestion();
++      } catch (error: any) {
++        if (loadingInterviewId === interviewId) set({ error: error.message || 'Failed to start interview', isLoading: false });
++        throw error;
++      }
++    })().finally(() => { starting.delete(interviewId); });
++    starting.set(interviewId, task);
++    return task;
+   },
+ 
+   endInterview: async () => {
+     const { currentInterview, currentSession } = get();
+-    
+-    if (!currentInterview && !currentSession) {
+-      console.error('No current interview or session');
+-      return;
+-    }
+-    
+-    // Get interview ID
+-    const interviewId = currentSession?.interviewId || 
+-                       (currentInterview as any)?._id || 
+-                       currentInterview?.id;
+-    
+-    if (!interviewId) {
+-      console.error('No interview ID available');
+-      set({ error: 'Interview ID not found' });
+-      return;
+-    }
+-    
+-    console.log('Ending interview:', interviewId);
+-    set({ isLoading: true });
+-    
+-    try {
+-      // Stop recording if active
++    const interviewId = currentSession?.interviewId || (currentInterview as any)?._id || currentInterview?.id;
++    if (!interviewId) throw new Error('Interview ID not found');
++    set({ isLoading: true, error: null });
++    try {
+       get().stopRecording();
+-      
+       const response = await interviewService.endInterview(interviewId);
+-      console.log('End interview response:', response);
+-      
+-      if (response.success && response.data) {
+-        console.log('Interview ended successfully');
+-        set({
+-          currentInterview: response.data,
+-          currentSession: null,
+-          currentQuestion: null,
+-          currentQuestionIndex: 0,
+-          isLoading: false,
+-        });
+-      } else {
+-        set({
+-          error: response.error || 'Failed to end interview',
+-          isLoading: false,
+-        });
+-      }
+-    } catch (error: any) {
+-      console.error('End interview error:', error);
+-      set({
+-        error: error.message || 'Failed to end interview',
+-        isLoading: false,
+-      });
++      if (!response.success || !response.data) throw new Error(response.error || 'Failed to end interview');
++      set({ currentInterview: response.data, currentSession: null, currentQuestion: null, currentQuestionIndex: 0, isLoading: false });
++    } catch (error: any) {
++      set({ error: error.message || 'Failed to end interview', isLoading: false });
++      throw error;
+     }
+   },
+ 
+   getNextQuestion: async () => {
+     const { currentInterview, currentSession } = get();
+-
+-    const interviewId =
+-      currentSession?.interviewId ||
+-      (currentInterview as any)?._id ||
+-      currentInterview?.id;
+-
+-    if (!interviewId) {
+-      console.warn('getNextQuestion: no interviewId yet, skipping');
+-      return;
+-    }
+-
+-    console.log('Getting next question for interview:', interviewId);
+-
++    const interviewId = currentSession?.interviewId || (currentInterview as any)?._id || currentInterview?.id;
++    if (!interviewId) throw new Error('Interview is not loaded');
+     try {
+       const response = await interviewService.getNextQuestion(interviewId);
+-      console.log('Next question response:', response);
+-
+-      // Backend now returns completed:true with data:null when all questions done
+-      const completed = (response as any).completed === true;
+-
+-      if (response.success && response.data && !completed) {
+-        set((state) => ({
+-          currentQuestion: response.data,
+-          currentQuestionIndex: state.currentQuestionIndex + 1,
+-        }));
+-      } else {
+-        // No more questions — clear current question so UI can show "done" state
+-        console.log('All questions answered — interview complete');
+-        set({ currentQuestion: null });
+-      }
+-    } catch (error: any) {
+-      if (
+-        error?.code === 'ERR_CANCELED' ||
+-        error?.message === 'canceled' ||
+-        error?.name === 'CanceledError' ||
+-        error?.name === 'AbortError'
+-      ) {
+-        console.warn('getNextQuestion: request canceled — ignoring');
+-        return;
+-      }
+-      console.error('Get next question error:', error);
++      if (!response.success) throw new Error(response.error || 'Failed to get next question');
++      if (get().currentSession?.interviewId !== currentSession?.interviewId) return;
++      if ((response as any).completed === true) {
++        set({ currentQuestion: null, currentQuestionIndex: currentInterview?.questions.length || 0 });
++      } else if (response.data) {
++        const index = currentInterview?.questions.findIndex(q => q.id === response.data!.id) ?? -1;
++        set({ currentQuestion: response.data, currentQuestionIndex: index >= 0 ? index + 1 : ((response as any).answeredQuestions || 0) + 1, error: null });
++      } else throw new Error('The server returned no question');
++    } catch (error: any) {
+       set({ error: error.message || 'Failed to get next question' });
++      throw error;
+     }
+   },
+ 
+   submitResponse: async (response: Partial<Response>) => {
+     const { currentInterview, currentQuestion, currentSession } = get();
+-
+-    if (!currentQuestion) {
+-      console.error('No current question');
+-      return;
+-    }
+-
+-    const interviewId =
+-      currentSession?.interviewId ||
+-      (currentInterview as any)?._id ||
+-      currentInterview?.id;
+-
+-    if (!interviewId) {
+-      console.error('No interview ID available');
+-      set({ error: 'Interview ID not found' });
+-      return;
+-    }
+-
+-    console.log('Submitting response for interview:', interviewId, 'question:', currentQuestion.id);
+-
+-    try {
+-      await interviewService.submitResponse(interviewId, currentQuestion.id, response);
+-      console.log('Response submitted successfully');
+-      // NOTE: Do NOT call getNextQuestion here.
+-      // CodingInterviewPage.handleSubmit controls the next-question flow
+-      // to avoid duplicate calls and race conditions.
+-    } catch (error: any) {
+-      console.error('Submit response error:', error);
+-      set({ error: error.message || 'Failed to submit response' });
+-      throw error; // re-throw so the page can catch it
++    const interviewId = currentSession?.interviewId || (currentInterview as any)?._id || currentInterview?.id;
++    if (!interviewId || !currentQuestion) throw new Error('Interview question is not loaded');
++    try {
++      const saved = await interviewService.submitResponse(interviewId, currentQuestion.id, response);
++      if (!saved.success) throw new Error(saved.error || 'Failed to save answer');
++      set({ error: null });
++    } catch (error: any) {
++      set({ error: error.message || 'Failed to save answer' });
++      throw error;
+     }
+   },
+ 
+--- a/frontend/src/app/pages/CodingInterviewPage.tsx
++++ b/frontend/src/app/pages/CodingInterviewPage.tsx
+@@ -176,7 +176,7 @@
+     const fetchQuestion = async () => {
+       setLoading(true);
+       try {
+-        await getNextQuestion();
++        await useInterviewStore.getState().startInterview(interviewId);
+         if (!cancelled) setLoading(false);
+       } catch (error: any) {
+         if (cancelled) return;
+@@ -405,6 +405,13 @@
+     }
+   };
+ 
++  if (!loading && !currentQuestion) {
++    return <main className="min-h-screen pt-32 px-6 text-center">
++      <p role="status">{useInterviewStore.getState().error || 'There are no unanswered coding questions.'}</p>
++      <Button className="mt-4" onClick={() => navigate(`/feedback/${interviewId}`)}>View interview</Button>
++      <Button variant="outline" className="mt-4 ml-3" onClick={() => window.location.reload()}>Retry</Button>
++    </main>;
++  }
+   if (loading || !currentQuestion) {
+     return (
+       <div className="min-h-screen flex items-center justify-center">
+--- a/frontend/src/app/pages/InterviewRoomPage.tsx
++++ b/frontend/src/app/pages/InterviewRoomPage.tsx
+@@ -183,7 +183,7 @@
+     if (existingId && existingId !== interviewId) {
+       store.resetSession();
+     }
+-    if (!store.currentSession) handleStartInterview();
++    void handleStartInterview();
+   // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [interviewId]);
+ 
+@@ -222,20 +222,33 @@
+     } catch { toast.error('Failed to start interview'); }
+   };
+ 
++  const responseBusy = useRef(false);
++
+   const handleEndInterview = async () => {
++    if (responseBusy.current) return;
++    responseBusy.current = true;
+     setShowEndConfirm(false);
+     try {
++      setIsListening(false);
++      if (currentAnswer.trim() && currentQuestion && responseStartTime) {
++        await submitResponse({ questionId: currentQuestion.id, answer: currentAnswer,
++          duration: Math.max(0, Math.round((Date.now() - responseStartTime) / 1000)), timestamp: new Date().toISOString() });
++        setCurrentAnswer('');
++      }
+       await endInterview();
+       setSessionState('ended');
+       toast.success('Interview completed! Generating report…');
+       const id = (currentInterview as any)?._id || currentInterview?.id;
+       navigate(id ? `/feedback/${id}` : '/dashboard');
+-    } catch { toast.error('Failed to end interview'); navigate('/dashboard'); }
++    } catch { toast.error('Failed to end interview. Your answer is preserved; please retry.'); }
++    finally { responseBusy.current = false; }
+   };
+ 
+   const handleNextQuestion = async () => {
+     if (!currentAnswer.trim()) { toast.error('Please provide an answer first'); return; }
+-    if (!currentQuestion || !responseStartTime) return;
++    if (!currentQuestion || !responseStartTime || responseBusy.current) return;
++    responseBusy.current = true;
++    setIsListening(false);
+     try {
+       const duration = Math.round((Date.now() - responseStartTime) / 1000);
+       // Bug 6 fix: await submitResponse so the response is saved before fetching next question
+@@ -246,7 +259,8 @@
+       // Bug 7 fix: only start listening AFTER new question is loaded
+       setIsListening(true);
+       setResponseStartTime(Date.now());
+-    } catch { toast.error('Failed to get next question'); }
++    } catch { toast.error('Failed to save or load the next question. Please retry.'); }
++    finally { responseBusy.current = false; }
+   };
+ 
+   const handleTranscript = (t: string, isFinal: boolean) => {
+@@ -275,7 +289,7 @@
+     `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+ 
+   const totalQ    = currentInterview?.questions?.length || 0;
+-  const qIndex    = currentQuestionIndex || 0 + 1;
++  const qIndex    = currentQuestionIndex || 1;
+   const progress  = totalQ > 0 ? (qIndex / totalQ) * 100 : 0;
+   const wordCount = currentAnswer.split(' ').filter(Boolean).length;
+   const diffTag   = (d?: string) => d === 'easy' ? 'tag-easy' : d === 'medium' ? 'tag-medium' : 'tag-hard';
+@@ -291,7 +305,7 @@
+         <h2 style={{ fontSize:18,fontWeight:700,marginBottom:8,color:'#e2e8f0' }}>Something went wrong</h2>
+         <p style={{ color:'#64748b',fontSize:13,marginBottom:24,lineHeight:1.65 }}>{error}</p>
+         <div style={{ display:'flex',gap:10 }}>
+-          <button className="ir-btn btn-ghost" style={{ flex:1 }} onClick={clearError}>Try again</button>
++          <button className="ir-btn btn-ghost" style={{ flex:1 }} onClick={() => { clearError(); void handleStartInterview(); }}>Try again</button>
+           <button className="ir-btn btn-primary" style={{ flex:1 }} onClick={() => navigate('/dashboard')}>Dashboard</button>
+         </div>
+       </div>
+--- a/frontend/src/app/pages/HistoryPage.tsx
++++ b/frontend/src/app/pages/HistoryPage.tsx
+@@ -232,7 +232,7 @@
+                           size="sm"
+                           className="w-fit"
+                           onClick={() =>
+-                            navigate(`/interview-room?id=${interviewId}`)
++                            navigate(`${interview.type === 'coding' ? '/coding-interview' : '/interview-room'}?id=${interviewId}`)
+                           }
+                         >
+                           Continue Interview
+@@ -245,7 +245,7 @@
+                           size="sm"
+                           className="w-fit"
+                           onClick={() =>
+-                            navigate(`/interview-room?id=${interviewId}`)
++                            navigate(`${interview.type === 'coding' ? '/coding-interview' : '/interview-room'}?id=${interviewId}`)
+                           }
+                         >
+                           Start Interview
+--- a/frontend/src/app/pages/DashboardPage.tsx
++++ b/frontend/src/app/pages/DashboardPage.tsx
+@@ -403,7 +403,7 @@
+                   <p className="text-muted-foreground text-sm">Practice system design and architecture questions</p>
+                 </Card>
+               </Link>
+-              <Link to="/coding-interview">
++              <Link to="/interview-setup?type=coding">
+                 <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6">
+                   <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center mb-4">
+                     <Code className="w-6 h-6 text-white" />
+--- a/frontend/src/app/pages/InterviewSetupPage.tsx
++++ b/frontend/src/app/pages/InterviewSetupPage.tsx
+@@ -1,5 +1,5 @@
+ import { useState } from 'react';
+-import { useNavigate } from 'react-router-dom';
++import { useNavigate, useSearchParams } from 'react-router-dom';
+ import { ChevronRight, Loader2, Upload, X, FileText, Cpu, Code2, Users, Layout, CheckCircle2, Clock, Zap, BarChart2, ClipboardList } from 'lucide-react';
+ import { Button } from '../components/ui/button';
+ import { useInterviewStore } from '../stores/interviewStore';
+@@ -89,7 +89,9 @@
+   const navigate = useNavigate();
+   const { createInterview, isLoading } = useInterviewStore();
+ 
+-  const [selectedType, setSelectedType]       = useState('');
++  const [searchParams] = useSearchParams();
++  const [selectedType, setSelectedType]       = useState(() =>
++    interviewTypes.some(type => type.id === searchParams.get('type')) ? searchParams.get('type')! : '');
+   const [selectedRole, setSelectedRole]       = useState('');
+   const [selectedDifficulty, setSelectedDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+   const [duration, setDuration]               = useState(30);
+--- a/backend/tests/interview-lifecycle.test.js
++++ b/backend/tests/interview-lifecycle.test.js
+@@ -0,0 +1,54 @@
++const express = require('express');
++const request = require('supertest');
++const { Types } = require('mongoose');
++const Interview = require('../dist/models/Interview').default;
++const gemini = require('../dist/services/gemini').default;
++const routes = require('../dist/routes/interview').default;
++const userId = new Types.ObjectId();
++const app = express();
++app.use(express.json(), (req, _res, next) => { req.user = { userId: String(userId) }; next(); });
++app.use('/interview', routes);
++const makeInterview = () => new Interview({ userId, type: 'system-design', status: 'scheduled',
++  settings: { role: 'Engineer', difficulty: 'medium', duration: 30, domain: 'Distributed systems' }, questions: [], responses: [] });
++afterEach(() => jest.restoreAllMocks());
++
++test('a scheduled interview generates schema-valid questions on start', async () => {
++  const interview = makeInterview();
++  jest.spyOn(Interview, 'findOne').mockResolvedValue(interview);
++  jest.spyOn(interview, 'save').mockImplementation(async () => { await interview.validate(); return interview; });
++  const generate = jest.spyOn(gemini, 'generateInterviewQuestions').mockResolvedValue([{ text: 'Design a queue', type: 'system-design' }]);
++  const result = await request(app).post(`/interview/${interview._id}/start`).send({});
++  expect(result.status).toBe(200);
++  expect(interview.questions).toHaveLength(1);
++  expect(interview.questions[0].id).toBeTruthy();
++  expect(interview.status).toBe('in-progress');
++  expect(generate.mock.calls[0][0].domain).toBe('Distributed systems');
++});
++test('repeated end keeps the original end time', async () => {
++  const interview = makeInterview();
++  interview.status = 'completed';
++  interview.session.endTime = new Date('2026-01-01T00:00:00Z');
++  jest.spyOn(Interview, 'findOne').mockResolvedValue(interview);
++  const save = jest.spyOn(interview, 'save');
++  const result = await request(app).post(`/interview/${interview._id}/end`).send({});
++  expect(result.status).toBe(200);
++  expect(interview.session.endTime.toISOString()).toBe('2026-01-01T00:00:00.000Z');
++  expect(save).not.toHaveBeenCalled();
++});
++test('duplicate identical answer is idempotent and conflicting answer is rejected', async () => {
++  const interview = makeInterview();
++  interview.status = 'in-progress';
++  interview.questions.push({ id: 'q1', text: 'Describe queues', type: 'technical', difficulty: 'easy', expectedDuration: 5 });
++  interview.responses.push({ questionId: 'q1', answer: 'Existing answer', duration: 2, timestamp: new Date() });
++  jest.spyOn(Interview, 'findOne').mockResolvedValue(interview);
++  const update = jest.spyOn(Interview, 'findOneAndUpdate');
++  expect((await request(app).post(`/interview/${interview._id}/response`).send({ questionId: 'q1', answer: 'Existing answer', duration: 2 })).status).toBe(200);
++  expect((await request(app).post(`/interview/${interview._id}/response`).send({ questionId: 'q1', answer: 'Changed answer', duration: 2 })).status).toBe(409);
++  expect(update).not.toHaveBeenCalled();
++});
++test('negative answer duration is rejected before loading an interview', async () => {
++  const find = jest.spyOn(Interview, 'findOne');
++  const result = await request(app).post(`/interview/${new Types.ObjectId()}/response`).send({ questionId: 'q1', answer: 'text', duration: -1 });
++  expect(result.status).toBe(400);
++  expect(find).not.toHaveBeenCalled();
++});
+--- a/backend/tests/interview-browser.test.js
++++ b/backend/tests/interview-browser.test.js
+@@ -0,0 +1,33 @@
++const fs = require('fs');
++const path = require('path');
++const vm = require('vm');
++const ts = require('typescript');
++
++function loadStore() {
++  const service = { startInterview: jest.fn(async id => ({ success: true, data: { interviewId: id } })),
++    getInterview: jest.fn(async id => ({ success: true, data: { id, questions: [{ id: 'q1' }] } })),
++    getNextQuestion: jest.fn(async () => ({ success: true, data: { id: 'q1' } })),
++    submitResponse: jest.fn(async () => ({ success: false, error: 'Save failed' })) };
++  const source = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/app/stores/interviewStore.ts'), 'utf8');
++  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
++  const exports = {};
++  vm.runInNewContext(compiled, { exports, console, require: name => name === 'zustand'
++    ? require('../../frontend/node_modules/zustand') : { interviewService: service } });
++  return { store: exports.useInterviewStore, service };
++}
++test('starting another interview replaces stale questions and duplicate starts share one request', async () => {
++  const { store, service } = loadStore();
++  store.setState({ currentInterview: { id: 'old', questions: [] }, currentQuestion: { id: 'old-question' } });
++  await Promise.all([store.getState().startInterview('new'), store.getState().startInterview('new')]);
++  expect(service.startInterview).toHaveBeenCalledTimes(1);
++  expect(store.getState().currentInterview.id).toBe('new');
++  expect(store.getState().currentQuestion.id).toBe('q1');
++});
++test('failed saves reject and next-question failures preserve the current question', async () => {
++  const { store, service } = loadStore();
++  await store.getState().startInterview('one');
++  await expect(store.getState().submitResponse({ answer: 'Example' })).rejects.toThrow('Save failed');
++  service.getNextQuestion.mockResolvedValue({ success: false, error: 'Network error' });
++  await expect(store.getState().getNextQuestion()).rejects.toThrow('Network error');
++  expect(store.getState().currentQuestion.id).toBe('q1');
++});
+--- a/frontend/src/app/pages/InterviewRoomPage.tsx
++++ b/frontend/src/app/pages/InterviewRoomPage.tsx
+@@ -1,4 +1,4 @@
+-import { useState, useEffect } from 'react';
++import { useState, useEffect, useRef } from 'react';
+ import { useNavigate, useSearchParams } from 'react-router-dom';
+ import {
+   Play, Pause, Square, SkipForward, Clock, MessageSquare,

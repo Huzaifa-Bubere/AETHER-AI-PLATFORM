@@ -1,0 +1,130 @@
+--- a/backend/src/config/environment.ts
++++ b/backend/src/config/environment.ts
+@@ -1,5 +1,7 @@
+ import dotenv from 'dotenv';
+ import path from 'path';
++import dns from 'dns';
++import { isIP } from 'net';
+ 
+ export function validateEnvironment(env: NodeJS.ProcessEnv): void {
+   const missing = ['MONGODB_URI', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']
+@@ -15,10 +17,14 @@
+   if (!/^mongodb(?:\+srv)?:\/\//.test(env.MONGODB_URI!)) {
+     throw new Error('MONGODB_URI must use mongodb:// or mongodb+srv://');
+   }
++  if (env.DNS_SERVERS && env.DNS_SERVERS.split(',').some(server => !isIP(server.trim()))) {
++    throw new Error('DNS_SERVERS must be a comma-separated list of IP addresses');
++  }
+ }
+ 
+ export function loadEnvironment(): void {
+   // Both src/config and dist/config resolve to backend/.env.
+   dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+   validateEnvironment(process.env);
++  if (process.env.DNS_SERVERS) dns.setServers(process.env.DNS_SERVERS.split(',').map(server => server.trim()));
+ }
+--- a/backend/src/services/cloudinary.ts
++++ b/backend/src/services/cloudinary.ts
+@@ -16,7 +16,7 @@
+       const apiSecret = process.env.CLOUDINARY_API_SECRET;
+ 
+       logger.info(`Cloud Name: ${cloudName ? '✓ Present (' + cloudName + ')' : '✗ MISSING'}`);
+-      logger.info(`API Key: ${apiKey ? '✓ Present (' + apiKey.substring(0, 4) + '...' + apiKey.substring(apiKey.length - 4) + ')' : '✗ MISSING'}`);
++      logger.info(`API Key: ${apiKey ? '✓ Present' : '✗ MISSING'}`);
+       logger.info(`API Secret: ${apiSecret ? '✓ Present (' + apiSecret.length + ' chars)' : '✗ MISSING'}`);
+ 
+       if (!cloudName || !apiKey || !apiSecret) {
+--- a/backend/src/middleware/rateLimiter.ts
++++ b/backend/src/middleware/rateLimiter.ts
+@@ -5,6 +5,17 @@
+   windowMs: 15 * 60 * 1000, // 15 minutes
+   max: 100, // Limit each IP to 100 requests per windowMs
+   message: 'Too many requests from this IP, please try again later.',
++  standardHeaders: true,
++  legacyHeaders: false,
++});
++
++// Autosave and media calls are frequent during a timed assessment.
++// Mount after authentication so shared classroom IPs do not share this quota.
++export const assessmentLimiter = rateLimit({
++  windowMs: 15 * 60 * 1000,
++  max: 600,
++  keyGenerator: req => req.user!.userId,
++  message: { success: false, error: 'Too many assessment requests. Please retry shortly.' },
+   standardHeaders: true,
+   legacyHeaders: false,
+ });
+--- a/backend/src/app.ts
++++ b/backend/src/app.ts
+@@ -23,7 +23,7 @@
+ import { errorHandler } from './middleware/errorHandler';
+ import { notFound } from './middleware/notFound';
+ import { authenticateToken, requireAdmin } from './middleware/auth';
+-import { apiLimiter, authLimiter, passwordResetLimiter, uploadLimiter } from './middleware/rateLimiter';
++import { apiLimiter, authLimiter, assessmentLimiter } from './middleware/rateLimiter';
+ import { validateInput } from './middleware/sanitizer';
+ import logger from './utils/logger';
+ 
+@@ -153,8 +153,8 @@
+   // API routes - EXACT paths that tests expect
+   app.use('/api/auth', authLimiter, authRoutes);
+   app.use('/api/user', apiLimiter, authenticateToken, userRoutes);
+-  app.use('/api/resume', uploadLimiter, authenticateToken, resumeRoutes);
+-  app.use('/api/interview', apiLimiter, authenticateToken, interviewRoutes);
++  app.use('/api/resume', apiLimiter, authenticateToken, resumeRoutes);
++  app.use('/api/interview', authenticateToken, assessmentLimiter, interviewRoutes);
+   app.use('/api/feedback', apiLimiter, authenticateToken, feedbackRoutes);
+   app.use('/api/admin', apiLimiter, authenticateToken, requireAdmin, adminRoutes);
+   app.use('/api/code', apiLimiter, codeExecutionRoutes);
+@@ -163,7 +163,7 @@
+   app.use('/api/scheduling', apiLimiter, authenticateToken, schedulingRoutes);
+   app.use('/api/health', healthRoutes); // no auth — public health check
+   app.use('/api/admin/aptitude', apiLimiter, aptitudeAdminRoutes); // auth+admin check happens inside the router
+-  app.use('/api/aptitude', apiLimiter, aptitudeStudentRoutes); // auth check happens inside the router
++  app.use('/api/aptitude', aptitudeStudentRoutes); // auth and assessment limits are applied inside
+ 
+   // Error handling middleware (must be last)
+   app.use(notFound);
+--- a/backend/src/routes/aptitudeStudent.routes.ts
++++ b/backend/src/routes/aptitudeStudent.routes.ts
+@@ -1,10 +1,12 @@
+ import { Router } from 'express';
+ import * as ctrl from '../controllers/studentAptitude.controller';
+ import { authenticateToken } from '../middleware/auth';
++import { assessmentLimiter } from '../middleware/rateLimiter';
+ 
+ const router = Router();
+ 
+ router.use(authenticateToken);
++router.use(assessmentLimiter);
+ 
+ router.get('/tests', ctrl.listPublishedTests);
+ router.post('/tests/:testId/start', ctrl.startAttempt);
+--- a/backend/src/routes/resume.ts
++++ b/backend/src/routes/resume.ts
+@@ -1,4 +1,5 @@
+ import express from 'express';
++import { uploadLimiter } from '../middleware/rateLimiter';
+ import multer from 'multer';
+ import mongoose from 'mongoose';
+ import { body, validationResult } from 'express-validator';
+@@ -69,7 +70,7 @@
+ };
+ 
+ // Upload resume
+-router.post('/upload', (req, res, next) => {
++router.post('/upload', uploadLimiter, (req, res, next) => {
+   upload.single('resume')(req, res, (err) => {
+     if (err) {
+       return handleMulterError(err, req, res, next);
+--- a/backend/tests/startup.test.js
++++ b/backend/tests/startup.test.js
+@@ -9,6 +9,8 @@
+     expect(() => validateEnvironment({ ...valid, PORT: '5001bad' })).toThrow('PORT');
+     expect(() => validateEnvironment({ ...valid, JWT_REFRESH_SECRET: 'test-access' })).toThrow('must be different');
+     expect(() => validateEnvironment(valid)).not.toThrow();
++    expect(() => validateEnvironment({ ...valid, DNS_SERVERS: 'invalid.example' })).toThrow('DNS_SERVERS');
++    expect(() => validateEnvironment({ ...valid, DNS_SERVERS: '1.1.1.1,8.8.8.8' })).not.toThrow();
+   });
+ });
+ 

@@ -12,6 +12,7 @@ declare global {
         userId: string;
         email?: string;
         role?: string;
+        subscriptionPlan?: string;
         // Allow passport User type for compatibility
         [key: string]: any;
       };
@@ -61,7 +62,8 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
     req.user = {
       userId: user._id.toString(),
       email: user.email,
-      role: user.subscription.plan,
+      role: user.auth.role ?? 'user',
+      subscriptionPlan: user.subscription.plan,
     };
 
     next();
@@ -80,7 +82,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
         const decoded = verifyToken(token, process.env.JWT_ACCESS_SECRET!);
         const user = await User.findById(decoded.userId);
         if (user && !user.isAccountLocked() && decoded.tokenVersion === (user.auth.tokenVersion ?? 0)) {
-          req.user = { userId: user._id.toString(), email: user.email, role: user.subscription.plan };
+          req.user = { userId: user._id.toString(), email: user.email, role: user.auth.role ?? 'user', subscriptionPlan: user.subscription.plan };
         }
       } catch {
         // Ignore token errors in optional auth
@@ -100,15 +102,18 @@ export function requireRole(roles: string | string[]) {
       res.status(401).json({ success: false, error: 'Authentication required' });
       return;
     }
-    const userRole = req.user.role || 'free';
+    const userRole = req.user.role;
     const allowedRoles = Array.isArray(roles) ? roles : [roles];
-    if (!allowedRoles.includes(userRole)) {
+    if (!userRole || !allowedRoles.includes(userRole)) {
       res.status(403).json({ success: false, error: 'Insufficient permissions' });
       return;
     }
     next();
   };
 }
+
+// Candidate is the product label for the existing database role `user`.
+export const requireCandidate = requireRole('user');
 
 // Admin only middleware
 export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {

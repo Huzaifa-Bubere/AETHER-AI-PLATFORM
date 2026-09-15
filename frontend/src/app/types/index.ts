@@ -1,4 +1,4 @@
-// Core Types for Smart Interview AI Platform
+// Core Types for ATHER Platform
 
 export interface User {
   id: string;
@@ -64,40 +64,32 @@ export interface Education {
   gpa?: number;
 }
 
-export interface Interview {
-  id: string;
-  userId: string;
-  resumeId: string;
-  type: InterviewType;
-  status: InterviewStatus;
-  settings: InterviewSettings;
-  questions: Question[];
-  responses: Response[];
-  analysis?: InterviewAnalysis;
-  feedback?: InterviewFeedback;
-  createdAt: string;
-  completedAt?: string;
-}
-
 export type InterviewType = 'behavioral' | 'technical' | 'coding' | 'system-design' | 'skill-based';
 export type InterviewStatus = 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
 
 export interface InterviewSettings {
+  domain?: string;
   role: string;
   difficulty: 'easy' | 'medium' | 'hard';
   duration: number; // in minutes
   includeVideo: boolean;
   includeAudio: boolean;
   includeCoding: boolean;
+  proctoringEnabled?: boolean;
 }
 
 export interface Question {
   id: string;
   text: string;
-  type: 'behavioral' | 'technical' | 'coding';
+  type: 'behavioral' | 'technical' | 'coding' | 'skill-based' | 'system-design';
   difficulty: string;
   expectedDuration: number;
   followUpQuestions?: string[];
+  category?: string;
+  description?: string;
+  examples?: any[];
+  constraints?: string[];
+  testCases?: any[];
 }
 
 export interface Response {
@@ -121,6 +113,64 @@ export interface TestResult {
   expectedOutput: string;
   actualOutput: string;
   passed: boolean;
+}
+
+export interface Interview {
+  id: string;
+  userId: string;
+  resumeId: string;
+  type: InterviewType;
+  status: InterviewStatus;
+  settings: InterviewSettings;
+  questions: Question[];
+  responses: Response[];
+  analysis?: InterviewAnalysis;
+  feedback?: InterviewFeedback;
+  proctoringLog?: ProctoringEvent[];
+  proctoringSummary?: ProctoringSummary;
+  domainAnalysis?: DomainAnalysis;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface ProctoringEvent {
+  type: 'tab_switch' | 'fullscreen_exit' | 'window_blur' | 'copy_paste_attempt' | 'multiple_faces' | 'no_face' | 'audio_anomaly';
+  timestamp: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high';
+}
+
+export interface ProctoringSummary {
+  integrityScore: number;
+  totalViolations: number;
+  flaggedCheating: boolean;
+  status: 'clean' | 'suspicious' | 'flagged';
+  tabSwitches: number;
+  fullscreenExits: number;
+  copyPasteAttempts: number;
+}
+
+export interface DomainCompetencyScore {
+  competency: string;
+  score: number;
+  feedback: string;
+}
+
+export interface ModelAnswerComparison {
+  questionId: string;
+  questionText: string;
+  userAnswer: string;
+  modelAnswer: string;
+  score: number;
+  critique: string;
+}
+
+export interface DomainAnalysis {
+  domain: string;
+  readinessLevel: string;
+  readinessScore: number;
+  competencyScores: DomainCompetencyScore[];
+  modelAnswersComparison?: ModelAnswerComparison[];
 }
 
 export interface InterviewAnalysis {
@@ -343,6 +393,7 @@ export interface InterviewSetupForm {
     includeAudio?: boolean;
     includeCoding?: boolean;
     domain?: string;
+    proctoringEnabled?: boolean;
   };
 }
 

@@ -10,6 +10,17 @@ import toast from 'react-hot-toast';
 
 const interviewTypes = [
   {
+    id: 'ai-adaptive',
+    label: 'AI Adaptive Interview',
+    sub: 'Domain AI that adapts every question',
+    icon: Zap,
+    accent: '#8b5cf6',
+    bg: 'rgba(139,92,246,0.08)',
+    border: 'rgba(139,92,246,0.3)',
+    isExternal: true,
+    to: '/ai-interview',
+  },
+  {
     id: 'technical',
     label: 'Technical',
     sub: 'Resume-based deep dive',
@@ -70,15 +81,25 @@ const interviewTypes = [
 ];
 
 const technicalDomains = [
-  'Java', 'Python', 'JavaScript', 'React', 'Node.js',
-  'DBMS', 'Operating Systems', 'Computer Networks',
-  'System Design', 'Data Structures',
+  'Full-Stack Web Development',
+  'Frontend Development',
+  'Backend Engineering',
+  'AI & Machine Learning',
+  'Data Science & Analytics',
+  'Cloud & DevOps',
+  'Android Development',
+  'Cyber Security',
+  'Quality Assurance & Automation',
+  'Product Management',
+  'Data Structures & Algorithms',
+  'Java Core & Spring Boot',
+  'DBMS & SQL',
 ];
 
 const difficulties = [
-  { id: 'easy',   label: 'Easy',   desc: 'Fundamentals',    color: '#10b981' },
-  { id: 'medium', label: 'Medium', desc: 'Industry ready',  color: '#f59e0b' },
-  { id: 'hard',   label: 'Hard',   desc: 'Senior level',    color: '#ef4444' },
+  { id: 'easy', label: 'Easy', desc: 'Fundamentals', color: '#10b981' },
+  { id: 'medium', label: 'Medium', desc: 'Industry ready', color: '#f59e0b' },
+  { id: 'hard', label: 'Hard', desc: 'Senior level', color: '#ef4444' },
 ] as const;
 
 const durationMarks = [15, 30, 45, 60, 90, 120];
@@ -90,23 +111,23 @@ export function InterviewSetupPage() {
   const { createInterview, isLoading } = useInterviewStore();
 
   const [searchParams] = useSearchParams();
-  const [selectedType, setSelectedType]       = useState(() =>
+  const [selectedType, setSelectedType] = useState(() =>
     interviewTypes.some(type => type.id === searchParams.get('type')) ? searchParams.get('type')! : '');
-  const [selectedRole, setSelectedRole]       = useState('');
+  const [selectedRole, setSelectedRole] = useState('');
   const [selectedDifficulty, setSelectedDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
-  const [duration, setDuration]               = useState(30);
-  const [selectedDomain, setSelectedDomain]   = useState('');
-  const [resumeFile, setResumeFile]           = useState<File | null>(null);
-  const [roleFocused, setRoleFocused]         = useState(false);
+  const [duration, setDuration] = useState(30);
+  const [selectedDomain, setSelectedDomain] = useState('');
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [roleFocused, setRoleFocused] = useState(false);
 
   const activeType = interviewTypes.find(t => t.id === selectedType);
   const step = selectedType ? 2 : 1;
 
   const handleStart = async () => {
-    if (!selectedType)  return toast.error('Select an interview type');
+    if (!selectedType) return toast.error('Select an interview type');
     if (!selectedRole.trim()) return toast.error('Enter your target role');
-    if (selectedType === 'skill-based' && !selectedDomain)
-      return toast.error('Select a skill domain');
+    if ((selectedType === 'skill-based' || selectedType === 'technical') && !selectedDomain && !selectedRole)
+      return toast.error('Select a target domain');
 
     try {
       let resumeId: string | undefined;
@@ -128,10 +149,11 @@ export function InterviewSetupPage() {
           role: selectedRole,
           difficulty: selectedDifficulty,
           duration,
-          ...(selectedType === 'skill-based' && { domain: selectedDomain }),
+          domain: selectedDomain || selectedRole,
           includeVideo: true,
           includeAudio: true,
           includeCoding: selectedType === 'coding',
+          proctoringEnabled: true,
         },
       };
 
@@ -174,8 +196,8 @@ export function InterviewSetupPage() {
         {/* ── Step indicators ── */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 40 }}>
           {['Interview Type', 'Configuration'].map((label, i) => {
-            const isActive  = step === i + 1;
-            const isDone    = step > i + 1;
+            const isActive = step === i + 1;
+            const isDone = step > i + 1;
             return (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: isActive || isDone ? 1 : 0.35, transition: 'opacity 0.3s' }}>

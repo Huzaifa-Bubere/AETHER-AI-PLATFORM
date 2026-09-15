@@ -41,23 +41,23 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background pt-24 pb-12 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Admin Badge */}
         <div className="flex justify-center mb-6">
-          <div className="bg-purple-600 text-white px-6 py-3 rounded-full flex items-center gap-2 shadow-lg">
+          <div className="bg-primary text-white px-6 py-3 rounded-full flex items-center gap-2 shadow-lg">
             <Shield className="w-5 h-5" />
-            <span className="font-semibold">Admin Portal</span>
+            <span className="font-semibold">ATHER Administration</span>
           </div>
         </div>
 
-        <Card className="p-8 shadow-2xl border-purple-500/20">
+        <Card className="p-8 shadow-sm border-border">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-white mb-2">
+            <h1 className="text-3xl font-bold text-foreground mb-2">
               Administrator Login
             </h1>
-            <p className="text-gray-400">
+            <p className="text-muted-foreground">
               Secure access for system administrators
             </p>
           </div>
@@ -66,7 +66,7 @@ export default function AdminLoginPage() {
           {error && (
             <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <p className="text-red-400 text-sm">{error}</p>
+              <p className="text-destructive text-sm">{error}</p>
             </div>
           )}
 
@@ -74,17 +74,17 @@ export default function AdminLoginPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Email Field */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Admin Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   type="email"
-                  placeholder="admin@smartinterview.ai"
+                  placeholder="admin@example.com"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="pl-10 bg-slate-800 border-slate-700 text-white"
+                  className="pl-10 bg-background border-border text-foreground"
                   required
                   autoComplete="email"
                 />
@@ -93,17 +93,17 @@ export default function AdminLoginPage() {
 
             {/* Password Field */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   type="password"
                   placeholder="Enter admin password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="pl-10 bg-slate-800 border-slate-700 text-white"
+                  className="pl-10 bg-background border-border text-foreground"
                   required
                   autoComplete="current-password"
                 />
@@ -113,7 +113,7 @@ export default function AdminLoginPage() {
             {/* Submit Button */}
             <Button
               type="submit"
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white py-6 text-lg font-semibold"
+              className="w-full bg-primary hover:bg-primary/90 text-white py-6 text-lg font-semibold"
               disabled={loading}
             >
               {loading ? (
@@ -131,11 +131,11 @@ export default function AdminLoginPage() {
           </form>
 
           {/* Footer Links */}
-          <div className="mt-8 pt-6 border-t border-slate-700">
+          <div className="mt-8 pt-6 border-t border-border">
             <div className="text-center space-y-2">
               <Link
                 to="/login"
-                className="text-sm text-purple-400 hover:text-purple-300 block"
+                className="text-sm text-primary hover:text-primary/80 block"
               >
                 ← Back to User Login
               </Link>

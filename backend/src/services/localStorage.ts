@@ -9,11 +9,11 @@ const mkdir = promisify(fs.mkdir);
 class LocalStorageService {
   private uploadsDir: string;
   private baseUrl: string;
+  private ready: Promise<void> | null = null;
 
   constructor() {
     this.uploadsDir = path.join(process.cwd(), 'uploads');
     this.baseUrl = process.env.BACKEND_URL || 'http://localhost:5001';
-    this.initialize();
   }
 
   private async initialize(): Promise<void> {
@@ -36,7 +36,13 @@ class LocalStorageService {
       logger.info('✓ Local storage initialized successfully');
     } catch (error) {
       logger.error('Local storage initialization error:', error);
+      throw new Error('Local file storage is unavailable.');
     }
+  }
+
+  private async ensureReady(): Promise<void> {
+    if (!this.ready) this.ready = this.initialize().catch(error => { this.ready = null; throw error; });
+    await this.ready;
   }
 
   async uploadResume(
@@ -47,7 +53,8 @@ class LocalStorageService {
     }
   ): Promise<{ secure_url: string; public_id: string }> {
     try {
-      const timestamp = Date.now();
+      await this.ensureReady();
+      const timestamp = `${Date.now()}_${require("crypto").randomUUID()}`;
       const sanitizedFilename = options.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
       const filename = `resume_${options.userId}_${timestamp}_${sanitizedFilename}`;
       const filepath = path.join(this.uploadsDir, 'resumes', filename);
@@ -68,6 +75,34 @@ class LocalStorageService {
     }
   }
 
+  async uploadVideo(
+    buffer: Buffer,
+    options: {
+      filename: string;
+      userId?: string;
+    }
+  ): Promise<{ secure_url: string; public_id: string }> {
+    try {
+      await this.ensureReady();
+      const timestamp = `${Date.now()}_${require("crypto").randomUUID()}`;
+      const sanitizedFilename = options.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const filename = `video_${options.userId || 'user'}_${timestamp}_${sanitizedFilename}`;
+      const filepath = path.join(this.uploadsDir, 'videos', filename);
+
+      await writeFile(filepath, buffer);
+
+      logger.info(`✓ Video saved locally: ${filename}`);
+
+      return {
+        secure_url: `${this.baseUrl}/uploads/videos/${filename}`, // never exposed to browsers for interview recordings
+        public_id: `videos/${filename}`,
+      };
+    } catch (error: any) {
+      logger.error('Local video upload error:', error);
+      throw new Error(`Local video upload failed: ${error.message}`);
+    }
+  }
+
   async uploadImage(
     buffer: Buffer,
     options: {
@@ -76,7 +111,8 @@ class LocalStorageService {
     }
   ): Promise<{ secure_url: string; public_id: string }> {
     try {
-      const timestamp = Date.now();
+      await this.ensureReady();
+      const timestamp = `${Date.now()}_${require("crypto").randomUUID()}`;
       const sanitizedFilename = options.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
       const filename = `image_${options.userId || 'user'}_${timestamp}_${sanitizedFilename}`;
       const filepath = path.join(this.uploadsDir, 'images', filename);
@@ -97,7 +133,7 @@ class LocalStorageService {
 
   async deleteFile(publicId: string): Promise<void> {
     try {
-      const filepath = path.join(this.uploadsDir, publicId);
+      const filepath = this.getFilePath(publicId);
       if (fs.existsSync(filepath)) {
         fs.unlinkSync(filepath);
         logger.info(`✓ File deleted: ${publicId}`);
@@ -108,11 +144,13 @@ class LocalStorageService {
   }
 
   getFilePath(publicId: string): string {
-    return path.join(this.uploadsDir, publicId);
+    const resolved = path.resolve(this.uploadsDir, publicId);
+    if (!resolved.startsWith(path.resolve(this.uploadsDir) + path.sep)) throw new Error('Invalid storage path.');
+    return resolved;
   }
 
   fileExists(publicId: string): boolean {
-    const filepath = path.join(this.uploadsDir, publicId);
+    const filepath = this.getFilePath(publicId);
     return fs.existsSync(filepath);
   }
 }

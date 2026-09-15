@@ -375,7 +375,7 @@ export function LandingPage() {
                 <div className="p-2 bg-primary rounded-lg">
                   <Brain className="w-5 h-5 text-white" />
                 </div>
-                <span className="text-lg font-semibold text-foreground">Smart Interview AI</span>
+                <span className="text-lg font-semibold text-foreground">ATHER</span>
               </div>
               <p className="text-muted-foreground text-sm">
                 AI-powered interview preparation platform
@@ -407,7 +407,7 @@ export function LandingPage() {
             </div>
           </div>
           <div className="border-t border-border pt-8 text-center text-sm text-muted-foreground">
-            <p>© 2026 Smart Interview AI. All rights reserved.</p>
+            <p>© 2026 ATHER. All rights reserved.</p>
           </div>
         </div>
       </footer>

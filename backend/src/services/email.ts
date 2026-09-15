@@ -55,7 +55,7 @@ class EmailService {
 
     try {
       const mailOptions = {
-        from: `"${process.env.EMAIL_FROM_NAME || 'Smart Interview AI'}" <${process.env.EMAIL_USER}>`,
+        from: `"${process.env.EMAIL_FROM_NAME || 'ATHER'}" <${process.env.EMAIL_USER}>`,
         to: options.to,
         subject: options.subject,
         html: options.html,
@@ -90,7 +90,7 @@ class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>Welcome to Smart Interview AI!</h1>
+            <h1>Welcome to ATHER!</h1>
           </div>
           <div class="content">
             <p>Hi there,</p>
@@ -104,7 +104,7 @@ class EmailService {
             <p>If you didn't create an account, you can safely ignore this email.</p>
           </div>
           <div class="footer">
-            <p>© 2026 Smart Interview AI. All rights reserved.</p>
+            <p>© 2026 ATHER. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -113,7 +113,7 @@ class EmailService {
 
     return this.sendEmail({
       to: email,
-      subject: 'Verify Your Email - Smart Interview AI',
+      subject: 'Verify Your Email - ATHER',
       html,
     });
   }
@@ -142,7 +142,7 @@ class EmailService {
           </div>
           <div class="content">
             <p>Hi there,</p>
-            <p>We received a request to reset your password for your Smart Interview AI account.</p>
+            <p>We received a request to reset your password for your ATHER account.</p>
             <p style="text-align: center;">
               <a href="${resetUrl}" class="button">Reset Password</a>
             </p>
@@ -158,7 +158,7 @@ class EmailService {
             </div>
           </div>
           <div class="footer">
-            <p>© 2026 Smart Interview AI. All rights reserved.</p>
+            <p>© 2026 ATHER. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -167,7 +167,7 @@ class EmailService {
 
     return this.sendEmail({
       to: email,
-      subject: 'Reset Your Password - Smart Interview AI',
+      subject: 'Reset Your Password - ATHER',
       html,
     });
   }
@@ -190,7 +190,7 @@ class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>🎉 Welcome to Smart Interview AI!</h1>
+            <h1>🎉 Welcome to ATHER!</h1>
           </div>
           <div class="content">
             <p>Hi ${firstName},</p>
@@ -220,7 +220,7 @@ class EmailService {
             <p>Need help? Check out our <a href="${process.env.FRONTEND_URL}/help">Help Center</a> or reply to this email.</p>
           </div>
           <div class="footer">
-            <p>© 2026 Smart Interview AI. All rights reserved.</p>
+            <p>© 2026 ATHER. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -229,7 +229,7 @@ class EmailService {
 
     return this.sendEmail({
       to: email,
-      subject: 'Welcome to Smart Interview AI! 🚀',
+      subject: 'Welcome to ATHER! 🚀',
       html,
     });
   }
@@ -352,7 +352,7 @@ class EmailService {
             </p>
           </div>
           <div class="footer">
-            <p>© 2026 Smart Interview AI. All rights reserved.</p>
+            <p>© 2026 ATHER. All rights reserved.</p>
             <p style="margin-top: 10px; font-size: 12px;">
               This is an automated receipt for your records. Please do not reply to this email.
             </p>
@@ -364,7 +364,7 @@ class EmailService {
 
     return this.sendEmail({
       to: email,
-      subject: `Payment Receipt - ${planName} Plan - Smart Interview AI`,
+      subject: `Payment Receipt - ${planName} Plan - ATHER`,
       html,
     });
   }

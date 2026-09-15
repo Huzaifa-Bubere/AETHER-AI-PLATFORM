@@ -40,6 +40,7 @@ export interface IAptitudeAttempt extends Document {
   questions: Types.ObjectId[]; // fixed order, generated once at start
   questionSnapshots: {
     questionId: Types.ObjectId;
+    fingerprint?: string;
     questionText: string;
     imageUrl: string;
     options: { A: string; B: string; C: string; D: string };
@@ -112,6 +113,7 @@ const AptitudeAttemptSchema = new Schema<IAptitudeAttempt>(
     questions: [{ type: Schema.Types.ObjectId, ref: 'AptitudeQuestion' }],
     questionSnapshots: [new Schema({
       questionId: { type: Schema.Types.ObjectId, required: true },
+      fingerprint: String,
       questionText: String,
       imageUrl: String,
       options: { A: String, B: String, C: String, D: String },

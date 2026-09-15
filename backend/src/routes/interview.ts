@@ -596,6 +596,233 @@ router.post(
     }
   }),
 );
+
+// Log anti-cheating proctoring event
+router.post(
+  "/:id/proctor-event",
+  [
+    body("type")
+      .isIn([
+        "tab_switch",
+        "fullscreen_exit",
+        "window_blur",
+        "copy_paste_attempt",
+        "multiple_faces",
+        "no_face",
+        "audio_anomaly",
+      ])
+      .withMessage("Invalid proctoring violation type"),
+    body("description").optional().isString(),
+    body("severity").optional().isIn(["low", "medium", "high"]),
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { type, description, severity = "medium" } = req.body;
+
+    const interview = await Interview.findOne({
+      _id: id,
+      userId: req.user!.userId,
+    });
+
+    if (!interview) {
+      return res.status(404).json({ success: false, error: "Interview not found" });
+    }
+
+    const event = {
+      type,
+      timestamp: new Date(),
+      description: description || `Candidate triggered ${type.replace(/_/g, " ")}`,
+      severity,
+    };
+
+    if (!interview.proctoringLog) interview.proctoringLog = [];
+    interview.proctoringLog.push(event as any);
+
+    if (!interview.proctoringSummary) {
+      interview.proctoringSummary = {
+        integrityScore: 100,
+        totalViolations: 0,
+        flaggedCheating: false,
+        status: "clean",
+        tabSwitches: 0,
+        fullscreenExits: 0,
+        copyPasteAttempts: 0,
+      };
+    }
+
+    interview.proctoringSummary.totalViolations += 1;
+    if (type === "tab_switch" || type === "window_blur") {
+      interview.proctoringSummary.tabSwitches = (interview.proctoringSummary.tabSwitches || 0) + 1;
+    } else if (type === "fullscreen_exit") {
+      interview.proctoringSummary.fullscreenExits = (interview.proctoringSummary.fullscreenExits || 0) + 1;
+    } else if (type === "copy_paste_attempt") {
+      interview.proctoringSummary.copyPasteAttempts = (interview.proctoringSummary.copyPasteAttempts || 0) + 1;
+    }
+
+    // Integrity scoring calculation: Deduct 8 points per strike
+    const penalty = interview.proctoringSummary.totalViolations * 8;
+    interview.proctoringSummary.integrityScore = Math.max(0, 100 - penalty);
+
+    if (interview.proctoringSummary.totalViolations >= 4) {
+      interview.proctoringSummary.flaggedCheating = true;
+      interview.proctoringSummary.status = "flagged";
+    } else if (interview.proctoringSummary.totalViolations >= 2) {
+      interview.proctoringSummary.status = "suspicious";
+    }
+
+    await interview.save();
+
+    logger.warn(`Proctoring violation on interview ${id}: ${type} (total strikes: ${interview.proctoringSummary.totalViolations})`);
+
+    res.json({
+      success: true,
+      message: "Proctoring event logged",
+      proctoringSummary: interview.proctoringSummary,
+      strike: interview.proctoringSummary.totalViolations,
+      maxStrikes: 4,
+      isFlagged: interview.proctoringSummary.flaggedCheating,
+    });
+  })
+);
+
+// Submit current answer and dynamically generate/retrieve the next question based on the candidate's answer
+router.post(
+  "/:id/adaptive-next",
+  [
+    body("questionId").notEmpty(),
+    body("answer").optional({ nullable: true }).trim(),
+    body("duration").isFloat({ min: 0, max: 86400 }).toFloat(),
+  ],
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { questionId, answer = "", duration = 0, audioUrl, videoUrl, codeSubmission } = req.body;
+
+    const interview = await Interview.findOne({
+      _id: id,
+      userId: req.user!.userId,
+    });
+
+    if (!interview) {
+      return res.status(404).json({ success: false, error: "Interview not found" });
+    }
+
+    const effectiveAnswer = answer || codeSubmission?.code || "";
+
+    // 1. Save candidate response if not already saved
+    const existingIndex = interview.responses.findIndex((r) => r.questionId === questionId);
+    if (existingIndex === -1) {
+      interview.responses.push({
+        questionId,
+        answer: effectiveAnswer,
+        audioUrl: audioUrl || null,
+        videoUrl: videoUrl || null,
+        codeSubmission: codeSubmission || null,
+        duration,
+        timestamp: new Date(),
+      } as any);
+    } else {
+      interview.responses[existingIndex].answer = effectiveAnswer;
+      interview.responses[existingIndex].duration = duration;
+    }
+
+    const currentQuestionObj = interview.questions.find((q) => q.id === questionId);
+    const currentQuestionText = currentQuestionObj?.text || "Technical Question";
+
+    const totalQuestionsTarget = Math.max(3, Math.min(6, Math.floor((interview.settings.duration || 30) / 6)));
+    const currentAnsweredCount = interview.responses.length;
+
+    // Check if interview target questions answered
+    if (currentAnsweredCount >= totalQuestionsTarget) {
+      await interview.save();
+      return res.json({
+        success: true,
+        completed: true,
+        message: "All interview questions completed",
+        data: null,
+        totalQuestions: totalQuestionsTarget,
+        answeredQuestions: currentAnsweredCount,
+      });
+    }
+
+    // 2. Check if there's already a pre-seeded next question in interview.questions that hasn't been answered
+    const answeredIds = new Set(interview.responses.map((r) => r.questionId));
+    let nextUnanswered = interview.questions.find((q) => !answeredIds.has(q.id));
+
+    // 3. If no pending question exists, dynamically generate the NEXT question based on the user's latest response!
+    if (!nextUnanswered) {
+      const previousQAList = interview.questions
+        .filter((q) => answeredIds.has(q.id))
+        .map((q) => {
+          const resp = interview.responses.find((r) => r.questionId === q.id);
+          return {
+            question: q.text,
+            answer: resp?.answer || "",
+            category: q.category,
+          };
+        });
+
+      const nextQuestionData = await geminiService.generateAdaptiveNextQuestion({
+        domain: interview.settings.domain || interview.settings.role,
+        role: interview.settings.role,
+        difficulty: interview.settings.difficulty,
+        questionNumber: currentAnsweredCount + 1,
+        totalQuestions: totalQuestionsTarget,
+        lastQuestion: currentQuestionText,
+        lastAnswer: effectiveAnswer,
+        previousQuestions: previousQAList,
+      });
+
+      const newQ = {
+        id: nextQuestionData.id || `q_adapt_${Date.now()}_${currentAnsweredCount + 1}`,
+        text: nextQuestionData.text,
+        type: (interview.type as any) || "skill-based",
+        difficulty: interview.settings.difficulty,
+        expectedDuration: 5,
+        category: nextQuestionData.category || interview.settings.domain || "Technical",
+        followUpQuestions: nextQuestionData.followUpReason ? [nextQuestionData.followUpReason] : [],
+      };
+
+      interview.questions.push(newQ as any);
+      nextUnanswered = newQ as any;
+    }
+
+    await interview.save();
+
+    // Async analysis of answer in background
+    (async () => {
+      try {
+        const analysis = await geminiService.analyzeResponse({
+          question: currentQuestionText,
+          answer: effectiveAnswer,
+          role: interview.settings.role,
+        });
+        if (analysis?.scores) {
+          await Interview.updateOne(
+            { _id: id, "responses.questionId": questionId },
+            { $set: { "responses.$.analysis": analysis } }
+          );
+        }
+      } catch (err) {
+        logger.warn("Async answer analysis error in adaptive-next:", err);
+      }
+    })();
+
+    res.json({
+      success: true,
+      completed: false,
+      data: nextUnanswered,
+      totalQuestions: totalQuestionsTarget,
+      answeredQuestions: currentAnsweredCount,
+      adaptive: true,
+    });
+  })
+);
+
 // Process video frame for real-time analysis
 router.post(
   "/:id/process-video",
@@ -944,6 +1171,30 @@ router.post(
         nextSteps: feedback.nextSteps || [],
       } as any;
 
+      // Generate Internshala-style domain performance analysis
+      try {
+        const qaForDomain = interview.responses.map((resp: any) => {
+          const q = interview.questions.find((qq: any) => qq.id === resp.questionId);
+          return {
+            questionId: resp.questionId,
+            question: q?.text || "Domain Question",
+            answer: resp.answer || resp.codeSubmission?.code || "",
+          };
+        });
+
+        const domainAnalysis = await geminiService.generateDomainAnalysis({
+          domain: interview.settings.domain || interview.settings.role,
+          role: interview.settings.role,
+          difficulty: interview.settings.difficulty,
+          qaList: qaForDomain,
+          proctoringSummary: interview.proctoringSummary,
+        });
+
+        interview.domainAnalysis = domainAnalysis;
+      } catch (dErr) {
+        logger.warn("Failed generating domain analysis, continuing:", dErr);
+      }
+
       await interview.save();
 
       logger.info(`Feedback generated for interview ${id}`);
@@ -969,6 +1220,9 @@ router.post(
         data: {
           ...interview.feedback,
           improvement,
+          domainAnalysis: interview.domainAnalysis,
+          proctoringSummary: interview.proctoringSummary,
+          proctoringLog: interview.proctoringLog,
         },
       });
     } catch (error: any) {
@@ -1032,6 +1286,9 @@ router.get(
         data: {
           ...feedbackObj,
           improvement,
+          domainAnalysis: interview.domainAnalysis,
+          proctoringSummary: interview.proctoringSummary,
+          proctoringLog: interview.proctoringLog,
         },
       });
     } catch (error: any) {

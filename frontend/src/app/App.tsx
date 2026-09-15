@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { Header } from './components/Header';
+import { ApplicationSidebar } from './components/ApplicationSidebar';
+import { PageErrorBoundary } from './components/PageErrorBoundary';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
@@ -27,12 +29,16 @@ const FeedbackPage = lazy(() => import('./pages/FeedbackPage').then(m => ({ defa
 const HistoryPage = lazy(() => import('./pages/HistoryPage').then(m => ({ default: m.HistoryPage })));
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage'));
+const KnowledgeSourcesPage = lazy(() => import('./pages/KnowledgeSourcesPage'));
 
 // Aptitude module
 const AptitudeTestSelection = lazy(() => import('../pages/aptitude/TestSelection'));
 const AptitudeExamRoom = lazy(() => import('../pages/aptitude/ExamRoom'));
 const AptitudeResultsDashboard = lazy(() => import('../pages/aptitude/ResultsDashboard'));
 const AptitudeAdminDashboard = lazy(() => import('../pages/admin/aptitude/AdminDashboard'));
+const AdaptiveSetupPage = lazy(() => import('./pages/AdaptiveSetupPage'));
+const AdaptiveInterviewRoomPage = lazy(() => import('./pages/AdaptiveInterviewRoomPage'));
+const AdaptiveReportPage = lazy(() => import('./pages/AdaptiveReportPage'));
 const AptitudeQuestionManager = lazy(() => import('../pages/admin/aptitude/QuestionManager'));
 const AptitudeTestManager = lazy(() => import('../pages/admin/aptitude/TestManager'));
 const AptitudeStudentManager = lazy(() => import('../pages/admin/aptitude/StudentManager'));
@@ -66,10 +72,12 @@ function ProtectedRoute({ children, allowAdmin = false }: { children: React.Reac
 
 // Public route wrapper
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isLoading, user } = useAuthStore();
+
+  if (isLoading) return <PageLoader />;
 
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={user?.auth?.role === 'admin' ? '/admin' : '/dashboard'} replace />;
   }
 
   return <>{children}</>;
@@ -105,6 +113,9 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
+      <ApplicationSidebar />
+      <main id="main-content" className="application-content min-w-0">
+      <PageErrorBoundary>
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
@@ -192,6 +203,27 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        <Route path="/ai-interview" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AdaptiveSetupPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/ai-interview/:sessionId" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AdaptiveInterviewRoomPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/ai-interview/:sessionId/report" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AdaptiveReportPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="/interview-room" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -271,22 +303,21 @@ function AppContent() {
         } />
         
         {/* Catch all */}
+        <Route path="/admin/knowledge" element={<AdminRoute><Suspense fallback={<PageLoader />}><KnowledgeSourcesPage /></Suspense></AdminRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </PageErrorBoundary>
+      </main>
       
       <Toaster
-        position="top-center"
-        containerStyle={{
-          top: '38%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-        }}
+        position="top-right"
+        containerStyle={{ top: 80 }}
         toastOptions={{
           duration: 4000,
           style: {
-            background: 'hsl(var(--card))',
-            color: 'hsl(var(--card-foreground))',
-            border: '1px solid hsl(var(--border))',
+            background: 'var(--card)',
+            color: 'var(--card-foreground)',
+            border: '1px solid var(--border)',
           },
         }}
       />

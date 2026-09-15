@@ -3,7 +3,7 @@ import { questionImageDirectory } from '../utils/aptitudeImageUpload';
 import { aptitudeId, aptitudeError } from '../middleware/aptitudeValidation';
 import { Router } from 'express';
 import * as ctrl from '../controllers/studentAptitude.controller';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireCandidate } from '../middleware/auth';
 import { assessmentLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
@@ -11,7 +11,7 @@ router.param('testId', aptitudeId);
 router.param('attemptId', aptitudeId);
 
 router.use('/images', express.static(questionImageDirectory, { dotfiles: 'deny', index: false, maxAge: '1d', setHeaders: res => res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin') }));
-router.use(authenticateToken);
+router.use(authenticateToken, requireCandidate);
 router.use(assessmentLimiter);
 
 router.get('/tests', ctrl.listPublishedTests);

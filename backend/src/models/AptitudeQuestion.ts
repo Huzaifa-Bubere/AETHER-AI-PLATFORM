@@ -1,4 +1,5 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import { fingerprintQuestion, normalizeQuestion } from '../services/questions/identity';
 
 /** Questions contain either a complete image or a statement with four text options. */
 export const CATEGORIES = ['quantitative-aptitude', 'logical-reasoning', 'verbal-ability',
@@ -21,6 +22,11 @@ export interface IAptitudeQuestion extends Document {
   category: Category;
   difficulty: Difficulty;
   questionText?: string;
+  fingerprint?: string;
+  generation?: {
+    key: string; topic: string; model: string; generatedAt: Date; expiresAt: Date;
+    evidence: unknown; sources: { chunkId: string; title: string; url: string; retrievedAt: Date }[];
+  };
   options?: {
     A: string;
     B: string;
@@ -68,6 +74,12 @@ const AptitudeQuestionSchema = new Schema<IAptitudeQuestion>(
       index: true,
     },
     questionText: { type: String, default: '' },
+    fingerprint: { type: String, index: true },
+    generation: {
+      type: new Schema({ key: String, topic: String, model: String, generatedAt: Date, expiresAt: Date,
+        evidence: Schema.Types.Mixed, sources: [{ chunkId: String, title: String, url: String, retrievedAt: Date }] }, { _id: false }),
+      default: undefined,
+    },
     options: {
       A: { type: String, default: '' },
       B: { type: String, default: '' },
@@ -88,14 +100,18 @@ const AptitudeQuestionSchema = new Schema<IAptitudeQuestion>(
 
 // Compound index used heavily by the random-question picker
 AptitudeQuestionSchema.pre('validate', function (next) {
+  this.fingerprint = fingerprintQuestion(this);
   if (!this.imageUrl?.trim()) {
     if (!this.questionText?.trim()) this.invalidate('questionText', 'Provide a question statement or a complete question image.');
     if (['A', 'B', 'C', 'D'].some(key => !this.options?.[key as OptionKey]?.trim())) {
       this.invalidate('options', 'Text questions require all four options.');
     }
+    const options = ['A', 'B', 'C', 'D'].map(key => normalizeQuestion(this.options?.[key as OptionKey] || ''));
+    if (new Set(options).size !== 4) this.invalidate('options', 'Answer options must be distinct.');
   }
   next();
 });
 AptitudeQuestionSchema.index({ roundType: 1, category: 1, difficulty: 1, status: 1 });
+AptitudeQuestionSchema.index({ 'generation.key': 1 }, { unique: true, sparse: true });
 
 export default model<IAptitudeQuestion>('AptitudeQuestion', AptitudeQuestionSchema);

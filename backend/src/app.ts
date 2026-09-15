@@ -18,11 +18,13 @@ import schedulingRoutes from './routes/scheduling';
 import healthRoutes from './routes/health';
 import aptitudeAdminRoutes from './routes/aptitudeAdmin.routes';
 import aptitudeStudentRoutes from './routes/aptitudeStudent.routes';
+import adaptiveInterviewRoutes from './routes/adaptiveInterview.routes';
+import ragRoutes from './routes/rag';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
 import { notFound } from './middleware/notFound';
-import { authenticateToken, requireAdmin } from './middleware/auth';
+import { authenticateToken, requireAdmin, requireCandidate } from './middleware/auth';
 import { apiLimiter, authLimiter, assessmentLimiter } from './middleware/rateLimiter';
 import { validateInput } from './middleware/sanitizer';
 import logger from './utils/logger';
@@ -123,7 +125,7 @@ export function createApp(): Application {
   // Root route — confirms API is live
   app.get('/', (req, res) => {
     res.status(200).json({
-      name: 'Smart Interview AI — Backend API',
+      name: 'ATHER — Backend API',
       status: 'running',
       version: '1.0.0',
       health: '/health',
@@ -154,16 +156,18 @@ export function createApp(): Application {
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/user', apiLimiter, authenticateToken, userRoutes);
   app.use('/api/resume', apiLimiter, authenticateToken, resumeRoutes);
-  app.use('/api/interview', authenticateToken, assessmentLimiter, interviewRoutes);
+  app.use('/api/interview', authenticateToken, requireCandidate, assessmentLimiter, interviewRoutes);
   app.use('/api/feedback', apiLimiter, authenticateToken, feedbackRoutes);
   app.use('/api/admin', apiLimiter, authenticateToken, requireAdmin, adminRoutes);
   app.use('/api/code', apiLimiter, codeExecutionRoutes);
   app.use('/api/payment', apiLimiter, paymentRoutes);
-  app.use('/api/practice', apiLimiter, authenticateToken, practiceRoutes);
-  app.use('/api/scheduling', apiLimiter, authenticateToken, schedulingRoutes);
+  app.use('/api/practice', apiLimiter, authenticateToken, requireCandidate, practiceRoutes);
+  app.use('/api/scheduling', apiLimiter, authenticateToken, requireCandidate, schedulingRoutes);
   app.use('/api/health', healthRoutes); // no auth — public health check
   app.use('/api/admin/aptitude', apiLimiter, aptitudeAdminRoutes); // auth+admin check happens inside the router
+  app.use('/api/admin/rag', apiLimiter, ragRoutes);
   app.use('/api/aptitude', aptitudeStudentRoutes); // auth and assessment limits are applied inside
+  app.use('/api/adaptive-interview', authenticateToken, requireCandidate, assessmentLimiter, adaptiveInterviewRoutes);
 
   // Error handling middleware (must be last)
   app.use(notFound);

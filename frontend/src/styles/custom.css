@@ -1,4 +1,14 @@
 /* Clean minimal SaaS utilities */
+@media (min-width: 1280px) {
+  .application-sidebar + .application-content { margin-left: 15rem; }
+}
+
+html { color-scheme: light; scroll-padding-top: 5rem; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
 @layer utilities {
   /* Soft shadow for cards */
   .card-shadow {

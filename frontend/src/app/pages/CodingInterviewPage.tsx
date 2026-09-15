@@ -603,7 +603,7 @@ export function CodingInterviewPage() {
                   language={language}
                   value={code}
                   onChange={(value) => { setCode(value || ''); setUserHasEdited(true); }}
-                  theme="vs-dark"
+                  theme="light"
                   options={{
                     minimap: { enabled: false },
                     fontSize: 13,
@@ -643,11 +643,11 @@ export function CodingInterviewPage() {
                 <Terminal className="w-4 sm:w-5 h-4 sm:h-5 text-primary" />
                 <h3 className="text-base sm:text-lg">Output</h3>
               </div>
-              <div className="bg-[#1e1e1e] rounded-lg p-3 sm:p-4 h-48 sm:h-64 overflow-y-auto font-mono text-xs sm:text-sm">
-                {output || (
+              <div className="bg-muted border border-border rounded-lg p-3 sm:p-4 h-48 sm:h-64 overflow-y-auto font-mono text-xs sm:text-sm">
+                {!output && (
                   <p className="text-gray-500">Click "Run Code" to see output...</p>
                 )}
-                <pre className="text-gray-300 whitespace-pre-wrap">{output}</pre>
+                <pre className="text-foreground whitespace-pre-wrap">{output}</pre>
               </div>
             </Card>
           </div>

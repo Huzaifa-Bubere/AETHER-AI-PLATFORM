@@ -24,6 +24,7 @@ interface TestRow {
   durationMinutes: number;
   totalMarks: number;
   isPublished: boolean;
+  ragTopic?: string;
   difficultyPlan: Record<string, { count: number; marksPerQuestion: number }>;
   availability: { ready: boolean; issues: string[] };
 }
@@ -66,6 +67,7 @@ export default function TestManager() {
     const payload = {
       title: form.get('title'),
       roundType: form.get('roundType'),
+      ragTopic: String(form.get('ragTopic') || '').trim(),
       categories,
       durationMinutes: Number(form.get('durationMinutes')),
       difficultyPlan: {
@@ -127,6 +129,10 @@ export default function TestManager() {
 
       {showForm && (
         <form key={editing?._id || 'new'} onSubmit={handleCreate} className="mb-6 grid gap-4 rounded-xl border border-border bg-card p-5">
+          <label className="text-sm">Knowledge topic (optional)
+            <input name="ragTopic" defaultValue={editing?.ragTopic || ''} maxLength={80} className="mt-1 w-full rounded-md bg-secondary px-3 py-2" placeholder="Exact topic from Knowledge Sources" />
+            <span className="mt-1 block text-muted-foreground">Set a topic for source-grounded generation, or leave blank to use the curated bank. Source-grounded tests need one category and at most 10 questions.</span>
+          </label>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-sm">
               <span className="mb-1 block text-muted-foreground">Title</span>

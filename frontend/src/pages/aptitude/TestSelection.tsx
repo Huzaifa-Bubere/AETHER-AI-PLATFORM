@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../lib/aptitudeApi';
 
 interface TestSummary {
@@ -7,6 +7,7 @@ interface TestSummary {
   durationMinutes: number; totalMarks: number;
   difficultyPlan: Record<string, { count: number }>;
   availability: { ready: boolean };
+  ragTopic?: string;
 }
 interface AttemptSummary {
   attemptId: string; testId: string; title: string; status: string;
@@ -23,6 +24,9 @@ export default function TestSelection() {
   const [reload, setReload] = useState(0);
   const starting = useRef(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const round = searchParams.get('round') === 'technical' ? 'technical' : 'aptitude';
+  const visibleTests = tests.filter(test => test.roundType === round);
 
   useEffect(() => {
     let active = true;
@@ -38,7 +42,7 @@ export default function TestSelection() {
     if (starting.current) return;
     starting.current = true; setStartingId(testId); setError(null);
     try {
-      const { data } = await api.post(`/api/aptitude/tests/${testId}/start`);
+      const { data } = await api.post(`/api/aptitude/tests/${testId}/start`, {}, { timeout: 300000 });
       navigate(`/aptitude/attempts/${data.attemptId}`);
     } catch (error: any) {
       setError(error?.response?.data?.message || error?.response?.data?.error || 'Could not start this test. Please try again.');
@@ -48,21 +52,22 @@ export default function TestSelection() {
   return (
     <div className="min-h-screen bg-background px-4 py-20 text-foreground">
       <div className="mx-auto max-w-4xl space-y-6">
-        <div><h1 className="text-2xl font-bold">Aptitude & Technical Tests</h1>
+        <div><h1 className="text-2xl font-bold">{round === 'technical' ? 'Technical Assessment' : 'Aptitude'}</h1>
           <p className="mt-1 text-muted-foreground">Timed tests with saved answers and question reviews.</p></div>
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">Before starting: the timer continues if you leave. Switching tabs or minimizing the exam submits your attempt automatically.</p>
         {error && <div role="alert" className="text-destructive">{error} <button onClick={() => setReload(v => v + 1)} className="underline">Retry</button></div>}
-        {loading ? <p>Loading tests...</p> : tests.length === 0 ? <p>No tests are published yet.</p> :
-          <div className="grid gap-4">{tests.map(test => {
+        {loading ? <p>Loading tests...</p> : visibleTests.length === 0 ? <p>No {round} tests are published yet.</p> :
+          <div className="grid gap-4">{visibleTests.map(test => {
             const active = attempts.find(a => a.testId === test._id && a.status === 'in-progress');
             return <div key={test._id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
               <div><h2 className="font-semibold">{test.title}</h2>
+                {test.ragTopic && <p className="text-sm text-primary">Source-grounded questions · {test.ragTopic}</p>}
                 <p className="mt-1 text-sm text-muted-foreground">{Object.values(test.difficultyPlan).reduce((sum, level) => sum + level.count, 0)} questions | {test.durationMinutes} min | {test.totalMarks} marks</p>
                 <p className="text-sm text-muted-foreground">{test.categories.map(c => c.replace(/-/g, ' ')).join(', ')}</p>
                 {!test.availability.ready && !active && <p className="mt-2 text-sm text-amber-700">Temporarily unavailable while the question bank is updated.</p>}
               </div>
               <button onClick={() => handleStart(test._id)} disabled={!!startingId || (!active && !test.availability.ready)} className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
-                {startingId === test._id ? 'Starting...' : active ? 'Resume Test' : 'Start Test'}
+                {startingId === test._id ? (test.ragTopic ? 'Preparing questions…' : 'Starting...') : active ? 'Resume Test' : 'Start Test'}
               </button>
             </div>;
           })}</div>}

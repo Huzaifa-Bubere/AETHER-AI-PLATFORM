@@ -1,1 +1,1 @@
-# Smart Interview AI - ML Server Package
+# ATHER - ML Server Package

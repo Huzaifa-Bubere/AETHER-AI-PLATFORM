@@ -38,6 +38,7 @@ export interface IResume extends Document {
     processingStatus: 'pending' | 'processing' | 'completed' | 'failed';
     errorMessage?: string;
     parsedData?: any;
+    evaluation?: { score: number; contentQuality: number; keywords: number; impact: number; suggestions: { title: string; description: string; priority: string }[] };
   };
   createdAt: Date;
   updatedAt: Date;
@@ -74,6 +75,7 @@ const resumeSchema = new Schema<IResume>({
     type: String,
     default: null,
   },
+  localFilePath: { type: String, select: false },
   fileSize: {
     type: Number,
     required: true,
@@ -107,7 +109,7 @@ const resumeSchema = new Schema<IResume>({
       },
       year: {
         type: Number,
-        default: new Date().getFullYear(),
+        default: null,
       },
       gpa: {
         type: Number,
@@ -138,7 +140,7 @@ const resumeSchema = new Schema<IResume>({
       type: Number,
       min: 0,
       max: 100,
-      default: 0,
+      default: null,
     },
     matchScore: {
       type: Number,
@@ -151,6 +153,7 @@ const resumeSchema = new Schema<IResume>({
     }],
   },
   metadata: {
+    evaluation: { type: Schema.Types.Mixed, default: null },
     uploadedAt: {
       type: Date,
       default: Date.now,

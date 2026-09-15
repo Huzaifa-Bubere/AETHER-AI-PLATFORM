@@ -2,6 +2,8 @@ import AptitudeQuestion, { Difficulty } from '../models/AptitudeQuestion';
 import AptitudeAttempt from '../models/AptitudeAttempt';
 import { IAptitudeTest } from '../models/AptitudeTest';
 import { Types } from 'mongoose';
+import { QuestionIdentity, similarQuestions, uniqueQuestions } from './questions/identity';
+import { DIFFICULTIES } from './questions/difficulty';
 
 /**
  * Builds the question set for a new attempt.
@@ -11,17 +13,24 @@ import { Types } from 'mongoose';
  *  1. Look up every question this user has already seen for this roundType+category+difficulty
  *     across their past attempts.
  *  2. Prefer unseen questions first, in random order.
- *  3. Only fall back to previously-seen questions if the unseen pool is smaller
- *     than what the test requires (keeps tests runnable even with a small bank).
+ *  3. Exclude recent questions by ID and snapshot content. Older questions can be
+ *     reused only after the cooldown, with unseen questions preferred.
  *  4. `timesUsed` is incremented after the attempt is created so the admin dashboard can show
  *     which questions are overused and need more bank depth.
  */
 export async function buildQuestionSet(test: IAptitudeTest, userId: Types.ObjectId) {
-  const pastAttempts = await AptitudeAttempt.find({ user: userId, roundType: test.roundType }).select('questions').lean();
+  const days = Number(process.env.QUESTION_REPEAT_COOLDOWN_DAYS || 30);
+  if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('QUESTION_REPEAT_COOLDOWN_DAYS must be between 1 and 365.');
+  const cutoff = Date.now() - days * 86400000;
+  const pastAttempts = await AptitudeAttempt.find({ user: userId }).select('questions questionSnapshots startedAt').lean();
   const seenIds = new Set(pastAttempts.flatMap((a) => a.questions.map((q) => q.toString())));
+  const recent = pastAttempts.filter(a => !a.startedAt || new Date(a.startedAt).getTime() >= cutoff);
+  const recentIds = new Set(recent.flatMap(a => a.questions.map(String)));
+  const recentContent: QuestionIdentity[] = recent.flatMap(a => a.questionSnapshots || []);
 
   const selectedIds = new Set<string>();
-  const difficulties: Difficulty[] = ['easy', 'medium', 'hard'];
+  const selectedContent: QuestionIdentity[] = [];
+  const difficulties: readonly Difficulty[] = DIFFICULTIES;
 
   // 1. First pass: try to satisfy each difficulty plan
   for (const difficulty of difficulties) {
@@ -33,19 +42,27 @@ export async function buildQuestionSet(test: IAptitudeTest, userId: Types.Object
       category: { $in: test.categories },
       difficulty,
       status: 'active',
+      $or: [{ 'generation.expiresAt': { $exists: false } }, { 'generation.expiresAt': { $gt: new Date() } }],
+      ...(test.ragTopic ? { 'generation.topic': test.ragTopic } : {}),
     })
-      .select('_id')
+      .select('_id questionText imageUrl fingerprint')
       .lean();
 
-    const unseen = pool.filter((q) => !seenIds.has(q._id.toString()));
-    const seen = pool.filter((q) => seenIds.has(q._id.toString()));
+    // Legacy attempts without snapshots still exclude copied questions if their
+    // original IDs are present in this pool. Deleted legacy content is unrecoverable.
+    const blocked = [...recentContent, ...pool.filter(q => recentIds.has(String(q._id))), ...selectedContent];
+    const eligible = pool.filter(q => !recentIds.has(String(q._id)) && !blocked.some(old => similarQuestions(old, q)));
+    const unseen = eligible.filter((q) => !seenIds.has(q._id.toString()));
+    const seen = eligible.filter((q) => seenIds.has(q._id.toString()));
 
-    const candidates = [...shuffle(unseen), ...shuffle(seen)];
+    const candidates = uniqueQuestions([...shuffle(unseen), ...shuffle(seen)]);
     if (candidates.length < plan.count) {
-      throw new Error(`Insufficient ${difficulty} questions for this test: need ${plan.count}, found ${candidates.length}.`);
+      throw Object.assign(new Error(`Insufficient ${difficulty} questions for this test: need ${plan.count}, found ${candidates.length} distinct questions outside your ${days}-day recent history. Please try another test or wait for new questions.`),
+        { difficulty, missingCount: plan.count - candidates.length });
     }
     for (const q of candidates.slice(0, plan.count)) {
       selectedIds.add(q._id.toString());
+      selectedContent.push(q);
     }
   }
 

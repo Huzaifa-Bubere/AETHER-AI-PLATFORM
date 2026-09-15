@@ -1,4 +1,4 @@
-# Smart Interview AI Platform
+# ATHER Platform
 
 A comprehensive AI-powered interview preparation platform with real-time video interviews, code execution, resume analysis, and detailed feedback generation.
 

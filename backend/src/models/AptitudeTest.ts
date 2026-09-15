@@ -22,6 +22,7 @@ export interface IAptitudeTest extends Document {
   durationMinutes: number;
   totalMarks: number;
   isPublished: boolean;
+  ragTopic?: string;
   createdBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -48,6 +49,7 @@ const AptitudeTestSchema = new Schema<IAptitudeTest>(
     durationMinutes: { type: Number, required: true, default: 45, min: 1, max: 1440, validate: Number.isInteger },
     totalMarks: { type: Number, required: true, default: 0 },
     isPublished: { type: Boolean, default: false, index: true },
+    ragTopic: { type: String, default: '', trim: true, maxlength: 80 },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true }
@@ -58,6 +60,9 @@ AptitudeTestSchema.pre('validate', function (next) {
   if (plan?.easy && plan?.medium && plan?.hard) {
     const count = plan.easy.count + plan.medium.count + plan.hard.count;
     if (count < 1 || count > 100) this.invalidate('difficultyPlan', 'A test must contain between 1 and 100 questions.');
+    if (this.ragTopic && (count > 10 || this.categories.length !== 1 || this.roundType === 'coding')) {
+      this.invalidate('ragTopic', 'RAG MCQ templates require one category, at most 10 questions and an aptitude or technical round.');
+    }
     this.totalMarks =
       plan.easy.count * plan.easy.marksPerQuestion +
       plan.medium.count * plan.medium.marksPerQuestion +

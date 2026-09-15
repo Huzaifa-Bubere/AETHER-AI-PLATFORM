@@ -4,13 +4,14 @@ import AptitudeTest from '../models/AptitudeTest';
 import AptitudeQuestion from '../models/AptitudeQuestion';
 import AptitudeAttempt, { ResponseStatus } from '../models/AptitudeAttempt';
 import { testAvailability } from '../services/aptitudeAvailability.service';
-import { buildQuestionSet } from '../services/questionSelector.service';
+import { prepareAssessment } from '../services/rag/assessment';
 import { generateAIAnalysis, performanceAnalysis } from '../services/aptitudeAI.service';
+import { fingerprintQuestion } from '../services/questions/identity';
 
 type Attempt = InstanceType<typeof AptitudeAttempt>;
 
 export async function listPublishedTests(_req: Request, res: Response): Promise<void> {
-  const tests = await AptitudeTest.find({ isPublished: true }).select('title roundType categories durationMinutes totalMarks difficultyPlan');
+  const tests = await AptitudeTest.find({ isPublished: true }).select('title roundType categories durationMinutes totalMarks difficultyPlan ragTopic');
   res.json({ tests: await Promise.all(tests.map(async test => ({ ...test.toObject(), availability: await testAvailability(test) }))) });
 }
 
@@ -25,15 +26,15 @@ export async function startAttempt(req: Request, res: Response): Promise<void> {
   const test = await AptitudeTest.findOne({ _id: req.params.testId, isPublished: true });
   if (!test) { res.status(404).json({ message: 'Test not found or not published.' }); return; }
   let ids;
-  try { ids = await buildQuestionSet(test, new Types.ObjectId(userId)); }
-  catch (error: any) { res.status(422).json({ message: error.message }); return; }
+  try { ids = await prepareAssessment(test, new Types.ObjectId(userId)); }
+  catch (error: any) { res.status(error.statusCode || 422).json({ message: error.message }); return; }
   const questions = await AptitudeQuestion.find({ _id: { $in: ids } }).lean();
   const byId = new Map(questions.map(q => [q._id.toString(), q]));
   const snapshots = ids.map(id => {
     const q = byId.get(id.toString());
     if (!q) throw new Error('Question bank changed while starting the test. Please retry.');
     return {
-      questionId: id, questionText: q.questionText, imageUrl: q.imageUrl, options: q.options,
+      questionId: id, fingerprint: fingerprintQuestion(q), questionText: q.questionText, imageUrl: q.imageUrl, options: q.options,
       category: q.category, difficulty: q.difficulty, correctOption: q.correctOption,
       explanation: q.explanation, marks: test.difficultyPlan[q.difficulty].marksPerQuestion,
     };

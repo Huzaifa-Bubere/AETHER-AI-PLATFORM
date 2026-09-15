@@ -1,7 +1,7 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { asyncHandler } from '../middleware/errorHandler';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireCandidate } from '../middleware/auth';
 import codeExecutionService from '../services/codeExecution';
 import Interview from '../models/Interview';
 import logger from '../utils/logger';
@@ -12,6 +12,7 @@ const router = express.Router();
 router.post(
   '/execute',
   authenticateToken,
+  requireCandidate,
   [
     body('language').isString().notEmpty(),
     body('code').isString().notEmpty(),
@@ -57,6 +58,7 @@ router.post(
 router.post(
   '/execute-tests',
   authenticateToken,
+  requireCandidate,
   [
     body('language').isString().notEmpty(),
     body('code').isString().notEmpty(),
@@ -104,6 +106,7 @@ router.post(
 router.post(
   '/interview/:interviewId/submit',
   authenticateToken,
+  requireCandidate,
   [
     body('questionId').isString().notEmpty(),
     body('language').isString().notEmpty(),
@@ -221,6 +224,7 @@ router.get(
 router.post(
   '/hints',
   authenticateToken,
+  requireCandidate,
   [
     body('questionTitle').isString().notEmpty(),
     body('language').isString().notEmpty(),

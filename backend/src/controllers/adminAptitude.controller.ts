@@ -122,7 +122,7 @@ export async function deleteQuestion(req: Request, res: Response): Promise<void>
 
 // ---------- Tests ----------
 
-const testFields = ['title', 'roundType', 'categories', 'difficultyPlan', 'durationMinutes', 'isPublished'];
+const testFields = ['title', 'roundType', 'categories', 'difficultyPlan', 'durationMinutes', 'isPublished', 'ragTopic'];
 async function applyTestInput(test: InstanceType<typeof AptitudeTest>, body: any) {
   if (body.isPublished !== undefined && typeof body.isPublished !== 'boolean') invalidInput('Published status must be a boolean.');
   for (const field of testFields) if (body[field] !== undefined) test.set(field, body[field]);

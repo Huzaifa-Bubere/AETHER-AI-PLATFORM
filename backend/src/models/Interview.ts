@@ -14,6 +14,7 @@ export interface IInterview extends Document {
     includeVideo: boolean;
     includeAudio: boolean;
     includeCoding: boolean;
+    proctoringEnabled?: boolean;
   };
   questions: Array<{
     id: string;
@@ -23,6 +24,10 @@ export interface IInterview extends Document {
     expectedDuration: number;
     followUpQuestions?: string[];
     category?: string;
+    description?: string;
+    examples?: any[];
+    constraints?: string[];
+    testCases?: any[];
   }>;
   responses: Array<{
     analysis?: any;
@@ -44,7 +49,7 @@ export interface IInterview extends Document {
     timestamp: Date;
   }>;
   analysis?: {
-    videoMetrics: {
+    videoMetrics?: {
       eyeContactPercentage: number;
       emotionAnalysis: Array<{
         timestamp: number;
@@ -63,8 +68,8 @@ export interface IInterview extends Document {
       }>;
       confidenceLevel: number;
     };
-    audioMetrics: {
-      speechRate: number; // words per minute
+    audioMetrics?: {
+      speechRate: number;
       pauseAnalysis: Array<{
         timestamp: number;
         duration: number;
@@ -82,7 +87,7 @@ export interface IInterview extends Document {
       }>;
       clarityScore: number;
     };
-    contentMetrics: {
+    contentMetrics?: {
       relevanceScore: number;
       technicalAccuracy: number;
       communicationClarity: number;
@@ -105,10 +110,43 @@ export interface IInterview extends Document {
     }>;
     nextSteps: string[];
   };
+  proctoringLog?: Array<{
+    type: 'tab_switch' | 'fullscreen_exit' | 'window_blur' | 'copy_paste_attempt' | 'multiple_faces' | 'no_face' | 'audio_anomaly';
+    timestamp: Date;
+    description: string;
+    severity: 'low' | 'medium' | 'high';
+  }>;
+  proctoringSummary?: {
+    integrityScore: number;
+    totalViolations: number;
+    flaggedCheating: boolean;
+    status: 'clean' | 'suspicious' | 'flagged';
+    tabSwitches: number;
+    fullscreenExits: number;
+    copyPasteAttempts: number;
+  };
+  domainAnalysis?: {
+    domain: string;
+    readinessLevel: string;
+    readinessScore: number;
+    competencyScores: Array<{
+      competency: string;
+      score: number;
+      feedback: string;
+    }>;
+    modelAnswersComparison?: Array<{
+      questionId: string;
+      questionText: string;
+      userAnswer: string;
+      modelAnswer: string;
+      score: number;
+      critique: string;
+    }>;
+  };
   session: {
     startTime?: Date;
     endTime?: Date;
-    actualDuration?: number; // in minutes
+    actualDuration?: number;
     recordingUrls?: {
       video?: string;
       audio?: string;
@@ -138,16 +176,16 @@ const interviewSchema = new Schema<IInterview>({
     default: null,
   },
   type: {
-  type: String,
-  enum: [
-    'behavioral',
-    'technical',
-    'coding',
-    'system-design',
-    'skill-based' // ⭐ ADD THIS
-  ],
-  required: true,
-},
+    type: String,
+    enum: [
+      'behavioral',
+      'technical',
+      'coding',
+      'system-design',
+      'skill-based'
+    ],
+    required: true,
+  },
   status: {
     type: String,
     enum: ['scheduled', 'in-progress', 'completed', 'cancelled'],
@@ -188,6 +226,10 @@ const interviewSchema = new Schema<IInterview>({
     includeCoding: {
       type: Boolean,
       default: false,
+    },
+    proctoringEnabled: {
+      type: Boolean,
+      default: true,
     },
   },
   questions: [{
@@ -260,18 +302,12 @@ const interviewSchema = new Schema<IInterview>({
       default: null,
     },
     codeSubmission: {
-      language: {
-        type: String,
-        default: null,
-      },
-      code: {
-        type: String,
-        default: null,
-      },
+      language: String,
+      code: String,
       testResults: [{
-        input: { type: Schema.Types.Mixed, default: null },
-        expectedOutput: { type: Schema.Types.Mixed, default: null },
-        actualOutput: { type: Schema.Types.Mixed, default: null },
+        input: String,
+        expectedOutput: String,
+        actualOutput: String,
         passed: Boolean,
       }],
     },
@@ -281,7 +317,7 @@ const interviewSchema = new Schema<IInterview>({
     },
     timestamp: {
       type: Date,
-      required: true,
+      default: Date.now,
     },
   }],
   analysis: {
@@ -352,6 +388,71 @@ const interviewSchema = new Schema<IInterview>({
     }],
     nextSteps: [String],
   },
+  proctoringLog: [{
+    type: {
+      type: String,
+      enum: ['tab_switch', 'fullscreen_exit', 'window_blur', 'copy_paste_attempt', 'multiple_faces', 'no_face', 'audio_anomaly'],
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now,
+    },
+    description: String,
+    severity: {
+      type: String,
+      enum: ['low', 'medium', 'high'],
+      default: 'medium',
+    },
+  }],
+  proctoringSummary: {
+    integrityScore: {
+      type: Number,
+      default: 100,
+    },
+    totalViolations: {
+      type: Number,
+      default: 0,
+    },
+    flaggedCheating: {
+      type: Boolean,
+      default: false,
+    },
+    status: {
+      type: String,
+      enum: ['clean', 'suspicious', 'flagged'],
+      default: 'clean',
+    },
+    tabSwitches: {
+      type: Number,
+      default: 0,
+    },
+    fullscreenExits: {
+      type: Number,
+      default: 0,
+    },
+    copyPasteAttempts: {
+      type: Number,
+      default: 0,
+    },
+  },
+  domainAnalysis: {
+    domain: { type: String, default: '' },
+    readinessLevel: { type: String, default: 'Evaluating' },
+    readinessScore: { type: Number, default: 0 },
+    competencyScores: [{
+      competency: String,
+      score: Number,
+      feedback: String,
+    }],
+    modelAnswersComparison: [{
+      questionId: String,
+      questionText: String,
+      userAnswer: String,
+      modelAnswer: String,
+      score: Number,
+      critique: String,
+    }],
+  },
   session: {
     startTime: {
       type: Date,
@@ -396,9 +497,9 @@ const interviewSchema = new Schema<IInterview>({
 
 // Indexes
 interviewSchema.index({ userId: 1, createdAt: -1 });
-// status index is defined inline on the field — no duplicate needed
 interviewSchema.index({ type: 1 });
 interviewSchema.index({ 'settings.role': 1 });
+interviewSchema.index({ 'settings.domain': 1 });
 interviewSchema.index({ 'analysis.overallScore': -1 });
 
 // Virtual for duration in minutes

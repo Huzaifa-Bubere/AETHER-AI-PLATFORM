@@ -4,6 +4,7 @@ import { invalidInput } from '../middleware/aptitudeValidation';
 import { uniqueQuestions } from './questions/identity';
 import RagSource from '../models/RagSource';
 import { embeddingModel } from './ai/provider';
+import { usableQuestions } from './rag/cache';
 
 export async function testAvailability(test: IAptitudeTest) {
   if (test.ragTopic) {
@@ -13,9 +14,9 @@ export async function testAvailability(test: IAptitudeTest) {
   }
   const levels = await Promise.all((['easy', 'medium', 'hard'] as const).map(async difficulty => ({
     difficulty, required: test.difficultyPlan[difficulty].count,
-    available: uniqueQuestions(await Question.find({ roundType: test.roundType, category: { $in: test.categories }, difficulty, status: 'active',
+    available: uniqueQuestions(await usableQuestions(await Question.find({ roundType: test.roundType, category: { $in: test.categories }, difficulty, status: 'active',
       $or: [{ 'generation.expiresAt': { $exists: false } }, { 'generation.expiresAt': { $gt: new Date() } }] })
-      .select('_id questionText imageUrl fingerprint').lean()).length,
+      .select('_id questionText imageUrl fingerprint generation').lean())).length,
   })));
   const issues = levels.filter(level => level.available < level.required)
     .map(level => `${level.difficulty}: need ${level.required}, available ${level.available}`);

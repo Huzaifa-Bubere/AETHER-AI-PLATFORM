@@ -3,34 +3,38 @@
 :root {
   --font-size: 16px;
   
-  /* Clean minimal SaaS theme - Light mode only */
-  --background: #F9FAFB;
-  --foreground: #111827;
+  /* AETHER professional light theme */
+  --background: #F8FAFC;
+  --foreground: #0F172A;
   --card: #FFFFFF;
-  --card-foreground: #111827;
+  --card-foreground: #0F172A;
   --popover: #FFFFFF;
-  --popover-foreground: #111827;
+  --popover-foreground: #0F172A;
   --primary: #2563EB;
   --primary-foreground: #ffffff;
-  --secondary: #F3F4F6;
-  --secondary-foreground: #111827;
-  --muted: #F3F4F6;
-  --muted-foreground: #6B7280;
-  --accent: #F3F4F6;
-  --accent-foreground: #111827;
-  --destructive: #EF4444;
+  --secondary: #F1F5F9;
+  --secondary-foreground: #0F172A;
+  --muted: #F1F5F9;
+  --muted-foreground: #475569;
+  --accent: #EEF2FF;
+  --accent-foreground: #312E81;
+  --destructive: #DC2626;
   --destructive-foreground: #ffffff;
-  --border: #E5E7EB;
+  --border: #E2E8F0;
   --input: #FFFFFF;
   --input-background: #FFFFFF;
-  --switch-background: #E5E7EB;
+  --switch-background: #E2E8F0;
   --font-weight-medium: 600;
   --font-weight-normal: 400;
   --ring: #2563EB;
   
-  /* Success and warning colors */
+  /* Success, warning, danger — used intentionally across modules */
   --success: #16A34A;
-  --warning: #F59E0B;
+  --warning: #D97706;
+  --aether-primary-hover: #1D4ED8;
+  --aether-accent-indigo: #4F46E5;
+  --aether-text-secondary: #475569;
+  --aether-text-muted: #64748B;
   
   /* Charts - minimal colors */
   --chart-1: #2563EB;
@@ -51,24 +55,24 @@
 }
 
 .dark {
-  /* Light mode only - keeping this for compatibility */
-  --background: #F9FAFB;
-  --foreground: #111827;
+  /* Light mode only - kept for compatibility; mirrors the AETHER light palette */
+  --background: #F8FAFC;
+  --foreground: #0F172A;
   --card: #FFFFFF;
-  --card-foreground: #111827;
+  --card-foreground: #0F172A;
   --popover: #FFFFFF;
-  --popover-foreground: #111827;
+  --popover-foreground: #0F172A;
   --primary: #2563EB;
   --primary-foreground: #ffffff;
-  --secondary: #F3F4F6;
-  --secondary-foreground: #111827;
-  --muted: #F3F4F6;
-  --muted-foreground: #6B7280;
-  --accent: #F3F4F6;
-  --accent-foreground: #111827;
-  --destructive: #EF4444;
+  --secondary: #F1F5F9;
+  --secondary-foreground: #0F172A;
+  --muted: #F1F5F9;
+  --muted-foreground: #475569;
+  --accent: #EEF2FF;
+  --accent-foreground: #312E81;
+  --destructive: #DC2626;
   --destructive-foreground: #ffffff;
-  --border: #E5E7EB;
+  --border: #E2E8F0;
   --input: #FFFFFF;
   --ring: #2563EB;
   --font-weight-medium: 600;

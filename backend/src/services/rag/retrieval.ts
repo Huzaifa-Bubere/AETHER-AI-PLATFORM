@@ -4,7 +4,7 @@ import { AIUnavailableError, embedText, embeddingModel } from '../ai/provider';
 import logger from '../../utils/logger';
 
 export interface RetrievedChunk {
-  id: string; sourceId: string; title: string; url: string; text: string;
+  id: string; sourceId: string; revision: string; title: string; url: string; text: string;
   topic: string; retrievedAt: Date; score: number;
 }
 
@@ -53,5 +53,6 @@ export async function retrieveContext(topic: string, query: string, limit = 6): 
   if (!selected.length) throw new AIUnavailableError('No relevant source context was found.');
   logger.info('rag.retrieval.complete', { topic, mode, chunks: selected.length });
   return selected.map(row => ({ id: String(row._id), sourceId: String(row.sourceId), title: byId.get(String(row.sourceId))!.title,
+    revision: byId.get(String(row.sourceId))!.revision!,
     url: byId.get(String(row.sourceId))!.url, text: row.text, topic, retrievedAt: row.retrievedAt, score: row.score }));
 }

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Brain, Video, MessageSquare, TrendingUp, Upload, PlayCircle, Award, ChevronRight, Check, Star } from 'lucide-react';
+import { Brain, Video, MessageSquare, TrendingUp, Upload, PlayCircle, Award, ChevronRight, Check, Star, Code2, Network, Gauge, Compass } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 
@@ -15,26 +15,25 @@ export function LandingPage() {
             <div className="space-y-6">
               <div className="inline-block">
                 <span className="px-4 py-2 bg-blue-100 border border-blue-200 rounded-full text-primary text-sm font-medium">
-                  AI-Powered Interview Preparation
+                  AETHER — Adaptive Explainable Transformer Framework
                 </span>
               </div>
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-foreground leading-tight">
-                Practice Real Interviews with AI
+                AI-Powered Placement Preparation, Built Around Your Progress
               </h1>
               <p className="text-xl text-muted-foreground">
-                Master your interview skills with AI-powered mock interviews. Get personalized feedback on your communication, technical skills, and confidence.
+                Practice aptitude, technical concepts, coding, mock interviews, and resume optimization in one adaptive platform.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link to="/signup">
                   <Button variant="default" size="lg">
-                    Start Free Interview
+                    Start Preparing
                     <ChevronRight className="ml-2 w-5 h-5" />
                   </Button>
                 </Link>
-                <Link to="/signup">
+                <Link to="/features">
                   <Button variant="outline" size="lg">
-                    <Upload className="mr-2 w-5 h-5" />
-                    Upload Resume
+                    Explore Platform
                   </Button>
                 </Link>
               </div>
@@ -56,21 +55,49 @@ export function LandingPage() {
             </div>
             
             <div className="relative">
-              <Card>
-                <img
-                  src="https://images.unsplash.com/photo-1767950467836-ef59566126c3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxBSSUyMHJvYm90JTIwcHJvZmVzc2lvbmFsJTIwaW50ZXJ2aWV3fGVufDF8fHx8MTc2OTg3MTEyM3ww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
-                  alt="AI Interviewer"
-                  className="w-full h-auto rounded-xl"
-                />
-                <div className="absolute -bottom-4 -right-4 bg-white border border-border rounded-xl p-4 shadow-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center">
-                      <Award className="w-6 h-6 text-white" />
+              <Card className="p-6">
+                {/* AETHER analytics illustration — pure CSS/JSX, no stock photography */}
+                <div className="rounded-xl bg-slate-50 border p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-foreground">Placement Readiness</p>
+                    <span className="text-2xl font-bold text-primary">78</span>
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Technical', pct: 82, color: 'bg-blue-500' },
+                      { label: 'Coding', pct: 76, color: 'bg-violet-500' },
+                      { label: 'Aptitude', pct: 74, color: 'bg-emerald-500' },
+                      { label: 'Interview', pct: 72, color: 'bg-amber-500' },
+                      { label: 'Resume', pct: 86, color: 'bg-indigo-500' },
+                    ].map(row => (
+                      <div key={row.label}>
+                        <div className="flex justify-between text-xs mb-0.5">
+                          <span className="text-muted-foreground">{row.label}</span>
+                          <span className="font-mono text-muted-foreground">{row.pct}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                          <div className={`h-full ${row.color} rounded-full`} style={{ width: `${row.pct}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-2">
+                    <div className="rounded-lg bg-white border p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Solved</p><p className="font-bold text-foreground">78</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Success Rate</p>
-                      <p className="text-xl font-bold text-primary">94%</p>
+                    <div className="rounded-lg bg-white border p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Accuracy</p><p className="font-bold text-foreground">71%</p>
                     </div>
+                    <div className="rounded-lg bg-white border p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Streak</p><p className="font-bold text-foreground">12d</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="absolute -bottom-4 -right-4 bg-white border border-border rounded-xl p-3 shadow-lg flex items-center gap-2">
+                  <Network className="w-8 h-8 text-blue-600" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">AST Analysis</p>
+                    <p className="text-sm font-bold text-primary">Explainable</p>
                   </div>
                 </div>
               </Card>
@@ -130,8 +157,67 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* Coding Feature Highlight — AST Analysis */}
+      <section id="coding-highlight" className="py-20 px-4 bg-slate-50">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            <div className="space-y-5">
+              <span className="inline-block px-3 py-1 rounded-full bg-violet-100 text-violet-700 text-xs font-semibold">
+                CODING MODULE
+              </span>
+              <h2 className="text-4xl font-bold text-foreground leading-tight">
+                Understand not just whether your code works — understand how it works
+              </h2>
+              <p className="text-lg text-muted-foreground">
+                Every submission is executed against real test cases, then parsed into an Abstract
+                Syntax Tree. AETHER evaluates your algorithmic approach, estimates complexity from
+                structure, and explains exactly why you received your score.
+              </p>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {[
+                  { icon: Network, title: 'Interactive AST Tree', desc: 'Click nodes to highlight source code' },
+                  { icon: Gauge, title: 'Complexity Estimation', desc: 'Evidence-based O(n) estimates' },
+                  { icon: Compass, title: 'Approach Detection', desc: 'Brute force vs optimal — detected from structure' },
+                  { icon: Code2, title: 'Deterministic Scoring', desc: 'Real tests + AST evidence, never AI guesses' },
+                ].map(item => (
+                  <div key={item.title} className="flex items-start gap-3 p-3 rounded-xl bg-white border">
+                    <item.icon className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                      <p className="text-xs text-muted-foreground">{item.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <Card className="p-6">
+              <div className="rounded-xl bg-white border p-4">
+                <p className="text-xs font-semibold text-slate-400 mb-3">TWO SUM — APPROACH COMPARISON</p>
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-amber-800">Brute Force</span>
+                      <span className="font-mono text-xs text-amber-700">O(n²)</span>
+                    </div>
+                    <p className="text-xs text-amber-700 mt-1">2 nested loops · no hash structure</p>
+                  </div>
+                  <div className="text-center text-xs text-slate-400">↓ optimize ↓</div>
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-emerald-800">Hash Map</span>
+                      <span className="font-mono text-xs text-emerald-700">O(n)</span>
+                    </div>
+                    <p className="text-xs text-emerald-700 mt-1">single traversal · hash lookup detected from AST</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </section>
+
       {/* How It Works */}
-      <section id="how-it-works" className="py-20 px-4 bg-gray-50">
+      <section id="how-it-works" className="py-20 px-4 bg-white">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-4">

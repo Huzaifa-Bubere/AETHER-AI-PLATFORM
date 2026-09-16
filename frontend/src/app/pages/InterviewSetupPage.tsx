@@ -1,422 +1,516 @@
-import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronRight, Loader2, Upload, X, FileText, Cpu, Code2, Users, Layout, CheckCircle2, Clock, Zap, BarChart2, ClipboardList } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Sparkles,
+  Briefcase,
+  Layers,
+  Cpu,
+  Building2,
+  Globe,
+  FileText,
+  Upload,
+  Mic,
+  Sliders,
+  CheckCircle2,
+  ChevronRight,
+  Loader2,
+  AlertCircle,
+  HelpCircle,
+  Code2,
+  Users,
+  Layout,
+  BarChart2,
+  ShieldCheck,
+} from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import { useInterviewStore } from '../stores/interviewStore';
+import { resumeService } from '../services/resume';
 import { apiService } from '../services/api';
 import toast from 'react-hot-toast';
 
-/* ─── Data ─────────────────────────────────────────────────────────────────── */
-
-const interviewTypes = [
-  {
-    id: 'ai-adaptive',
-    label: 'AI Adaptive Interview',
-    sub: 'Domain AI that adapts every question',
-    icon: Zap,
-    accent: '#8b5cf6',
-    bg: 'rgba(139,92,246,0.08)',
-    border: 'rgba(139,92,246,0.3)',
-    isExternal: true,
-    to: '/ai-interview',
-  },
-  {
-    id: 'technical',
-    label: 'Technical',
-    sub: 'Resume-based deep dive',
-    icon: Cpu,
-    accent: '#3b82f6',
-    bg: 'rgba(59,130,246,0.08)',
-    border: 'rgba(59,130,246,0.3)',
-    requiresResume: true,
-  },
-  {
-    id: 'skill-based',
-    label: 'Skill / Language',
-    sub: 'Domain-specific questions',
-    icon: BarChart2,
-    accent: '#10b981',
-    bg: 'rgba(16,185,129,0.08)',
-    border: 'rgba(16,185,129,0.3)',
-    requiresDomain: true,
-  },
-  {
-    id: 'coding',
-    label: 'Coding',
-    sub: 'Algorithmic challenges',
-    icon: Code2,
-    accent: '#f59e0b',
-    bg: 'rgba(245,158,11,0.08)',
-    border: 'rgba(245,158,11,0.3)',
-  },
-  {
-    id: 'behavioral',
-    label: 'Behavioral',
-    sub: 'Soft skills & culture fit',
-    icon: Users,
-    accent: '#ec4899',
-    bg: 'rgba(236,72,153,0.08)',
-    border: 'rgba(236,72,153,0.3)',
-  },
-  {
-    id: 'system-design',
-    label: 'System Design',
-    sub: 'Architecture & scalability',
-    icon: Layout,
-    accent: '#a855f7',
-    bg: 'rgba(168,85,247,0.08)',
-    border: 'rgba(168,85,247,0.3)',
-  },
-  {
-    id: 'aptitude',
-    label: 'Aptitude Test',
-    sub: 'Timed MCQ rounds',
-    icon: ClipboardList,
-    accent: '#0ea5e9',
-    bg: 'rgba(14,165,233,0.08)',
-    border: 'rgba(14,165,233,0.3)',
-    isExternal: true,
-    to: '/aptitude',
-  },
+const POPULAR_ROLES = [
+  'Software Engineer',
+  'Frontend Engineer',
+  'Backend Engineer',
+  'Full Stack Engineer',
+  'Data Scientist',
+  'ML Engineer',
+  'DevOps Engineer',
+  'Product Manager',
 ];
 
-const technicalDomains = [
-  'Full-Stack Web Development',
-  'Frontend Development',
-  'Backend Engineering',
-  'AI & Machine Learning',
-  'Data Science & Analytics',
-  'Cloud & DevOps',
-  'Android Development',
-  'Cyber Security',
-  'Quality Assurance & Automation',
-  'Product Management',
-  'Data Structures & Algorithms',
-  'Java Core & Spring Boot',
-  'DBMS & SQL',
+const EXPERIENCE_LEVELS = [
+  { id: 'Fresher / Junior', label: 'Fresher / Junior', desc: '0 - 2 years (Core concepts & coding)' },
+  { id: 'Mid-Level', label: 'Mid-Level', desc: '2 - 5 years (System tradeoffs & ownership)' },
+  { id: 'Senior', label: 'Senior', desc: '5 - 8 years (Architecture & scale)' },
+  { id: 'Staff / Principal', label: 'Staff / Principal', desc: '8+ years (Strategy & leadership)' },
 ];
 
-const difficulties = [
-  { id: 'easy', label: 'Easy', desc: 'Fundamentals', color: '#10b981' },
-  { id: 'medium', label: 'Medium', desc: 'Industry ready', color: '#f59e0b' },
-  { id: 'hard', label: 'Hard', desc: 'Senior level', color: '#ef4444' },
-] as const;
+const INTERVIEW_TYPES = [
+  { id: 'technical', label: 'Technical', sub: 'Algorithms, engineering fundamentals & stack deep dive', icon: Cpu, accent: '#3b82f6' },
+  { id: 'system-design', label: 'System Design', sub: 'Scalability, microservices, databases & trade-offs', icon: Layout, accent: '#8b5cf6' },
+  { id: 'behavioral', label: 'Behavioral & Leadership', sub: 'STAR method, leadership, communication & team fit', icon: Users, accent: '#ec4899' },
+  { id: 'hr', label: 'HR / Culture', sub: 'Career trajectory, motivation, values & workplace fit', icon: Briefcase, accent: '#10b981' },
+  { id: 'mixed', label: 'Mixed Round', sub: 'Comprehensive blend of technical, design, and behavioral', icon: Layers, accent: '#f59e0b' },
+];
 
-const durationMarks = [15, 30, 45, 60, 90, 120];
-
-/* ─── Component ─────────────────────────────────────────────────────────────── */
+const DIFFICULTIES = [
+  { id: 'adaptive', label: 'Adaptive (AI-Powered)', desc: 'Next question dynamically adjusts based on your answer depth', badge: 'Recommended', color: '#8b5cf6' },
+  { id: 'easy', label: 'Easy', desc: 'Fundamental definitions, foundational algorithms & principles', color: '#10b981' },
+  { id: 'medium', label: 'Medium', desc: 'Standard industry interview scenarios & architecture queries', color: '#f59e0b' },
+  { id: 'hard', label: 'Hard', desc: 'Deep distributed edge-cases, optimization & corner-cases', color: '#ef4444' },
+];
 
 export function InterviewSetupPage() {
   const navigate = useNavigate();
   const { createInterview, isLoading } = useInterviewStore();
 
-  const [searchParams] = useSearchParams();
-  const [selectedType, setSelectedType] = useState(() =>
-    interviewTypes.some(type => type.id === searchParams.get('type')) ? searchParams.get('type')! : '');
-  const [selectedRole, setSelectedRole] = useState('');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
-  const [duration, setDuration] = useState(30);
-  const [selectedDomain, setSelectedDomain] = useState('');
-  const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [roleFocused, setRoleFocused] = useState(false);
+  const [role, setRole] = useState('Software Engineer');
+  const [customRole, setCustomRole] = useState('');
+  const [experienceLevel, setExperienceLevel] = useState('Fresher / Junior');
+  const [interviewType, setInterviewType] = useState('technical');
+  const [difficultyMode, setDifficultyMode] = useState('adaptive');
+  const [company, setCompany] = useState('');
+  const [language, setLanguage] = useState('English');
+  const [plannedQuestions, setPlannedQuestions] = useState(6);
+  const [voiceModePreferred, setVoiceModePreferred] = useState(true);
 
-  const activeType = interviewTypes.find(t => t.id === selectedType);
-  const step = selectedType ? 2 : 1;
+  // Resume state
+  const [existingResumes, setExistingResumes] = useState<any[]>([]);
+  const [selectedResumeId, setSelectedResumeId] = useState<string>('');
+  const [uploadingResume, setUploadingResume] = useState(false);
+  const [uploadedResumeName, setUploadedResumeName] = useState<string>('');
+  const [loadingResumes, setLoadingResumes] = useState(true);
+  const [jobDescription, setJobDescription] = useState('');
 
-  const handleStart = async () => {
-    if (!selectedType) return toast.error('Select an interview type');
-    if (!selectedRole.trim()) return toast.error('Enter your target role');
-    if ((selectedType === 'skill-based' || selectedType === 'technical') && !selectedDomain && !selectedRole)
-      return toast.error('Select a target domain');
+  useEffect(() => {
+    fetchUserResumes();
+  }, []);
 
+  const fetchUserResumes = async () => {
     try {
-      let resumeId: string | undefined;
-
-      if (resumeFile) {
-        const formData = new FormData();
-        formData.append('resume', resumeFile);
-        const uploadRes = await apiService.upload('/resume/upload', formData);
-        if (!uploadRes.success) { toast.error(uploadRes.message || 'Resume upload failed'); return; }
-        // Handle both _id and id field names
-        resumeId = (uploadRes.data as any)?._id?.toString() || (uploadRes.data as any)?.id?.toString();
-        if (!resumeId) { toast.error('Resume saved but ID missing — try again'); return; }
+      setLoadingResumes(true);
+      const res = await resumeService.getResumes(1, 5);
+      // PaginatedResponse<T> has no `success` flag — getPaginated throws on error,
+      // which the surrounding try/catch already handles.
+      if (res.data && res.data.length > 0) {
+        setExistingResumes(res.data);
+        const latestId = (res.data[0] as any)?._id || res.data[0]?.id;
+        if (latestId) setSelectedResumeId(latestId);
       }
-
-      const payload = {
-        type: selectedType as 'behavioral' | 'technical' | 'skill-based' | 'coding' | 'system-design',
-        resumeId,
-        settings: {
-          role: selectedRole,
-          difficulty: selectedDifficulty,
-          duration,
-          domain: selectedDomain || selectedRole,
-          includeVideo: true,
-          includeAudio: true,
-          includeCoding: selectedType === 'coding',
-          proctoringEnabled: true,
-        },
-      };
-
-      await createInterview(payload);
-      const interview = useInterviewStore.getState().currentInterview;
-      const interviewId = (interview as any)?._id || interview?.id;
-      if (!interviewId) { toast.error('Interview ID missing'); return; }
-
-      navigate(selectedType === 'coding'
-        ? `/coding-interview?id=${interviewId}`
-        : `/interview-room?id=${interviewId}`
-      );
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Interview creation failed');
+    } catch {
+      // Non-blocking if resume service is empty
+    } finally {
+      setLoadingResumes(false);
     }
   };
 
+  const handleFileUpload = async (file: File) => {
+    try {
+      setUploadingResume(true);
+      const formData = new FormData();
+      formData.append('resume', file);
+      const res = await apiService.upload<any>('/resume/upload', formData);
+      if (res.success && res.data) {
+        const id = (res.data as any)?._id || (res.data as any)?.id;
+        setSelectedResumeId(id);
+        setUploadedResumeName(file.name);
+        toast.success(`Resume "${file.name}" uploaded & parsed!`);
+      } else {
+        toast.error(res.message || 'Upload failed');
+      }
+    } catch (err: any) {
+      toast.error('Resume upload failed. Please try again.');
+    } finally {
+      setUploadingResume(false);
+    }
+  };
+
+  const activeRole = customRole.trim() || role;
+
+  const handleStart = async () => {
+    if (!activeRole) {
+      return toast.error('Please specify your target role.');
+    }
+
+    const id = await createInterview({
+      role: activeRole,
+      experienceLevel,
+      interviewType,
+      difficultyMode,
+      company: company.trim() || undefined,
+      language,
+      plannedQuestions,
+      resumeId: selectedResumeId || undefined,
+      jobDescription: jobDescription.trim() || undefined,
+      settings: {
+        duration: plannedQuestions * 4,
+        includeVideo: true,
+        includeAudio: voiceModePreferred,
+      },
+    });
+
+    if (id) {
+      toast.success('Interview session prepared! Launching room...');
+      navigate(`/interview-room?id=${id}`);
+    }
+  };
+
+  const selectedResumeObj = existingResumes.find(
+    r => ((r as any)._id || r.id) === selectedResumeId
+  );
+
   return (
-    <div style={{ minHeight: '100vh', background: '#f8f9fc', color: '#111827', fontFamily: "'DM Sans', system-ui, sans-serif", padding: '80px 16px 60px' }}>
+    <div className="min-h-screen py-16 px-4 bg-slate-950 text-slate-100 font-sans">
+      <div className="max-w-4xl mx-auto space-y-10">
 
-      {/* ── Background texture ── */}
-      <div style={{ position: 'fixed', inset: 0, backgroundImage: 'radial-gradient(circle at 20% 20%, rgba(59,130,246,0.06) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(168,85,247,0.06) 0%, transparent 50%)', pointerEvents: 'none' }} />
-
-      <div style={{ maxWidth: 860, margin: '0 auto', position: 'relative' }}>
-
-        {/* ── Header ── */}
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 20, padding: '4px 14px', fontSize: 12, color: '#6b7280', marginBottom: 20, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            <Zap style={{ width: 12, height: 12, color: '#f59e0b' }} />
-            AI-Powered Practice
+        {/* Header */}
+        <div className="text-center space-y-3">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span>AETHER Adaptive Explainable Transformer Assessment</span>
           </div>
-          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3rem)', fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.1, margin: '0 0 12px', background: 'linear-gradient(135deg, #111827 0%, #4b5563 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            Set Up Your Interview
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-200 bg-clip-text text-transparent">
+            Configure Your AI Mock Interview
           </h1>
-          <p style={{ color: '#9ca3af', fontSize: 16, margin: 0 }}>
-            Choose a format, configure your session, and get started.
+          <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
+            Experience high-fidelity, interactive interview practice. The AI interviewer asks questions, probes gaps, and adapts difficulty based on your specific responses.
           </p>
         </div>
 
-        {/* ── Step indicators ── */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 40 }}>
-          {['Interview Type', 'Configuration'].map((label, i) => {
-            const isActive = step === i + 1;
-            const isDone = step > i + 1;
-            return (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: isActive || isDone ? 1 : 0.35, transition: 'opacity 0.3s' }}>
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, background: isDone ? '#10b981' : isActive ? '#3b82f6' : 'rgba(0,0,0,0.06)', color: '#fff', transition: 'background 0.3s' }}>
-                    {isDone ? <CheckCircle2 style={{ width: 14, height: 14 }} /> : i + 1}
-                  </div>
-                  <span style={{ fontSize: 13, color: isActive ? '#111827' : '#9ca3af', fontWeight: isActive ? 600 : 400 }}>{label}</span>
-                </div>
-                {i < 1 && <div style={{ width: 40, height: 1, background: step > 1 ? '#3b82f6' : 'rgba(0,0,0,0.1)', transition: 'background 0.4s' }} />}
-              </div>
-            );
-          })}
-        </div>
+        {/* Main Configuration Card */}
+        <Card className="p-6 sm:p-8 bg-slate-900/90 border-slate-800 backdrop-blur shadow-2xl rounded-2xl space-y-8">
 
-        {/* ── Step 1: Type cards ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, marginBottom: 32 }}>
-          {interviewTypes.map((type) => {
-            const Icon = type.icon;
-            const active = selectedType === type.id;
-            return (
-              <button
-                key={type.id}
-                onClick={() => {
-                  if ((type as any).isExternal) { navigate((type as any).to); return; }
-                  setSelectedType(type.id); setSelectedDomain(''); setResumeFile(null);
-                }}
-                style={{
-                  all: 'unset', cursor: 'pointer', display: 'block',
-                  background: active ? type.bg : '#ffffff',
-                  border: `1px solid ${active ? type.border : 'rgba(0,0,0,0.09)'}`,
-                  borderRadius: 16, padding: '20px 22px',
-                  transition: 'all 0.2s ease',
-                  transform: active ? 'translateY(-2px)' : 'none',
-                  boxShadow: active ? `0 8px 32px ${type.accent}22` : 'none',
-                }}
-                onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,0,0,0.2)'; }}
-                onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,0,0,0.09)'; }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: active ? `${type.accent}22` : 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}>
-                    <Icon style={{ width: 20, height: 20, color: active ? type.accent : '#9ca3af' }} />
-                  </div>
-                  {active && (
-                    <div style={{ width: 20, height: 20, borderRadius: '50%', background: type.accent, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <CheckCircle2 style={{ width: 12, height: 12, color: '#fff' }} />
+          {/* Section 1: Target Role */}
+          <div className="space-y-3">
+            <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <Briefcase className="w-4 h-4 text-indigo-400" />
+              1. Target Job Role
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {POPULAR_ROLES.map(r => {
+                const isSelected = role === r && !customRole;
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      setRole(r);
+                      setCustomRole('');
+                    }}
+                    className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all text-left border ${
+                      isSelected
+                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200 shadow-sm shadow-indigo-500/20'
+                        : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="pt-1">
+              <input
+                type="text"
+                value={customRole}
+                onChange={e => setCustomRole(e.target.value)}
+                placeholder="Or type a custom role (e.g., Cloud Security Architect, iOS Engineer)..."
+                className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              />
+            </div>
+          </div>
+
+          {/* Section 2: Experience & Company */}
+          <div className="grid sm:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-indigo-400" />
+                2. Experience Level
+              </label>
+              <div className="space-y-2">
+                {EXPERIENCE_LEVELS.map(lvl => (
+                  <button
+                    key={lvl.id}
+                    type="button"
+                    onClick={() => setExperienceLevel(lvl.id)}
+                    className={`w-full p-3 rounded-xl text-left border transition-all flex items-start justify-between ${
+                      experienceLevel === lvl.id
+                        ? 'bg-indigo-600/15 border-indigo-500 text-white'
+                        : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-sm font-semibold">{lvl.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{lvl.desc}</div>
                     </div>
-                  )}
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: active ? '#111827' : '#374151', marginBottom: 4 }}>{type.label}</div>
-                <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.4 }}>{type.sub}</div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ── Step 2: Config panel ── */}
-        {selectedType && (
-          <div style={{ background: '#ffffff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 20, padding: '32px', animation: 'slideUp 0.3s ease' }}>
-            <style>{`@keyframes slideUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }`}</style>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28, paddingBottom: 20, borderBottom: '1px solid rgba(0,0,0,0.07)' }}>
-              {activeType && <activeType.icon style={{ width: 18, height: 18, color: activeType.accent }} />}
-              <span style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>Configure {activeType?.label} Interview</span>
+                    {experienceLevel === lvl.id && (
+                      <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div style={{ display: 'grid', gap: 24 }}>
-
-              {/* Role input */}
+            <div className="space-y-4">
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6b7280', marginBottom: 8, letterSpacing: '0.03em' }}>Target Role</label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="text"
-                    placeholder="e.g. Software Engineer, Frontend Developer"
-                    value={selectedRole}
-                    onChange={e => setSelectedRole(e.target.value)}
-                    onFocus={() => setRoleFocused(true)}
-                    onBlur={() => setRoleFocused(false)}
-                    style={{
-                      width: '100%', boxSizing: 'border-box',
-                      background: '#f9fafb',
-                      border: `1px solid ${roleFocused ? (activeType?.accent || '#3b82f6') : 'rgba(0,0,0,0.12)'}`,
-                      borderRadius: 10, padding: '12px 16px',
-                      color: '#111827', fontSize: 14, outline: 'none',
-                      transition: 'border-color 0.2s',
-                    }}
-                  />
-                </div>
+                <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2 mb-2">
+                  <Building2 className="w-4 h-4 text-indigo-400" />
+                  Target Company (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={company}
+                  onChange={e => setCompany(e.target.value)}
+                  placeholder="e.g. Google, Amazon, Stripe, Fintech Startup..."
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                />
               </div>
 
-              {/* Domain picker (skill-based only) */}
-              {selectedType === 'skill-based' && (
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6b7280', marginBottom: 10, letterSpacing: '0.03em' }}>Domain / Skill</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {technicalDomains.map(domain => (
-                      <button
-                        key={domain}
-                        onClick={() => setSelectedDomain(domain)}
-                        style={{
-                          all: 'unset', cursor: 'pointer',
-                          padding: '7px 14px', borderRadius: 20, fontSize: 13, fontWeight: 500,
-                          background: selectedDomain === domain ? 'rgba(16,185,129,0.12)' : '#f3f4f6',
-                          border: `1px solid ${selectedDomain === domain ? '#10b981' : 'rgba(0,0,0,0.1)'}`,
-                          color: selectedDomain === domain ? '#059669' : '#6b7280',
-                          transition: 'all 0.15s',
-                        }}
-                      >{domain}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Resume upload (technical only) */}
-              {selectedType === 'technical' && (
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6b7280', marginBottom: 8, letterSpacing: '0.03em' }}>
-                    Resume <span style={{ color: '#9ca3af', fontWeight: 400 }}>(optional)</span>
-                  </label>
-                  {resumeFile ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 10 }}>
-                      <FileText style={{ width: 18, height: 18, color: '#10b981', flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, color: '#d1d5db', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resumeFile.name}</span>
-                      <button onClick={() => setResumeFile(null)} style={{ all: 'unset', cursor: 'pointer', color: '#6b7280', display: 'flex' }}>
-                        <X style={{ width: 16, height: 16 }} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'grid', gap: 10 }}>
-                      <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '28px 16px', background: '#f9fafb', border: '1.5px dashed rgba(0,0,0,0.15)', borderRadius: 10, cursor: 'pointer', transition: 'border-color 0.2s' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,0,0,0.3)'; }}
-                        onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(0,0,0,0.15)')}
-                      >
-                        <Upload style={{ width: 22, height: 22, color: '#6b7280' }} />
-                        <span style={{ fontSize: 13, color: '#9ca3af' }}>Click to upload <span style={{ color: '#9ca3af' }}>PDF, DOC, DOCX</span></span>
-                        <input type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={e => setResumeFile(e.target.files?.[0] || null)} />
-                      </label>
-                      <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>
-                        You can continue without a resume. Questions will be generated from role and difficulty.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Difficulty */}
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6b7280', marginBottom: 10, letterSpacing: '0.03em' }}>Difficulty</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  {difficulties.map(d => (
+                <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2 mb-2">
+                  <Globe className="w-4 h-4 text-indigo-400" />
+                  Interview Language
+                </label>
+                <select
+                  value={language}
+                  onChange={e => setLanguage(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                >
+                  <option value="English">English (US / Global)</option>
+                  <option value="English-IN">English (India / Neutral)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2 mb-2">
+                  <BarChart2 className="w-4 h-4 text-indigo-400" />
+                  Interview Length
+                </label>
+                <div className="flex items-center gap-3">
+                  {[4, 6, 8, 10].map(cnt => (
                     <button
-                      key={d.id}
-                      onClick={() => setSelectedDifficulty(d.id)}
-                      style={{
-                        all: 'unset', cursor: 'pointer', textAlign: 'center',
-                        padding: '12px 8px', borderRadius: 10,
-                        background: selectedDifficulty === d.id ? `${d.color}15` : '#f9fafb',
-                        border: `1px solid ${selectedDifficulty === d.id ? d.color : 'rgba(0,0,0,0.1)'}`,
-                        transition: 'all 0.2s',
-                      }}
+                      key={cnt}
+                      type="button"
+                      onClick={() => setPlannedQuestions(cnt)}
+                      className={`flex-1 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
+                        plannedQuestions === cnt
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'
+                      }`}
                     >
-                      <div style={{ fontSize: 14, fontWeight: 600, color: selectedDifficulty === d.id ? d.color : '#6b7280', marginBottom: 2 }}>{d.label}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af' }}>{d.desc}</div>
+                      {cnt} Qs (~{cnt * 3}m)
                     </button>
                   ))}
                 </div>
               </div>
-
-              {/* Duration */}
-              {/* <div>
-                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, fontWeight: 500, color: '#6b7280', marginBottom: 10, letterSpacing: '0.03em' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Clock style={{ width: 14, height: 14 }} />Duration</span>
-                  <span style={{ color: '#111827', fontWeight: 700, fontSize: 15 }}>{duration} min</span>
-                </label>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {durationMarks.map(mark => (
-                    <button
-                      key={mark}
-                      onClick={() => setDuration(mark)}
-                      style={{
-                        all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center',
-                        padding: '8px 4px', borderRadius: 8, fontSize: 12, fontWeight: 500,
-                        background: duration === mark ? `${activeType?.accent || '#3b82f6'}15` : '#f3f4f6',
-                        border: `1px solid ${duration === mark ? (activeType?.accent || '#3b82f6') : 'rgba(0,0,0,0.1)'}`,
-                        color: duration === mark ? (activeType?.accent || '#3b82f6') : '#6b7280',
-                        transition: 'all 0.15s',
-                      }}
-                    >{mark}m</button>
-                  ))}
-                </div>
-              </div> */}
-
-              {/* Submit */}
-              <button
-                onClick={handleStart}
-                disabled={isLoading}
-                style={{
-                  all: 'unset', cursor: isLoading ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                  padding: '14px 28px', borderRadius: 12, marginTop: 4,
-                  background: isLoading ? 'rgba(0,0,0,0.06)' : `linear-gradient(135deg, ${activeType?.accent || '#3b82f6'} 0%, ${activeType?.accent || '#3b82f6'}bb 100%)`,
-                  color: '#fff', fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em',
-                  boxShadow: isLoading ? 'none' : `0 4px 24px ${activeType?.accent || '#3b82f6'}44`,
-                  transition: 'all 0.2s', opacity: isLoading ? 0.6 : 1,
-                }}
-                onMouseEnter={e => { if (!isLoading) (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; }}
-              >
-                {isLoading ? (
-                  <><Loader2 style={{ width: 18, height: 18, animation: 'spin 1s linear infinite' }} />Creating interview…</>
-                ) : (
-                  <>Start Interview <ChevronRight style={{ width: 18, height: 18 }} /></>
-                )}
-                <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-              </button>
-
             </div>
           </div>
-        )}
+
+          {/* Section 3: Interview Type */}
+          <div className="space-y-3">
+            <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <Layers className="w-4 h-4 text-indigo-400" />
+              3. Interview Round Type
+            </label>
+            <div className="grid sm:grid-cols-3 gap-3">
+              {INTERVIEW_TYPES.map(t => {
+                const Icon = t.icon;
+                const isSelected = interviewType === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setInterviewType(t.id)}
+                    className={`p-4 rounded-xl text-left border transition-all flex flex-col justify-between ${
+                      isSelected
+                        ? 'bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-500/10'
+                        : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <Icon className="w-5 h-5" style={{ color: t.accent }} />
+                        {isSelected && <CheckCircle2 className="w-4 h-4 text-indigo-400" />}
+                      </div>
+                      <div className="text-sm font-bold text-slate-200 mb-1">{t.label}</div>
+                      <div className="text-xs text-slate-500 leading-relaxed">{t.sub}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Section 4: Difficulty */}
+          <div className="space-y-3">
+            <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-indigo-400" />
+              4. Intelligence & Difficulty Mode
+            </label>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {DIFFICULTIES.map(d => {
+                const isSelected = difficultyMode === d.id;
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setDifficultyMode(d.id)}
+                    className={`p-4 rounded-xl text-left border transition-all ${
+                      isSelected
+                        ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-sm'
+                        : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-sm text-slate-200">{d.label}</span>
+                      {d.badge && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          {d.badge}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500">{d.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Section 5: Resume Selection / Analyzer Integration */}
+          <div className="space-y-3">
+            <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-400" />
+                5. Candidate Context & Resume (Optional but Recommended)
+              </span>
+              {selectedResumeId && (
+                <span className="text-xs text-emerald-400 font-normal flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Resume Linked
+                </span>
+              )}
+            </label>
+
+            <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 space-y-3">
+              {loadingResumes ? (
+                <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                  Checking for existing resumes from Resume Analyzer...
+                </div>
+              ) : existingResumes.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="text-xs text-slate-400">
+                    We found your parsed resume from the Resume Analyzer module. The AI interviewer can craft personalized questions referencing your actual projects and skills:
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {existingResumes.map(r => {
+                      const id = (r as any)._id || r.id;
+                      const isChosen = selectedResumeId === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setSelectedResumeId(isChosen ? '' : id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-2 transition-all ${
+                            isChosen
+                              ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300'
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>{r.filename || 'Resume.pdf'}</span>
+                          {isChosen && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedResumeObj?.analysis?.skills && (
+                    <div className="text-[11px] text-slate-500 flex flex-wrap gap-1 pt-1">
+                      <span className="font-semibold text-slate-400">Detected Skills:</span>
+                      {selectedResumeObj.analysis.skills.slice(0, 8).map((s: string) => (
+                        <span key={s} className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-slate-400">
+                  No previous resume found. You can upload one now or continue without one:
+                </div>
+              )}
+
+              {/* Upload alternative */}
+              <div className="flex items-center gap-3 pt-1">
+                <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 transition-all">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{uploadingResume ? 'Uploading...' : 'Upload New Resume (PDF)'}</span>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    disabled={uploadingResume}
+                    onChange={e => {
+                      if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+                    }}
+                  />
+                </label>
+                {uploadedResumeName && (
+                  <span className="text-xs text-emerald-400">{uploadedResumeName}</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 6: Interaction Preferences */}
+          <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/40 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+                <Mic className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-200">Voice Interview Mode</div>
+                <div className="text-xs text-slate-400">
+                  Speak answers into microphone with live speech-to-text (includes full text-typing fallback)
+                </div>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={voiceModePreferred}
+                onChange={e => setVoiceModePreferred(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
+
+          {/* Launch Button */}
+          <div className="pt-4">
+            <Button
+              onClick={handleStart}
+              disabled={isLoading}
+              className="w-full py-4 rounded-xl text-base font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Synthesizing Interview Context...</span>
+                </>
+              ) : (
+                <>
+                  <span>Begin Adaptive Interview</span>
+                  <ChevronRight className="w-5 h-5" />
+                </>
+              )}
+            </Button>
+            <p className="text-center text-xs text-slate-500 mt-3">
+              Your camera and microphone will be requested upon entering the room. Tab switches and window blurs are monitored for integrity.
+            </p>
+          </div>
+        </Card>
       </div>
     </div>
   );

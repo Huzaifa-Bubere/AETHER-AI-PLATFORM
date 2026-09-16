@@ -12,7 +12,8 @@
     "format": "prettier --write src/**/*.ts",
     "dev:debug": "nodemon --exec ts-node --inspect src/server.ts",
     "test:aptitude": "npm run build && jest --runInBand aptitude",
-    "test:aptitude:integration": "npm run build && node scripts/run-aptitude-integration.cjs"
+    "test:aptitude:integration": "npm run build && node scripts/run-aptitude-integration.cjs",
+    "seed:problems": "ts-node src/coding/seed/seedProblems.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -64,7 +65,9 @@
     "ts-node": "^10.9.1",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.3.3",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "acorn": "^8.11.3",
+    "acorn-walk": "^8.3.2"
   },
   "devDependencies": {
     "@types/multer": "^2.2.0",

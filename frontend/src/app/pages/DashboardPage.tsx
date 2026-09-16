@@ -403,13 +403,13 @@ export const DashboardPage = memo(function DashboardPage() {
                   <p className="text-muted-foreground text-sm">Practice system design and architecture questions</p>
                 </Card>
               </Link>
-              <Link to="/interview-setup?type=coding">
+              <Link to="/coding">
                 <Card className="cursor-pointer hover:shadow-lg transition-shadow p-6 h-full">
                   <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center mb-4">
                     <Code className="w-6 h-6 text-white" />
                   </div>
-                  <h3 className="text-xl font-semibold mb-2">Coding Challenge</h3>
-                  <p className="text-muted-foreground text-sm">Solve algorithmic problems with AI feedback</p>
+                  <h3 className="text-xl font-semibold mb-2">Coding Challenges</h3>
+                  <p className="text-muted-foreground text-sm">Solve DSA problems and analyze your approach with AST insights</p>
                 </Card>
               </Link>
               <Link to="/aptitude">

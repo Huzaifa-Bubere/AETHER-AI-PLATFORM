@@ -4,6 +4,7 @@ import { IAptitudeTest } from '../models/AptitudeTest';
 import { Types } from 'mongoose';
 import { QuestionIdentity, similarQuestions, uniqueQuestions } from './questions/identity';
 import { DIFFICULTIES } from './questions/difficulty';
+import { usableQuestions } from './rag/cache';
 
 /**
  * Builds the question set for a new attempt.
@@ -37,7 +38,7 @@ export async function buildQuestionSet(test: IAptitudeTest, userId: Types.Object
     const plan = test.difficultyPlan?.[difficulty];
     if (!plan || plan.count === 0) continue;
 
-    const pool = await AptitudeQuestion.find({
+    const pool = await usableQuestions(await AptitudeQuestion.find({
       roundType: test.roundType,
       category: { $in: test.categories },
       difficulty,
@@ -45,8 +46,8 @@ export async function buildQuestionSet(test: IAptitudeTest, userId: Types.Object
       $or: [{ 'generation.expiresAt': { $exists: false } }, { 'generation.expiresAt': { $gt: new Date() } }],
       ...(test.ragTopic ? { 'generation.topic': test.ragTopic } : {}),
     })
-      .select('_id questionText imageUrl fingerprint')
-      .lean();
+      .select('_id questionText imageUrl fingerprint generation')
+      .lean());
 
     // Legacy attempts without snapshots still exclude copied questions if their
     // original IDs are present in this pool. Deleted legacy content is unrecoverable.

@@ -4,6 +4,7 @@
  * `GEMINI_MODEL` env vars) instead of re-instantiating it here.
  */
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { generationModel } from './ai/provider';
 import { IAptitudeAttempt, IResponse } from '../models/AptitudeAttempt';
 import { IAptitudeQuestion } from '../models/AptitudeQuestion';
 
@@ -102,7 +103,7 @@ Guidance:
   const fallback = performanceAnalysis(attempt, questions);
   if (!process.env.GEMINI_API_KEY) return fallback;
   try {
-    const model = new GoogleGenerativeAI(process.env.GEMINI_API_KEY).getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+    const model = new GoogleGenerativeAI(process.env.GEMINI_API_KEY).getGenerativeModel({ model: generationModel() });
     const result = await model.generateContent(prompt, { timeout: 10000 });
     const parsed = JSON.parse(result.response.text().trim().replace(/^```(?:json)?\s*|```\s*$/g, '').trim());
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;

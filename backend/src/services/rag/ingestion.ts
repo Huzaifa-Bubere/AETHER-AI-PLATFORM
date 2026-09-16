@@ -5,12 +5,23 @@ import { embedText, embeddingModel } from '../ai/provider';
 import { chunkDocument, cleanDocument, contentHash, fetchDocument } from './documents';
 import logger from '../../utils/logger';
 
-export async function ingestSource(sourceId: string, suppliedText?: string) {
+export async function claimIngestion(sourceId: string) {
+  const leaseOwner = randomUUID();
   const source = await RagSource.findOneAndUpdate({ _id: sourceId, enabled: true,
     $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: { $lt: new Date() } }] },
-  { $set: { status: 'ingesting', leaseUntil: new Date(Date.now() + 10 * 60000) } }, { new: true });
+  { $set: { status: 'ingesting', leaseOwner, leaseUntil: new Date(Date.now() + 10 * 60000) } }, { new: true });
   if (!source) throw Object.assign(new Error('Source unavailable or ingestion already in progress.'), { statusCode: 409 });
-  const revision = randomUUID();
+  return { source, leaseOwner };
+}
+
+export async function ingestSource(sourceId: string, suppliedText?: string) {
+  return runIngestion(await claimIngestion(sourceId), suppliedText);
+}
+
+export async function runIngestion(claim: Awaited<ReturnType<typeof claimIngestion>>, suppliedText?: string) {
+  const { source, leaseOwner } = claim;
+  const sourceId = String(source._id), revision = randomUUID();
+  const owned = { _id: source._id, leaseOwner };
   try {
     const raw = suppliedText ?? await fetchDocument(source.url);
     if (Buffer.byteLength(raw) > 1024 * 1024) throw new Error('Source exceeds the 1 MB ingestion limit.');
@@ -25,12 +36,14 @@ export async function ingestSource(sourceId: string, suppliedText?: string) {
       await RagChunk.create({ sourceId: source._id, revision, ordinal, topic: source.topic,
         text: chunks[ordinal], hash: contentHash(chunks[ordinal]), embedding, embeddingModel: embeddingModel(), retrievedAt });
     }
-    await RagSource.updateOne({ _id: source._id }, { $set: { revision, status: 'ready', chunkCount: chunks.length,
-      refreshedAt: retrievedAt, embeddingModel: embeddingModel() }, $unset: { lastError: 1, leaseUntil: 1 } });
+    const activated = await RagSource.updateOne({ ...owned, enabled: true }, { $set: { revision, status: 'ready', chunkCount: chunks.length,
+      refreshedAt: retrievedAt, embeddingModel: embeddingModel() }, $unset: { lastError: 1, leaseUntil: 1, leaseOwner: 1 } });
+    if (!activated.modifiedCount) throw new Error('Ingestion lease was replaced or source disabled.');
     logger.info('rag.ingestion.complete', { sourceId, chunks: chunks.length });
     return { sourceId, status: 'ready', chunkCount: chunks.length };
   } catch (error: any) {
-    await RagSource.updateOne({ _id: source._id }, { $set: { status: 'failed', lastError: 'Ingestion failed; verify source access, size and embedding provider.' }, $unset: { leaseUntil: 1 } });
+    await RagChunk.deleteMany({ sourceId: source._id, revision });
+    await RagSource.updateOne(owned, { $set: { status: 'failed', lastError: 'Ingestion failed; verify source access, size and embedding provider.' }, $unset: { leaseUntil: 1, leaseOwner: 1 } });
     logger.warn('rag.ingestion.failed', { sourceId, errorType: error.name });
     throw Object.assign(new Error('Ingestion failed. Check source access, content size and embedding configuration.'), { statusCode: 503 });
   }

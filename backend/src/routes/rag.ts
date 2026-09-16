@@ -5,7 +5,7 @@ import AptitudeQuestion, { CATEGORIES } from '../models/AptitudeQuestion';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
 import { validateSourceUrl } from '../services/rag/documents';
-import { ingestSource } from '../services/rag/ingestion';
+import { claimIngestion, runIngestion } from '../services/rag/ingestion';
 import { generateGroundedQuestions } from '../services/rag/generation';
 import { DIFFICULTIES } from '../services/questions/difficulty';
 import logger from '../utils/logger';
@@ -30,10 +30,10 @@ router.post('/sources/:id/ingest', [param('id').isMongoId(), body('text').option
 asyncHandler(async (req, res) => {
   const source = await RagSource.findById(req.params.id);
   if (!source || !source.enabled) return res.status(404).json({ success: false, error: 'Source not found or disabled.' });
-  if (source.leaseUntil && source.leaseUntil.getTime() > Date.now()) return res.status(409).json({ success: false, error: 'Ingestion is already running.' });
   // Persisted source status supports polling and recovery after a process restart.
-  void ingestSource(String(source._id), req.body.text).catch(() => logger.warn('rag.ingestion.job_failed', { sourceId: String(source._id) }));
-  return res.status(202).json({ success: true, data: { sourceId: source._id, status: 'queued' } });
+  const claim = await claimIngestion(String(source._id));
+  void runIngestion(claim, req.body.text).catch(() => logger.warn('rag.ingestion.job_failed', { sourceId: String(source._id) }));
+  return res.status(202).json({ success: true, data: { sourceId: source._id, status: 'ingesting' } });
 }));
 router.patch('/sources/:id', [param('id').isMongoId(), body('enabled').isBoolean({ strict: true })], validate, asyncHandler(async (req, res) => {
   const source = await RagSource.findByIdAndUpdate(req.params.id, { $set: { enabled: req.body.enabled } }, { new: true });

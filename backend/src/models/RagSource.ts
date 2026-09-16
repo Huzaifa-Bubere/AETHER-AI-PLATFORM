@@ -12,6 +12,7 @@ const schema = new Schema({
   chunkCount: { type: Number, default: 0 },
   refreshedAt: Date,
   leaseUntil: Date,
+  leaseOwner: { type: String, select: false },
   lastError: String,
   createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true });

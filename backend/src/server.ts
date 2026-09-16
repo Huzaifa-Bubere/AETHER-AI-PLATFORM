@@ -1,5 +1,6 @@
 // Load environment variables FIRST before any other imports
 import { loadEnvironment } from './config/environment';
+import dns from "dns";
 loadEnvironment();
 
 import { createServer } from 'http';
@@ -43,7 +44,10 @@ const io = new Server(server, {
 });
 
 const PORT = parseInt(process.env.PORT || '5001', 10);
-
+// Use reliable DNS resolvers for MongoDB Atlas SRV records
+if (process.env.NODE_ENV === "development") {
+  dns.setServers(["8.8.8.8", "1.1.1.1"]);
+}
 // Database connection with improved error handling
 const connectDB = async () => {
   try {

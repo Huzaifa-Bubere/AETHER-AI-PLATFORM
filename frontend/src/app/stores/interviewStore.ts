@@ -1,330 +1,345 @@
 import { create } from 'zustand';
 import {
-  Interview,
-  InterviewSession,
-  Question,
-  Response,
-  InterviewAnalysis,
-  InterviewFeedback,
-  InterviewSetupForm,
-} from '../types';
-import { interviewService } from '../services/interview';
+  interviewService,
+  SetupInterviewPayload,
+  ActiveQuestionData,
+  AnswerResponseData,
+} from '../services/interview';
+import toast from 'react-hot-toast';
 
-interface InterviewState {
-  // Current interview session
-  currentInterview: Interview | null;
-  currentSession: InterviewSession | null;
-  currentQuestion: Question | null;
-  currentQuestionIndex: number;
-  
-  // Interview history
-  interviews: Interview[];
-  
-  // Analysis and feedback
-  analysis: InterviewAnalysis | null;
-  feedback: InterviewFeedback | null;
-  
-  // UI state
+export type SessionPhase = 'idle' | 'starting' | 'active' | 'evaluating' | 'completed' | 'error';
+
+interface InterviewStoreState {
+  interviewId: string | null;
+  interviewData: any | null;
+  activeQuestion: ActiveQuestionData | null;
+  phase: SessionPhase;
   isLoading: boolean;
+  isSubmitting: boolean;
   error: string | null;
-  isRecording: boolean;
-  
-  // WebRTC state
-  mediaStream: MediaStream | null;
-  peerConnection: RTCPeerConnection | null;
-  
+
+  // History & Results
+  interviews: any[];
+  finalAssessment: any | null;
+  lastEvaluation: any | null;
+
+  // Speech & Voice states
+  isSpeaking: boolean;
+  isMuted: boolean;
+  isListening: boolean;
+  transcript: string;
+
+  // Session stats
+  questionsAnswered: number;
+  plannedQuestions: number;
+  elapsedSeconds: number;
+
   // Actions
-  createInterview: (setup: InterviewSetupForm) => Promise<void>;
-  startInterview: (interviewId: string) => Promise<void>;
-  endInterview: () => Promise<void>;
-  getNextQuestion: () => Promise<void>;
-  submitResponse: (response: Partial<Response>) => Promise<void>;
-  getInterviewHistory: () => Promise<void>;
-  getAnalysis: (interviewId: string) => Promise<void>;
-  getFeedback: (interviewId: string) => Promise<void>;
-  
-  // Media controls
-  startRecording: () => Promise<void>;
-  stopRecording: () => void;
-  setMediaStream: (stream: MediaStream | null) => void;
-  
-  // Utility
-  clearError: () => void;
-  resetSession: () => void;
+  createInterview: (payload: SetupInterviewPayload) => Promise<string | null>;
+  startInterview: (id: string) => Promise<boolean>;
+  submitAnswer: (answerText: string, source: 'voice' | 'text', durationSeconds: number) => Promise<AnswerResponseData | null>;
+  endInterview: () => Promise<string | null>;
+  resumeInterview: (id: string) => Promise<boolean>;
+  fetchHistory: (page?: number, limit?: number) => Promise<void>;
+  fetchResult: (id: string) => Promise<any>;
+
+  // Speech controls
+  speakCurrentQuestion: () => void;
+  stopSpeech: () => void;
+  toggleMute: () => void;
+  setTranscript: (text: string) => void;
+  appendTranscript: (text: string) => void;
+  setIsListening: (val: boolean) => void;
+  incrementElapsed: () => void;
+
+  // Integrity reporting
+  recordIntegrityEvent: (type: string, detail?: string) => Promise<void>;
+  reset: () => void;
 }
 
-const starting = new Map<string, Promise<void>>();
-let loadingInterviewId = '';
-
-export const useInterviewStore = create<InterviewState>((set, get) => ({
-  // Initial state
-  currentInterview: null,
-  currentSession: null,
-  currentQuestion: null,
-  currentQuestionIndex: 0,
-  interviews: [],
-  analysis: null,
-  feedback: null,
+export const useInterviewStore = create<InterviewStoreState>((set, get) => ({
+  interviewId: null,
+  interviewData: null,
+  activeQuestion: null,
+  phase: 'idle',
   isLoading: false,
+  isSubmitting: false,
   error: null,
-  isRecording: false,
-  mediaStream: null,
-  peerConnection: null,
 
-  createInterview: async (setup: InterviewSetupForm) => {
-    get().resetSession();
-    console.log('Creating interview with setup:', setup);
+  interviews: [],
+  finalAssessment: null,
+  lastEvaluation: null,
+
+  isSpeaking: false,
+  isMuted: false,
+  isListening: false,
+  transcript: '',
+
+  questionsAnswered: 0,
+  plannedQuestions: 6,
+  elapsedSeconds: 0,
+
+  createInterview: async (payload: SetupInterviewPayload) => {
     set({ isLoading: true, error: null });
-    
     try {
-      // Validate setup before sending
-      if (!setup.type) {
-        throw new Error('Interview type is required');
-      }
-      if (!setup.settings?.role) {
-        throw new Error('Target role is required');
-      }
-      if (!setup.settings?.difficulty) {
-        throw new Error('Difficulty level is required');
-      }
-      if (!setup.settings?.duration) {
-        throw new Error('Duration is required');
-      }
-      
-      console.log('Sending interview creation request...');
-      const response = await interviewService.createInterview(setup);
-      console.log('Interview creation response:', response);
-      
-      if (response.success && response.data) {
-        console.log('Interview created successfully:', response.data);
+      const res = await interviewService.createInterview(payload);
+      if (res.success && res.data) {
+        const id = res.data._id || res.data.id;
         set({
-          currentInterview: response.data,
+          interviewId: id,
+          interviewData: res.data,
+          plannedQuestions: res.data.plannedQuestions || payload.plannedQuestions || 6,
           isLoading: false,
         });
-      } else {
-        const errorMsg = response.error || response.message || 'Failed to create interview';
-        console.error('Interview creation failed:', errorMsg, response.details);
-        set({
-          error: errorMsg,
-          isLoading: false,
-        });
-        throw new Error(errorMsg);
+        return id;
       }
-    } catch (error: any) {
-      console.error('Interview creation error:', error);
-      const errorMsg = error.message || 'Failed to create interview';
-      set({
-        error: errorMsg,
-        isLoading: false,
-      });
-      throw error;
+      throw new Error(res.message || 'Failed to create interview');
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Creation failed';
+      set({ error: msg, isLoading: false });
+      toast.error(msg);
+      return null;
     }
   },
 
-  startInterview: (interviewId: string) => {
-    const existing = starting.get(interviewId);
-    if (existing) return existing;
-    loadingInterviewId = interviewId;
-    get().resetSession();
-    set({ isLoading: true, error: null });
-    const task = (async () => {
-      try {
-        const session = await interviewService.startInterview(interviewId);
-        if (!session.success || !session.data) throw new Error(session.error || 'Failed to start interview');
-        const detail = await interviewService.getInterview(interviewId);
-        if (!detail.success || !detail.data) throw new Error(detail.error || 'Failed to load interview');
-        if (loadingInterviewId !== interviewId) return;
-        set({ currentInterview: detail.data, currentSession: session.data, isLoading: false });
-        await get().getNextQuestion();
-      } catch (error: any) {
-        if (loadingInterviewId === interviewId) set({ error: error.message || 'Failed to start interview', isLoading: false });
-        throw error;
+  startInterview: async (id: string) => {
+    set({ phase: 'starting', isLoading: true, error: null, interviewId: id });
+    try {
+      const res = await interviewService.startInterview(id);
+      if (res.success && res.data) {
+        set({
+          activeQuestion: res.data,
+          phase: 'active',
+          isLoading: false,
+          questionsAnswered: res.data.totalAnswered || 0,
+          plannedQuestions: res.data.plannedQuestions || 6,
+          transcript: '',
+        });
+        get().speakCurrentQuestion();
+        return true;
       }
-    })().finally(() => { starting.delete(interviewId); });
-    starting.set(interviewId, task);
-    return task;
+      throw new Error(res.message || 'Failed to start interview');
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to start';
+      set({ error: msg, phase: 'error', isLoading: false });
+      toast.error(msg);
+      return false;
+    }
+  },
+
+  submitAnswer: async (answerText: string, source: 'voice' | 'text', durationSeconds: number) => {
+    const { interviewId } = get();
+    if (!interviewId) return null;
+
+    get().stopSpeech();
+    set({ isSubmitting: true, phase: 'evaluating' });
+
+    try {
+      const res = await interviewService.submitAnswer(interviewId, {
+        answer: answerText,
+        answerSource: source,
+        responseTimeSeconds: durationSeconds,
+      });
+
+      if (res.success && res.data) {
+        if (res.data.finished) {
+          set({
+            phase: 'completed',
+            isSubmitting: false,
+            finalAssessment: res.data.finalAssessment,
+            lastEvaluation: res.data.evaluation,
+            activeQuestion: null,
+          });
+          return res.data;
+        }
+
+        if (res.data.nextQuestion) {
+          set({
+            activeQuestion: res.data.nextQuestion,
+            lastEvaluation: res.data.evaluation,
+            phase: 'active',
+            isSubmitting: false,
+            transcript: '',
+            questionsAnswered: res.data.nextQuestion.totalAnswered,
+          });
+          get().speakCurrentQuestion();
+          return res.data;
+        }
+      }
+      throw new Error(res.message || 'Failed to submit answer');
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Submission failed';
+      set({ error: msg, phase: 'active', isSubmitting: false });
+      toast.error(msg);
+      return null;
+    }
   },
 
   endInterview: async () => {
-    const { currentInterview, currentSession } = get();
-    const interviewId = currentSession?.interviewId || (currentInterview as any)?._id || currentInterview?.id;
-    if (!interviewId) throw new Error('Interview ID not found');
-    set({ isLoading: true, error: null });
-    try {
-      get().stopRecording();
-      const response = await interviewService.endInterview(interviewId);
-      if (!response.success || !response.data) throw new Error(response.error || 'Failed to end interview');
-      set({ currentInterview: response.data, currentSession: null, currentQuestion: null, currentQuestionIndex: 0, isLoading: false });
-    } catch (error: any) {
-      set({ error: error.message || 'Failed to end interview', isLoading: false });
-      throw error;
-    }
-  },
+    const { interviewId } = get();
+    if (!interviewId) return null;
 
-  getNextQuestion: async () => {
-    const { currentInterview, currentSession } = get();
-    const interviewId = currentSession?.interviewId || (currentInterview as any)?._id || currentInterview?.id;
-    if (!interviewId) throw new Error('Interview is not loaded');
-    try {
-      const response = await interviewService.getNextQuestion(interviewId);
-      if (!response.success) throw new Error(response.error || 'Failed to get next question');
-      if (get().currentSession?.interviewId !== currentSession?.interviewId) return;
-      if ((response as any).completed === true) {
-        set({ currentQuestion: null, currentQuestionIndex: currentInterview?.questions.length || 0 });
-      } else if (response.data) {
-        const index = currentInterview?.questions.findIndex(q => q.id === response.data!.id) ?? -1;
-        set({ currentQuestion: response.data, currentQuestionIndex: index >= 0 ? index + 1 : ((response as any).answeredQuestions || 0) + 1, error: null });
-      } else throw new Error('The server returned no question');
-    } catch (error: any) {
-      set({ error: error.message || 'Failed to get next question' });
-      throw error;
-    }
-  },
-
-  submitResponse: async (response: Partial<Response>) => {
-    const { currentInterview, currentQuestion, currentSession } = get();
-    const interviewId = currentSession?.interviewId || (currentInterview as any)?._id || currentInterview?.id;
-    if (!interviewId || !currentQuestion) throw new Error('Interview question is not loaded');
-    try {
-      const saved = await interviewService.submitResponse(interviewId, currentQuestion.id, response);
-      if (!saved.success) throw new Error(saved.error || 'Failed to save answer');
-      set({ error: null });
-    } catch (error: any) {
-      set({ error: error.message || 'Failed to save answer' });
-      throw error;
-    }
-  },
-
-  getInterviewHistory: async () => {
-    console.log('=== FETCHING INTERVIEW HISTORY ===');
-    set({ isLoading: true, error: null });
-    
-    try {
-      const response = await interviewService.getInterviewHistory(1, 100); // Get up to 100 interviews
-      console.log('Interview history raw response:', response);
-      console.log('Response type:', typeof response);
-      console.log('Response keys:', Object.keys(response));
-      
-      // The response is a PaginatedResponse with data and pagination at root level
-      if (response && response.data && Array.isArray(response.data)) {
-        console.log('✅ Interview history loaded:', response.data.length, 'interviews');
-        console.log('First interview sample:', response.data[0]);
-        console.log('Pagination info:', response.pagination);
-        
-        set({
-          interviews: response.data,
-          isLoading: false,
-          error: null,
-        });
-      } else {
-        console.error('❌ Unexpected response structure:', response);
-        console.error('response.data type:', typeof response.data);
-        console.error('response.data value:', response.data);
-        
-        set({
-          interviews: [],
-          error: 'Invalid response format from server',
-          isLoading: false,
-        });
-      }
-    } catch (error: any) {
-      console.error('=== INTERVIEW HISTORY ERROR ===');
-      console.error('Error:', error);
-      console.error('Error message:', error.message);
-      console.error('Error response:', error.response);
-      
-      set({
-        interviews: [],
-        error: error.message || 'Failed to get interview history',
-        isLoading: false,
-      });
-    }
-  },
-
-  getAnalysis: async (interviewId: string) => {
+    get().stopSpeech();
     set({ isLoading: true });
-    
+
     try {
-      const response = await interviewService.getInterviewAnalysis(interviewId);
-      
-      if (response.success && response.data) {
+      const res = await interviewService.endInterview(interviewId);
+      if (res.success && res.data) {
         set({
-          analysis: response.data,
+          phase: 'completed',
+          finalAssessment: res.data.finalAssessment,
+          activeQuestion: null,
           isLoading: false,
         });
+        return interviewId;
       }
-    } catch (error: any) {
-      set({
-        error: error.message || 'Failed to get analysis',
-        isLoading: false,
-      });
+      throw new Error(res.message || 'Failed to end interview');
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to end interview';
+      set({ error: msg, isLoading: false });
+      toast.error(msg);
+      return null;
     }
   },
 
-  getFeedback: async (interviewId: string) => {
+  resumeInterview: async (id: string) => {
+    set({ isLoading: true, error: null, interviewId: id });
+    try {
+      const res = await interviewService.getInterview(id);
+      if (res.success && res.data) {
+        const interview = res.data;
+        if (interview.status === 'completed') {
+          set({
+            phase: 'completed',
+            interviewData: interview,
+            finalAssessment: interview.finalAssessment,
+            isLoading: false,
+          });
+          return true;
+        }
+
+        if (interview.activeQuestion) {
+          set({
+            interviewData: interview,
+            activeQuestion: interview.activeQuestion,
+            phase: 'active',
+            isLoading: false,
+            questionsAnswered: interview.activeQuestion.totalAnswered || 0,
+            plannedQuestions: interview.plannedQuestions || 6,
+          });
+          get().speakCurrentQuestion();
+          return true;
+        }
+
+        // If in progress but no active question, call start
+        return await get().startInterview(id);
+      }
+      throw new Error(res.message || 'Interview not found');
+    } catch (err: any) {
+      set({ error: err.message, phase: 'error', isLoading: false });
+      return false;
+    }
+  },
+
+  fetchHistory: async (page = 1, limit = 10) => {
     set({ isLoading: true });
-    
     try {
-      const response = await interviewService.getFeedback(interviewId);
-      
-      if (response.success && response.data) {
+      const res = await interviewService.getHistory(page, limit);
+      if (res.success) {
+        set({ interviews: res.data || [], isLoading: false });
+      }
+    } catch (err) {
+      set({ isLoading: false });
+    }
+  },
+
+  fetchResult: async (id: string) => {
+    set({ isLoading: true });
+    try {
+      const res = await interviewService.getInterviewResult(id);
+      if (res.success && res.data) {
         set({
-          feedback: response.data,
+          finalAssessment: res.data.finalAssessment,
+          interviewData: res.data.interview,
           isLoading: false,
         });
+        return res.data;
       }
-    } catch (error: any) {
-      set({
-        error: error.message || 'Failed to get feedback',
-        isLoading: false,
-      });
+      throw new Error(res.message || 'Failed to fetch results');
+    } catch (err: any) {
+      set({ error: err.message, isLoading: false });
+      return null;
     }
   },
 
-  startRecording: async () => {
-    // Recording state is controlled by VideoRecorder.
-    // Do not request getUserMedia here to avoid duplicate media prompts/races.
-    set({ isRecording: true });
+  speakCurrentQuestion: () => {
+    const { activeQuestion, isMuted } = get();
+    if (!activeQuestion?.question || isMuted) return;
+
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(activeQuestion.question);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.lang = 'en-US';
+
+      utterance.onstart = () => set({ isSpeaking: true });
+      utterance.onend = () => set({ isSpeaking: false });
+      utterance.onerror = () => set({ isSpeaking: false });
+
+      window.speechSynthesis.speak(utterance);
+    }
   },
 
-  stopRecording: () => {
-    const { mediaStream } = get();
-    
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
+  stopSpeech: () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      set({ isSpeaking: false });
     }
-    
+  },
+
+  toggleMute: () => {
+    const nextMuted = !get().isMuted;
+    set({ isMuted: nextMuted });
+    if (nextMuted) {
+      get().stopSpeech();
+    } else {
+      get().speakCurrentQuestion();
+    }
+  },
+
+  setTranscript: (text: string) => set({ transcript: text }),
+  appendTranscript: (text: string) => set(s => ({ transcript: (s.transcript + ' ' + text).trimStart() })),
+  setIsListening: (val: boolean) => set({ isListening: val }),
+  incrementElapsed: () => set(s => ({ elapsedSeconds: s.elapsedSeconds + 1 })),
+
+  recordIntegrityEvent: async (type: string, detail?: string) => {
+    const { interviewId } = get();
+    if (!interviewId) return;
+    try {
+      await interviewService.recordIntegrityEvent(interviewId, type, detail);
+    } catch {
+      // Keep session resilient if event recording fails silently
+    }
+  },
+
+  reset: () => {
+    get().stopSpeech();
     set({
-      mediaStream: null,
-      isRecording: false,
-    });
-  },
-
-  setMediaStream: (stream: MediaStream | null) => {
-    set({ mediaStream: stream });
-  },
-
-  clearError: () => set({ error: null }),
-
-  resetSession: () => {
-    const { mediaStream } = get();
-    
-    // Clean up media stream
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-    }
-    
-    set({
-      currentInterview: null,
-      currentSession: null,
-      currentQuestion: null,
-      currentQuestionIndex: 0,
-      analysis: null,
-      feedback: null,
-      isRecording: false,
-      mediaStream: null,
-      peerConnection: null,
+      interviewId: null,
+      interviewData: null,
+      activeQuestion: null,
+      phase: 'idle',
+      isLoading: false,
+      isSubmitting: false,
       error: null,
+      finalAssessment: null,
+      lastEvaluation: null,
+      isSpeaking: false,
+      isListening: false,
+      transcript: '',
+      questionsAnswered: 0,
+      elapsedSeconds: 0,
     });
   },
 }));

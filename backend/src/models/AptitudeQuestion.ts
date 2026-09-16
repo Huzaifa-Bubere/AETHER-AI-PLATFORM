@@ -25,7 +25,7 @@ export interface IAptitudeQuestion extends Document {
   fingerprint?: string;
   generation?: {
     key: string; topic: string; model: string; generatedAt: Date; expiresAt: Date;
-    evidence: unknown; sources: { chunkId: string; title: string; url: string; retrievedAt: Date }[];
+    evidence: unknown; sources: { chunkId: string; sourceId: string; revision: string; quote: string; title: string; url: string; retrievedAt: Date }[];
   };
   options?: {
     A: string;
@@ -77,7 +77,7 @@ const AptitudeQuestionSchema = new Schema<IAptitudeQuestion>(
     fingerprint: { type: String, index: true },
     generation: {
       type: new Schema({ key: String, topic: String, model: String, generatedAt: Date, expiresAt: Date,
-        evidence: Schema.Types.Mixed, sources: [{ chunkId: String, title: String, url: String, retrievedAt: Date }] }, { _id: false }),
+        evidence: Schema.Types.Mixed, sources: [{ chunkId: String, sourceId: String, revision: String, quote: String, title: String, url: String, retrievedAt: Date }] }, { _id: false }),
       default: undefined,
     },
     options: {

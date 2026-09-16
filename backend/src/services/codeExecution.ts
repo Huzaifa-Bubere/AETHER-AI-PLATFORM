@@ -392,6 +392,19 @@ class CodeExecutionService {
    *    - Booleans      → true/false
    *    - None/null     → empty string
    */
+  /**
+   * Public so the AETHER coding module can build per-test harness code for
+   * sandboxed Judge0 execution while sharing one harness implementation.
+   */
+  buildHarness(
+    language: string,
+    userCode: string,
+    testInput: string,
+    functionName?: string
+  ): string {
+    return this.wrapCodeWithTestCase(language, userCode, testInput, functionName);
+  }
+
   private wrapCodeWithTestCase(
     language: string,
     userCode: string,

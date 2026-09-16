@@ -166,9 +166,13 @@ class CodeExecutionService {
       if (language === 'python') {
         const py = await run('python', [filePath]);
         if (py.success || !/ENOENT|not recognized/i.test(py.error || '')) return py;
-        return run('py', ['-3', filePath]);
+        return await run('py', ['-3', filePath]);
       }
-      if (language === 'javascript') return run('node', [filePath]);
+      // NOTE: every `return` below must use `return await` — otherwise the
+      // try/finally cleanup deletes the temp dir while the child process is
+      // still running (Java then loses Main.class mid-launch →
+      // ClassNotFoundException: Main, flaky per test case).
+      if (language === 'javascript') return await run('node', [filePath]);
 
       // Java: compile with javac, then run the generated .class with java
       if (language === 'java') {
@@ -179,7 +183,7 @@ class CodeExecutionService {
           return { success: false, error: compileResult.error || 'Compilation failed' };
         }
         const className = path.basename(fileName, '.java'); // matches getFileName() -> "Main.java"
-        return run(javaPath, ['-cp', tmpDir, className]);
+        return await run(javaPath, ['-cp', tmpDir, className]);
       }
 
       // C++: compile with g++, then run the produced binary
@@ -189,7 +193,7 @@ class CodeExecutionService {
         if (!compileResult.success) {
           return { success: false, error: compileResult.error || 'Compilation failed' };
         }
-        return run(binPath, []);
+        return await run(binPath, []);
       }
 
       // C: compile with gcc, then run the produced binary
@@ -199,7 +203,7 @@ class CodeExecutionService {
         if (!compileResult.success) {
           return { success: false, error: compileResult.error || 'Compilation failed' };
         }
-        return run(binPath, []);
+        return await run(binPath, []);
       }
 
       return { success: false, error: `Local execution not supported for '${language}'` };
@@ -926,7 +930,7 @@ fn main() {
     // 1. LOCAL EXECUTION FIRST (Python + JS always available on the server)
     const localLanguages = ['python', 'javascript', 'typescript'];
     const allowLocal = process.env.NODE_ENV !== 'production' && process.env.ALLOW_UNSAFE_LOCAL_CODE_EXECUTION === 'true';
-    if (allowLocal && localLanguages.includes(request.language)) {
+    if (allowLocal && (localLanguages.includes(request.language) || ['java', 'cpp', 'c'].includes(request.language))) {
       try {
         const localResult = await this.executeLocally(request);
         // Use local result if it ran (success OR user-code error — not a "not found" error)
@@ -944,7 +948,16 @@ fn main() {
     }
 
     // 2. REMOTE FALLBACK (Piston → Judge0) for languages not available locally
-    //    or when local runtime is not installed
+    //    or when local runtime is not installed. Skip remote entirely when the
+    //    local attempt produced a REAL result (success, output, or a user-code
+    //    error) — otherwise a working local run can be replaced by a remote
+    //    failure (e.g. ClassNotFoundException from a misconfigured sandbox).
+    if (allowLocal && ['java', 'cpp', 'c'].includes(request.language)) {
+      // Local compile/run already succeeded above (that block returns on a real
+      // result). If we reach here, the local toolchain is missing — say so
+      // instead of silently trying remotes that mask the real problem.
+      logger.warn(`Local ${request.language} toolchain unavailable — falling back to remote`);
+    }
     try {
       logger.info(`Trying remote execution for ${request.language}`);
       const remoteResult = this.useJudge0
@@ -955,7 +968,7 @@ fn main() {
         remoteResult.success ||
         (remoteResult.output && remoteResult.output.length > 0) ||
         (remoteResult.error &&
-          !/401|403|429|certificate|ENOTFOUND|ECONN|timeout|rate|forbidden/i.test(remoteResult.error))
+          !/401|403|429|certificate|ENOTFOUND|ECONN|timeout|rate|forbidden|not recognized/i.test(remoteResult.error))
       ) {
         return remoteResult;
       }

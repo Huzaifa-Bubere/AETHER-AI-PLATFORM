@@ -28,7 +28,7 @@ export function SubmissionsPage() {
   }, [page]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen pt-20 bg-slate-50">
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-5">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Submission History</h1>
@@ -96,12 +96,12 @@ export function SubmissionDetailPage() {
   }, [id]);
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-blue-500" /></div>;
+    return <div className="min-h-screen pt-16 flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-blue-500" /></div>;
   }
 
   if (notFound || !submission) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
+      <div className="min-h-screen pt-16 flex flex-col items-center justify-center gap-3">
         <p className="text-slate-600">Submission not found.</p>
         <Link to="/coding/submissions"><Button variant="outline" size="sm">Back to history</Button></Link>
       </div>
@@ -111,7 +111,7 @@ export function SubmissionDetailPage() {
   const problem = submission.problem as any;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen pt-20 bg-slate-50">
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-5">
         <div className="flex items-center gap-3">
           <Link to="/coding/submissions" aria-label="Back to submissions">

@@ -3,10 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import uvicorn
 import os
+import sys
 import base64
 from pathlib import Path
 from dotenv import load_dotenv
 from loguru import logger
+
+# Ensure `src/` is importable no matter how the app is launched
+# (python src/main.py, `uvicorn src.main:app` from ai-server/, or from src/).
+# Without this, `from services...` fails with ModuleNotFoundError under uvicorn.
+_SRC_DIR = Path(__file__).resolve().parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 from services.lazy_service import LazyService
 

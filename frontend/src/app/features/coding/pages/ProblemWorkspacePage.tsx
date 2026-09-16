@@ -73,7 +73,7 @@ export function ProblemWorkspacePage() {
 
   if (!problem && !error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen pt-16 flex items-center justify-center">
         <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
       </div>
     );
@@ -81,7 +81,7 @@ export function ProblemWorkspacePage() {
 
   if (error || !problem) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-6">
+      <div className="min-h-screen pt-16 flex flex-col items-center justify-center gap-3 p-6">
         <p className="text-slate-600">{error || 'Problem not found'}</p>
         <Button variant="outline" onClick={() => navigate('/coding')}>Back to Coding Dashboard</Button>
       </div>
@@ -91,9 +91,16 @@ export function ProblemWorkspacePage() {
   const tests: ITestOutcome[] = runResult?.tests || submitResult?.tests || [];
   const currentResult = submitResult || runResult;
 
-  return (      <div className={isFullscreen ? 'fixed inset-0 z-50 bg-slate-50 overflow-auto' : 'min-h-screen bg-slate-50'}>
+  // pt-16 clears the fixed app navbar (h-16); the page itself never scrolls —
+  // each column scrolls internally, so nothing hides behind the navbar.
+  return (
+    <div className={
+      isFullscreen
+        ? 'fixed inset-0 z-50 bg-slate-50 flex flex-col overflow-hidden'
+        : 'h-screen pt-16 flex flex-col overflow-hidden bg-slate-50'
+    }>
       {/* Top bar */}
-      <div className="sticky top-0 z-10 bg-white border-b px-4 py-2.5 flex items-center justify-between">
+      <div className="shrink-0 bg-white border-b px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => navigate('/coding')} aria-label="Back to coding dashboard">
             <ChevronLeft className="w-4 h-4" />
@@ -125,15 +132,20 @@ export function ProblemWorkspacePage() {
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+        {/* Problem panel (mobile — stacked above the editor) */}
+        <div className="lg:hidden shrink-0 max-h-[38vh] overflow-y-auto border-b bg-white">
+          <ProblemDescription />
+        </div>
+
         {/* Problem panel (desktop) */}
-        <aside className="hidden lg:block w-[42%] max-w-[640px] border-r bg-white">
+        <aside className="hidden lg:block w-[42%] max-w-[640px] border-r bg-white overflow-y-auto">
           <ProblemDescription />
         </aside>
 
         {/* Editor + results */}
-        <main className="flex-1 min-w-0">
-          <div className="h-[45vh] border-b">
+        <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <div className="h-[45vh] shrink-0 border-b">
             <Editor
               height="100%"
               language={monacoLanguage}
@@ -158,7 +170,7 @@ export function ProblemWorkspacePage() {
           </div>
 
           {/* Tabs */}
-          <div className="border-b bg-white px-4 flex items-center gap-1 overflow-x-auto">
+          <div className="shrink-0 border-b bg-white px-4 flex items-center gap-1 overflow-x-auto">
             {['testcases', 'output', 'ast', 'complexity', 'analysis'].map(tab => (
               <button
                 key={tab}
@@ -188,7 +200,7 @@ export function ProblemWorkspacePage() {
           </div>
 
           {/* Tab content */}
-          <div className="p-4 max-h-[40vh] overflow-y-auto">
+          <div className="p-4 flex-1 min-h-0 overflow-y-auto">
             {error && (
               <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>
             )}
@@ -307,7 +319,7 @@ function ProblemDescription() {
   const problem = useCodingStore(s => s.problem);
   if (!problem) return null;
   return (
-    <div className="p-5 space-y-5 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 57px)' }}>
+    <div className="p-5 space-y-5">
       <div>
         <h2 className="text-xl font-bold text-slate-900">{problem.title}</h2>
         <div className="flex items-center gap-2 mt-1">

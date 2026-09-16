@@ -41,7 +41,7 @@ export function CodingDashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen pt-16 flex items-center justify-center">
         <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
       </div>
     );
@@ -66,7 +66,7 @@ export function CodingDashboardPage() {
   const weekly = buildLast14Days(progress?.recentActivity || []);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen pt-20 bg-slate-50">
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

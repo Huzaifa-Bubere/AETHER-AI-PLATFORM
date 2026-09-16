@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import 'dotenv/config';
 import CodingProblem from '../models/CodingProblem';
+import { ensureDnsFallback, forcePublicDns } from '../../utils/dnsFallback';
 import { PROBLEMS_PART1, SeedProblem } from './problems.part1';
 import { PROBLEMS_PART2 } from './problems.part2';
 
@@ -83,13 +84,21 @@ function buildStarterCode(p: SeedProblem): Record<string, string> {
 }
 
 async function seed(): Promise<void> {
+  await ensureDnsFallback();
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
   if (!uri) {
     console.error('MONGO_URI not set — cannot seed coding problems');
     process.exit(1);
   }
 
-  await mongoose.connect(uri);
+  try {
+    await mongoose.connect(uri, { serverSelectionTimeoutMS: 20000 });
+  } catch (err: any) {
+    // Retry once with public DNS in case the probe above raced the failure.
+    console.warn('Connection failed — retrying with public DNS resolvers...');
+    forcePublicDns();
+    await mongoose.connect(uri, { serverSelectionTimeoutMS: 20000 });
+  }
   console.log('Connected to MongoDB');
 
   const all = [...PROBLEMS_PART1, ...PROBLEMS_PART2];

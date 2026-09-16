@@ -1,21 +1,42 @@
 import mongoose, { Document, Schema } from 'mongoose';
+import { ICandidateContext, IInteraction, DifficultyLevel, InterviewStage } from '../interview/types';
 
 export interface IInterview extends Document {
   userId: mongoose.Types.ObjectId;
   resumeId?: mongoose.Types.ObjectId;
-  type: 'behavioral' | 'technical' | 'coding' | 'system-design' | 'skill-based';
+  type: 'behavioral' | 'technical' | 'coding' | 'system-design' | 'skill-based' | 'hr' | 'mixed';
   status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
   scheduledTime?: Date;
   settings: {
     domain?: string;
     role: string;
-    difficulty: 'easy' | 'medium' | 'hard';
+    difficulty: 'easy' | 'medium' | 'hard' | 'adaptive';
     duration: number; // in minutes
     includeVideo: boolean;
     includeAudio: boolean;
     includeCoding: boolean;
     proctoringEnabled?: boolean;
   };
+  candidateContext?: ICandidateContext;
+  currentStage?: InterviewStage;
+  currentTopic?: string;
+  currentDifficulty?: DifficultyLevel;
+  plannedQuestions?: number;
+  allTopics?: string[];
+  interactions?: IInteraction[];
+  difficultyProgression?: Array<{
+    topic: string;
+    difficulty: string;
+    score: number;
+    stage: string;
+    timestamp: Date;
+  }>;
+  integrityEvents?: Array<{
+    type: string;
+    timestamp: Date;
+    details?: string;
+  }>;
+  finalAssessment?: any;
   questions: Array<{
     id: string;
     text: string;
@@ -182,7 +203,9 @@ const interviewSchema = new Schema<IInterview>({
       'technical',
       'coding',
       'system-design',
-      'skill-based'
+      'skill-based',
+      'hr',
+      'mixed',
     ],
     required: true,
   },
@@ -206,7 +229,7 @@ const interviewSchema = new Schema<IInterview>({
     },
     difficulty: {
       type: String,
-      enum: ['easy', 'medium', 'hard'],
+      enum: ['easy', 'medium', 'hard', 'adaptive'],
       required: true,
     },
     duration: {
@@ -231,6 +254,60 @@ const interviewSchema = new Schema<IInterview>({
       type: Boolean,
       default: true,
     },
+  },
+  candidateContext: {
+    type: Schema.Types.Mixed,
+    default: null,
+  },
+  currentStage: {
+    type: String,
+    default: 'INTRODUCTION',
+  },
+  currentTopic: {
+    type: String,
+    default: '',
+  },
+  currentDifficulty: {
+    type: String,
+    default: 'medium',
+  },
+  plannedQuestions: {
+    type: Number,
+    default: 5,
+  },
+  allTopics: [{
+    type: String,
+  }],
+  interactions: [{
+    id: { type: String, required: true },
+    question: { type: String, required: true },
+    intent: { type: String, default: '' },
+    topic: { type: String, default: '' },
+    difficulty: { type: String, default: 'medium' },
+    stage: { type: String, default: 'TECHNICAL_FOUNDATION' },
+    expectedConcepts: [{ type: String }],
+    answer: { type: String, default: '' },
+    answerSource: { type: String, enum: ['voice', 'text'], default: 'text' },
+    startedAt: { type: Date, default: Date.now },
+    answeredAt: { type: Date, default: null },
+    responseTimeSeconds: { type: Number, default: 0 },
+    evaluation: { type: Schema.Types.Mixed, default: null },
+  }],
+  difficultyProgression: [{
+    topic: { type: String },
+    difficulty: { type: String },
+    score: { type: Number },
+    stage: { type: String },
+    timestamp: { type: Date, default: Date.now },
+  }],
+  integrityEvents: [{
+    type: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+    details: { type: String },
+  }],
+  finalAssessment: {
+    type: Schema.Types.Mixed,
+    default: null,
   },
   questions: [{
     id: {

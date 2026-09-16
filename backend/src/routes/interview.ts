@@ -1,6 +1,6 @@
 import express from "express";
 import mongoose from "mongoose";
-import axios from "axios";
+import pythonAI from "../services/pythonAI";
 import { body, validationResult } from "express-validator";
 import Interview from "../models/Interview";
 import Resume from "../models/Resume";
@@ -233,7 +233,7 @@ router.post(
     } catch (error: any) {
       logger.error("Interview creation error:", error);
 
-      res.status(500).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         error: "Interview creation failed",
         message: error.message,
@@ -336,7 +336,7 @@ router.post(
       });
     } catch (error: any) {
       logger.error("Interview start error:", error);
-      res.status(500).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         error: "Failed to start interview",
         message: error.message,
@@ -843,26 +843,8 @@ router.post(
         });
       }
 
-      // Send to Python AI server for emotion detection
-      const aiServerUrl =
-        process.env.PYTHON_AI_SERVER_URL || "http://localhost:8000";
-      const apiKey = process.env.PYTHON_AI_SERVER_API_KEY;
-      if (!apiKey) {
-        throw new Error("PYTHON_AI_SERVER_API_KEY is not configured");
-      }
-      const aiResponse = await axios.post(
-        `${aiServerUrl}/api/emotion/analyze`,
-        { image_data: frameData, timestamp: timestamp || Date.now() },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
-        },
-      );
-
-      const emotionData = aiResponse.data?.data || {};
+      const emotionData = await pythonAI.post('/api/emotion/analyze',
+        { image_data: frameData, timestamp: timestamp || Date.now() }, { timeout: 10000 });
 
       // Store emotion data in interview
       if (!interview.analysis) {
@@ -891,8 +873,8 @@ router.post(
         data: { analysis: emotionData },
       });
     } catch (error: any) {
-      logger.error("Video processing error:", error);
-      res.status(500).json({
+      logger.warn("Video processing unavailable", { status: error.statusCode || 500 });
+      res.status(error.statusCode || 500).json({
         success: false,
         error: "Failed to process video",
         message: error.message,
@@ -1375,25 +1357,7 @@ router.post(
         });
       }
 
-      // Call Python AI server for video analysis
-      const pythonServerUrl =
-        process.env.PYTHON_AI_SERVER_URL || "http://localhost:8000";
-      const apiKey = process.env.PYTHON_AI_SERVER_API_KEY;
-
-      const analysisResponse = await axios.post(
-        `${pythonServerUrl}/api/video/analyze-frame-json`,
-        { frame_data: frameData, timestamp },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
-        },
-      );
-
-      if (analysisResponse.data && analysisResponse.data.success) {
-        const videoAnalysis = analysisResponse.data.data;
+      const videoAnalysis = await pythonAI.post('/api/video/analyze-frame-json', { frame_data: frameData, timestamp }, { timeout: 10000 });
 
         // Update interview analysis
         if (!interview.analysis) {
@@ -1449,12 +1413,9 @@ router.post(
           data: videoAnalysis,
           message: "Video frame analyzed",
         });
-      } else {
-        throw new Error("Video analysis failed");
-      }
     } catch (error: any) {
-      logger.error("Real-time video analysis error:", error);
-      res.status(500).json({
+      logger.warn("Real-time video analysis unavailable", { status: error.statusCode || 500 });
+      res.status(error.statusCode || 500).json({
         success: false,
         error: "Video analysis failed",
         message: error.message,
@@ -1483,29 +1444,7 @@ router.post(
         });
       }
 
-      // Call Python AI server for audio analysis
-      const pythonServerUrl =
-        process.env.PYTHON_AI_SERVER_URL || "http://localhost:8000";
-      const apiKey = process.env.PYTHON_AI_SERVER_API_KEY;
-
-      const analysisResponse = await axios.post(
-        `${pythonServerUrl}/api/audio/analyze`,
-        {
-          audio_data: audioData,
-          transcript,
-          timestamp,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
-        },
-      );
-
-      if (analysisResponse.data && analysisResponse.data.success) {
-        const audioAnalysis = analysisResponse.data.data;
+      const audioAnalysis = await pythonAI.post('/api/audio/analyze', { audio_data: audioData, transcript, timestamp, duration: req.body.duration || 0, sample_rate: req.body.sampleRate || 44100 }, { timeout: 10000 });
 
         // Update interview analysis
         if (!interview.analysis) {
@@ -1572,12 +1511,9 @@ router.post(
           data: audioAnalysis,
           message: "Audio analyzed",
         });
-      } else {
-        throw new Error("Audio analysis failed");
-      }
     } catch (error: any) {
-      logger.error("Real-time audio analysis error:", error);
-      res.status(500).json({
+      logger.warn("Real-time audio analysis unavailable", { status: error.statusCode || 500 });
+      res.status(error.statusCode || 500).json({
         success: false,
         error: "Audio analysis failed",
         message: error.message,

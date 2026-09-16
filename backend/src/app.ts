@@ -8,7 +8,7 @@ import compression from 'compression';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
 import resumeRoutes from './routes/resume';
-import interviewRoutes from './routes/interview';
+import interviewRoutes from './interview/routes/interview.routes';
 import feedbackRoutes from './routes/feedback';
 import adminRoutes from './routes/admin';
 import codeExecutionRoutes from './routes/codeExecution';
@@ -18,8 +18,9 @@ import schedulingRoutes from './routes/scheduling';
 import healthRoutes from './routes/health';
 import aptitudeAdminRoutes from './routes/aptitudeAdmin.routes';
 import aptitudeStudentRoutes from './routes/aptitudeStudent.routes';
-import adaptiveInterviewRoutes from './routes/adaptiveInterview.routes';
 import ragRoutes from './routes/rag';
+import codingRoutes from './coding/routes/coding.routes';
+import codingAdminRoutes from './coding/routes/coding.admin.routes';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -155,7 +156,7 @@ export function createApp(): Application {
   // API routes - EXACT paths that tests expect
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/user', apiLimiter, authenticateToken, userRoutes);
-  app.use('/api/resume', apiLimiter, authenticateToken, resumeRoutes);
+  app.use('/api/resume', apiLimiter, authenticateToken, requireCandidate, resumeRoutes);
   app.use('/api/interview', authenticateToken, requireCandidate, assessmentLimiter, interviewRoutes);
   app.use('/api/feedback', apiLimiter, authenticateToken, feedbackRoutes);
   app.use('/api/admin', apiLimiter, authenticateToken, requireAdmin, adminRoutes);
@@ -167,7 +168,11 @@ export function createApp(): Application {
   app.use('/api/admin/aptitude', apiLimiter, aptitudeAdminRoutes); // auth+admin check happens inside the router
   app.use('/api/admin/rag', apiLimiter, ragRoutes);
   app.use('/api/aptitude', aptitudeStudentRoutes); // auth and assessment limits are applied inside
-  app.use('/api/adaptive-interview', authenticateToken, requireCandidate, assessmentLimiter, adaptiveInterviewRoutes);
+  app.use('/api/adaptive-interview', authenticateToken, requireCandidate, assessmentLimiter, interviewRoutes);
+
+  // AETHER Coding module (candidate + admin)
+  app.use('/api/coding', apiLimiter, authenticateToken, requireCandidate, codingRoutes);
+  app.use('/api/admin/coding', apiLimiter, authenticateToken, requireAdmin, codingAdminRoutes);
 
   // Error handling middleware (must be last)
   app.use(notFound);

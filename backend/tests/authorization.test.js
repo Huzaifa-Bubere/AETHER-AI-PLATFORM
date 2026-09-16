@@ -42,6 +42,7 @@ test.each([
   ['/api/interview/create', 'post'], ['/api/adaptive-interview/create', 'post'],
   ['/api/aptitude/tests', 'get'], ['/api/code/execute', 'post'],
   ['/api/practice/create', 'post'], ['/api/scheduling/schedule', 'post'],
+  ['/api/resume/upload', 'post'], ['/api/resume/latest', 'get'],
 ])('admin cannot use candidate endpoint %s', async (url, method) => {
   const header = account('admin', 'enterprise');
   expect((await request(app)[method](url).set('Authorization', header).send({})).status).toBe(403);

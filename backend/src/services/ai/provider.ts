@@ -6,6 +6,8 @@ export class AIUnavailableError extends Error {
   constructor(message = 'AI service is unavailable. Please retry later.') { super(message); }
 }
 
+export function generationModel() { return process.env.GEMINI_MODEL || 'gemini-3.6-flash'; }
+
 function modelName(name: string) {
   if (!/^[a-zA-Z0-9._-]+$/.test(name)) throw new AIUnavailableError('Invalid AI model configuration.');
   return name;
@@ -28,7 +30,7 @@ async function requestModel(model: string, operation: string, body: unknown, tim
 }
 
 export async function generateJson(prompt: string, timeout = 45000): Promise<unknown> {
-  const data = await requestModel(process.env.GEMINI_MODEL || 'gemini-2.5-flash', 'generateContent', {
+  const data = await requestModel(generationModel(), 'generateContent', {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: { responseMimeType: 'application/json', temperature: 0.5 },
   }, timeout);

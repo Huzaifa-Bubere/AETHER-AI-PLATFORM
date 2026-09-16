@@ -4,7 +4,8 @@ import { apiService } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 
-interface Source { _id: string; title: string; url: string; topic: string; license: string; enabled: boolean; status: string; chunkCount: number; refreshedAt?: string; lastError?: string }
+interface Source { _id: string; title: string; url: string; topic: string; license: string; enabled: boolean; status: string; chunkCount: number; refreshedAt?: string; leaseUntil?: string; lastError?: string }
+const isIngesting = (source: Source) => source.status === 'ingesting' && (!source.leaseUntil || new Date(source.leaseUntil).getTime() > Date.now());
 export default function KnowledgeSourcesPage() {
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +49,16 @@ export default function KnowledgeSourcesPage() {
     try { await ingest(id); } catch (e: any) { setError(e.message); }
     finally { setBusy(false); }
   };
+  const toggle = async (source: Source) => {
+    setBusy(true); setError('');
+    try {
+      const result = await apiService.patch<Source>(`/admin/rag/sources/${source._id}`, { enabled: !source.enabled });
+      if (!result.success || !result.data) throw new Error(result.error || 'Could not update source.');
+      setSources(rows => rows.map(row => row._id === source._id ? result.data! : row));
+      setNotice(result.data.enabled ? 'Source enabled.' : 'Source disabled. Its cached questions will not be delivered in new attempts.');
+    } catch (e: any) { setError(e.message); }
+    finally { setBusy(false); }
+  };
   return <div className="mx-auto max-w-6xl space-y-6 px-5 py-24">
     <div><p className="text-sm font-medium text-primary">ATHER Administration</p><h1 className="mt-2 text-3xl font-semibold">Knowledge sources</h1>
       <p className="mt-2 text-muted-foreground">Maintain the reference material used to generate original assessment questions.</p></div>
@@ -66,13 +77,14 @@ export default function KnowledgeSourcesPage() {
     <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">Source library</h2><Button variant="outline" size="sm" onClick={() => void load()}>Refresh status</Button></div>
     {loading ? <p role="status">Loading sources…</p> : sources.length === 0 ? <Card><p className="text-muted-foreground">No sources yet. Add documentation above, then create a source-grounded test.</p></Card> :
       <div className="grid gap-4 md:grid-cols-2">{sources.map(source => <Card key={source._id}>
-        <div className="flex justify-between gap-3"><h3 className="font-semibold">{source.title}</h3><span className="rounded-md bg-muted px-2 py-1 text-xs">{source.status}</span></div>
+        <div className="flex justify-between gap-3"><h3 className="font-semibold">{source.title}</h3><span className="rounded-md bg-muted px-2 py-1 text-xs">{!source.enabled ? 'disabled' : source.status === 'ingesting' && !isIngesting(source) ? 'Retry required' : source.status}</span></div>
         <p className="mt-2 text-sm text-muted-foreground">{source.topic} · {source.chunkCount} indexed sections</p>
         <a href={source.url} target="_blank" rel="noopener noreferrer" className="mt-2 block break-all text-sm text-primary underline">View source documentation</a>
         <p className="mt-2 text-xs text-muted-foreground">{source.license}</p>
         {source.refreshedAt && <p className="mt-2 text-xs text-muted-foreground">Last indexed {new Date(source.refreshedAt).toLocaleString()}</p>}
         {source.lastError && <p className="mt-3 text-sm text-destructive">{source.lastError}</p>}
-        <div className="mt-4 flex gap-3"><Button variant="outline" size="sm" disabled={busy || source.status === 'ingesting' || !source.enabled} onClick={() => void refresh(source._id)}>Refresh from URL</Button></div>
+        <div className="mt-4 flex gap-3"><Button variant="outline" size="sm" disabled={busy || isIngesting(source) || !source.enabled} onClick={() => void refresh(source._id)}>Refresh from URL</Button>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => void toggle(source)}>{source.enabled ? 'Disable' : 'Enable'}</Button></div>
       </Card>)}</div>}
     <p className="text-sm text-muted-foreground">After indexing, <Link to="/admin/aptitude/tests" className="text-primary underline">create a test template</Link> using the same topic. Questions are generated when the usable cache needs replenishing.</p>
   </div>;

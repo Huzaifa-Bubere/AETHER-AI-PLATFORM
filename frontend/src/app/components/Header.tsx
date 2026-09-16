@@ -29,7 +29,7 @@ export function Header() {
     <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-5 lg:px-8">
       <Link to={isAuthenticated ? (isAdmin ? '/admin' : '/dashboard') : '/'} className="flex items-center gap-3" aria-label="ATHER home">
         <span className="rounded-lg bg-primary p-2"><Brain className="h-5 w-5 text-primary-foreground" /></span>
-        <span className="text-xl font-bold tracking-widest">ATHER</span>
+        <span className="text-xl font-bold tracking-widest">AETHER</span>
       </Link>
       {!isAuthenticated && <nav aria-label="Main navigation" className="hidden md:flex gap-7">
         {navItems.map(item => <a key={item.path} href={item.path} className="text-sm font-medium text-muted-foreground hover:text-foreground">{item.name}</a>)}

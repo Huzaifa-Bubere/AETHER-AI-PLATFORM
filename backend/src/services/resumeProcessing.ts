@@ -8,7 +8,27 @@ import logger from '../utils/logger';
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && !!v.trim()).map(v => v.trim()) : [];
 export function parsedResumeSkills(parsed: any): string[] {
   if (!parsed || parsed.error || typeof parsed.raw_text !== 'string' || !parsed.raw_text.trim()) return [];
-  return [...new Set((Array.isArray(parsed.skills) ? parsed.skills : []).flatMap((group: any) => typeof group === 'string' ? [group] : strings(group?.skills)))];
+ const rawSkills: unknown[] = Array.isArray(parsed.skills)
+  ? parsed.skills
+  : [];
+
+const skills: string[] = rawSkills.flatMap((group: unknown): string[] => {
+  if (typeof group === 'string') {
+    return [group];
+  }
+
+  if (
+    group &&
+    typeof group === 'object' &&
+    'skills' in group
+  ) {
+    return strings((group as { skills?: unknown }).skills);
+  }
+
+  return [];
+});
+
+return Array.from(new Set<string>(skills));
 }
 
 export function validateResumeEvaluation(value: any) {

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { Header } from './components/Header';
 import { ApplicationSidebar } from './components/ApplicationSidebar';
@@ -30,6 +30,14 @@ const HistoryPage = lazy(() => import('./pages/HistoryPage').then(m => ({ defaul
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage'));
 const KnowledgeSourcesPage = lazy(() => import('./pages/KnowledgeSourcesPage'));
+
+// AETHER Coding module
+const CodingDashboardPage = lazy(() => import('./features/coding/pages/CodingDashboardPage').then(m => ({ default: m.CodingDashboardPage })));
+const ProblemLibraryPage = lazy(() => import('./features/coding/pages/ProblemLibraryPage').then(m => ({ default: m.ProblemLibraryPage })));
+const ProblemWorkspacePage = lazy(() => import('./features/coding/pages/ProblemWorkspacePage').then(m => ({ default: m.ProblemWorkspacePage })));
+const SubmissionsPage = lazy(() => import('./features/coding/pages/SubmissionsPage').then(m => ({ default: m.SubmissionsPage })));
+const SubmissionDetailPage = lazy(() => import('./features/coding/pages/SubmissionsPage').then(m => ({ default: m.SubmissionDetailPage })));
+const AdminCodingPage = lazy(() => import('./features/coding/pages/AdminCodingPage').then(m => ({ default: m.AdminCodingPage })));
 
 // Aptitude module
 const AptitudeTestSelection = lazy(() => import('../pages/aptitude/TestSelection'));
@@ -238,6 +246,42 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        {/* AETHER Coding module */}
+        <Route path="/coding" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <CodingDashboardPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/coding/problems" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <ProblemLibraryPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/coding/problems/:slug" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <ProblemWorkspacePage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/coding/submissions" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <SubmissionsPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/coding/submissions/:id" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <SubmissionDetailPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="/feedback/:id" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -304,6 +348,13 @@ function AppContent() {
         
         {/* Catch all */}
         <Route path="/admin/knowledge" element={<AdminRoute><Suspense fallback={<PageLoader />}><KnowledgeSourcesPage /></Suspense></AdminRoute>} />
+        <Route path="/admin/coding" element={
+          <AdminRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AdminCodingPage />
+            </Suspense>
+          </AdminRoute>
+        } />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </PageErrorBoundary>

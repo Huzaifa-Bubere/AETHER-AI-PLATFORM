@@ -12,13 +12,14 @@ export function prepareAssessment(test: IAptitudeTest, userId: Types.ObjectId): 
   const key = `${test._id}:${userId}`;
   if (pending.has(key)) return pending.get(key)!;
   const work = (async () => {
+    const deadline = Date.now() + 240000;
     for (let pass = 0; pass < 4; pass++) {
       try { return await buildQuestionSet(test, userId); }
       catch (error: any) {
         if (!isDifficulty(error.difficulty) || !error.missingCount || pass === 3) throw error;
         await generateGroundedQuestions({ topic: test.ragTopic!, category: test.categories[0],
           roundType: test.roundType as 'aptitude' | 'technical', difficulty: error.difficulty,
-          count: error.missingCount, userId: String(userId) });
+          count: error.missingCount, userId: String(userId), deadline });
       }
     }
     throw new Error('Assessment preparation failed.');

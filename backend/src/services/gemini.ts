@@ -1,5 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import logger from "../utils/logger";
+import { generationModel, generateJson, AIUnavailableError } from './ai/provider';
+import { uniqueQuestions } from './questions/identity';
 
 class GeminiService {
   private configuredModel: any;
@@ -11,7 +13,7 @@ class GeminiService {
       throw new Error("GEMINI_API_KEY is not defined in environment variables");
     }
     const genAI = new GoogleGenerativeAI(apiKey);
-    const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const modelName = generationModel();
     this.configuredModel = genAI.getGenerativeModel({ model: modelName });
     return this.configuredModel;
   }
@@ -26,89 +28,22 @@ class GeminiService {
     difficulty: string;
     count: number;
   }): Promise<any[]> {
-    console.log("=== GENERATING INTERVIEW QUESTIONS ===");
-    try {
-      const prompt = this.buildQuestionGenerationPrompt(params);
-      const result = await this.model.generateContent(prompt, { timeout: 45000 });
-      const text = result.response.text();
-      let questions;
-      try {
-        const clean = text
-          .replace(/```json\n?/g, "")
-          .replace(/```\n?/g, "")
-          .trim();
-        questions = JSON.parse(clean);
-      } catch {
-        return this.generateFallbackQuestions(params);
-      }
-      if (!Array.isArray(questions)) {
-        questions =
-          questions.questions && Array.isArray(questions.questions)
-            ? questions.questions
-            : this.generateFallbackQuestions(params);
-      }
-      logger.info(`Generated ${questions.length} questions for ${params.role}`);
-      return questions;
-    } catch (error: any) {
-      logger.error("Error generating interview questions:", error);
-      return this.generateFallbackQuestions(params);
+    const prompt = this.buildQuestionGenerationPrompt(params);
+    const generated = await generateJson(prompt);
+    const questions = Array.isArray(generated) ? generated : (generated as any)?.questions;
+    if (!Array.isArray(questions) || questions.length !== Number(params.count) || questions.some(q =>
+      !q || typeof q.text !== 'string' || q.text.trim().length < 10 ||
+      q.type !== params.interviewType || q.difficulty !== params.difficulty ||
+      (params.interviewType === 'coding' && (typeof q.description !== 'string' || q.description.length < 30 ||
+        !Array.isArray(q.testCases) || q.testCases.length < 2 || q.testCases.some((t: any) => !t || t.input == null || t.expectedOutput == null) ||
+        !Array.isArray(q.constraints) || !q.constraints.length || !Array.isArray(q.examples) || !q.examples.length))
+    ) || uniqueQuestions(questions.map(q => ({ questionText: q.text }))).length !== questions.length) {
+      throw new AIUnavailableError('Interview questions did not pass validation. Please retry.');
     }
+    return questions;
   }
 
-  // ── Minimal fallback (only when Gemini is down) ───────────────────────────
-  private generateFallbackQuestions(params: {
-    role: string;
-    interviewType: string;
-    difficulty: string;
-    count: number;
-  }): any[] {
-    logger.warn(
-      `Gemini unavailable — minimal fallback for ${params.role} (${params.interviewType})`,
-    );
-    if (params.interviewType === "coding") {
-      return [
-        {
-          id: `fallback_coding_${Date.now()}`,
-          text: "Two Sum",
-          description:
-            "Given an array of integers nums and an integer target, return indices of the two numbers that add up to target.",
-          type: "coding",
-          difficulty: params.difficulty,
-          expectedDuration: 15,
-          category: "arrays",
-          examples: [
-            {
-              input: "nums = [2,7,11,15], target = 9",
-              output: "[0,1]",
-              explanation: "nums[0] + nums[1] = 9",
-            },
-          ],
-          constraints: ["2 <= nums.length <= 10^4", "-10^9 <= nums[i] <= 10^9"],
-          testCases: [
-            { input: "[2,7,11,15]\n9", expectedOutput: "[0,1]" },
-            { input: "[3,2,4]\n6", expectedOutput: "[1,2]" },
-          ],
-          followUpQuestions: ["Can you solve it in O(n) time?"],
-        },
-      ].slice(0, params.count);
-    }
-    return Array.from({ length: Math.min(params.count, 3) }, (_, i) => ({
-      id: `fallback_${Date.now()}_${i}`,
-      text:
-        i === 0
-          ? `Tell me about your experience as a ${params.role}.`
-          : i === 1
-            ? "Describe a challenging project you worked on."
-            : "Where do you see yourself in 3-5 years?",
-      type: "behavioral",
-      difficulty: params.difficulty,
-      expectedDuration: 5,
-      category: "general",
-      followUpQuestions: [],
-    }));
-  }
-
-  // ── Response analysis ─────────────────────────────────────────────────────
+  // Response analysis
   async analyzeResponse(params: {
     question: string;
     answer: string;
@@ -803,7 +738,8 @@ Return JSON format:
       return `
 You are a senior system design interviewer.
 
-Generate ${params.count} system design problems.
+Generate ${params.count} system design problems for ${params.role}.
+Difficulty: ${params.difficulty}.
 
 Focus on:
 - scalability
@@ -813,7 +749,8 @@ Focus on:
 - caching
 - distributed systems
 
-Return JSON array only.
+Return JSON array only, using this object structure:
+[{"id":"q1","text":"Full design problem and requirements","type":"system-design","difficulty":"${params.difficulty}","expectedDuration":10,"category":"architecture","followUpQuestions":[]}].
 `;
     }
 

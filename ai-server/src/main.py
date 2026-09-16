@@ -3,18 +3,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import uvicorn
 import os
+import sys
 import base64
 from pathlib import Path
 from dotenv import load_dotenv
 from loguru import logger
 
-# Import services
-from services.gemini_service import GeminiService
-from services.audio_analysis import AudioAnalysisService
-from services.video_analysis import VideoAnalysisService
-from services.speech_recognition import SpeechRecognitionService
-from services.emotion_detection import EmotionDetectionService
-from services.resume_parser import ResumeParserService
+# Ensure `src/` is importable no matter how the app is launched
+# (python src/main.py, `uvicorn src.main:app` from ai-server/, or from src/).
+# Without this, `from services...` fails with ModuleNotFoundError under uvicorn.
+_SRC_DIR = Path(__file__).resolve().parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from services.lazy_service import LazyService
 
 # Import models
 from models.analysis_models import (
@@ -55,12 +57,12 @@ app.add_middleware(
 security = HTTPBearer()
 
 # Initialize services
-gemini_service = GeminiService()
-audio_service = AudioAnalysisService()
-video_service = VideoAnalysisService()
-speech_service = SpeechRecognitionService()
-emotion_service = EmotionDetectionService()
-resume_service = ResumeParserService()
+gemini_service = LazyService('services.gemini_service', 'GeminiService')
+audio_service = LazyService('services.audio_analysis', 'AudioAnalysisService')
+video_service = LazyService('services.video_analysis', 'VideoAnalysisService')
+speech_service = LazyService('services.speech_recognition', 'SpeechRecognitionService')
+emotion_service = LazyService('services.emotion_detection', 'EmotionDetectionService')
+resume_service = LazyService('services.resume_parser', 'ResumeParserService')
 
 # Dependency for authentication
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -81,17 +83,14 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Detailed health check"""
+    """Cheap liveness and initialization state, not a claim of model accuracy."""
+    services = {name: service.status() for name, service in {
+        'gemini': gemini_service, 'audio': audio_service, 'video': video_service,
+        'speech': speech_service, 'emotion': emotion_service, 'resume': resume_service
+    }.items()}
     return {
-        "status": "running",
-        "services": {
-            "gemini": await gemini_service.health_check(),
-            "audio": audio_service.health_check(),
-            "video": video_service.health_check(),
-            "speech": speech_service.health_check(),
-            "emotion": emotion_service.health_check(),
-            "resume": resume_service.health_check()
-        }
+        "status": "degraded" if any(s['status'] == 'unavailable' for s in services.values()) else "running",
+        "services": services,
     }
 
 # Audio Analysis Endpoints
@@ -108,6 +107,8 @@ async def analyze_audio(
             duration=request.duration
         )
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Audio analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -122,6 +123,8 @@ async def speech_to_text(
         audio_data = await audio_file.read()
         result = await speech_service.transcribe_audio(audio_data)
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Speech-to-text error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -138,6 +141,8 @@ async def detect_filler_words(
             audio_timestamps=request.timestamps
         )
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Filler words detection error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -153,6 +158,8 @@ async def analyze_video_frame(
         frame_data = await video_file.read()
         result = await video_service.analyze_frame(frame_data)
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Video frame analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -164,9 +171,12 @@ async def analyze_video_frame_json(
 ):
     """Analyze a single video frame (base64 image data) for facial features and emotions"""
     try:
-        frame_data = base64.b64decode(request.frame_data)
+        encoded = request.frame_data.split(',', 1)[1] if request.frame_data.startswith('data:') else request.frame_data
+        frame_data = base64.b64decode(encoded, validate=True)
         result = await video_service.analyze_frame(frame_data)
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Video frame analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -183,6 +193,8 @@ async def analyze_eye_contact(
             duration=request.duration
         )
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Eye contact analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -199,6 +211,8 @@ async def analyze_posture(
             duration=request.duration
         )
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Posture analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -216,6 +230,8 @@ async def analyze_emotions(
             timestamp=request.timestamp
         )
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Emotion analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -230,6 +246,8 @@ async def batch_analyze_emotions(
         video_data = await video_file.read()
         result = await emotion_service.batch_analyze_video(video_data)
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Batch emotion analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -248,6 +266,8 @@ async def parse_resume(
             filename=resume_file.filename
         )
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Resume parsing error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -264,6 +284,8 @@ async def analyze_resume(
             target_role=request.target_role
         )
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Resume analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -278,6 +300,8 @@ async def generate_questions(
     try:
         result = await gemini_service.generate_interview_questions(request)
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Question generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -291,6 +315,8 @@ async def analyze_response(
     try:
         result = await gemini_service.analyze_response(request)
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Response analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -304,6 +330,8 @@ async def generate_feedback(
     try:
         result = await gemini_service.generate_feedback(request)
         return {"success": True, "data": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Feedback generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -356,6 +384,8 @@ async def comprehensive_analysis(
         })
         
         return {"success": True, "data": results}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Comprehensive analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { generationModel } from './ai/provider';
 import AdaptiveInterviewModel from '../models/AdaptiveInterview';
 import {
   IAdaptiveInterview, IAdaptiveQuestion, IPlanItem, IProctorEvent,
@@ -55,7 +56,7 @@ function callModel(prompt: string, timeoutMs = 30000): Promise<string | null> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return Promise.resolve(null);
   try {
-    const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+    const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: generationModel() });
     return model.generateContent(prompt, { timeout: timeoutMs })
       .then(r => r.response.text())
       .catch(() => null);

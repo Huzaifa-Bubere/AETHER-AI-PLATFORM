@@ -64,7 +64,7 @@ class ResumeParserService:
             
             if file_extension == 'pdf':
                 text = await self._extract_text_from_pdf(file_data)
-            elif file_extension in ['doc', 'docx']:
+            elif file_extension == 'docx':
                 text = await self._extract_text_from_docx(file_data)
             elif file_extension == 'txt':
                 text = file_data.decode('utf-8', errors='ignore')
@@ -220,7 +220,7 @@ class ResumeParserService:
             for category, skills_list in self.skills_keywords.items():
                 category_skills = []
                 for skill in skills_list:
-                    if skill.lower() in text_lower:
+                    if re.search(r'(?<!\w)' + re.escape(skill.lower()) + r'(?!\w)', text_lower):
                         category_skills.append(skill)
                 
                 if category_skills:
@@ -305,7 +305,7 @@ class ResumeParserService:
                 degree_line = self._find_line_containing(edu_section, degree)
                 if degree_line:
                     # Extract year
-                    year_pattern = r'(19|20)\d{2}'
+                    year_pattern = r'(?:19|20)\d{2}'
                     years = re.findall(year_pattern, degree_line)
                     if years:
                         edu_info["year"] = years[-1]  # Take the latest year

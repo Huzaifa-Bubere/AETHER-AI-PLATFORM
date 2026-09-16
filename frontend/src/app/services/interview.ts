@@ -1,189 +1,102 @@
 import { apiService } from './api';
-import {
-  Interview,
-  InterviewSetupForm,
-  InterviewSession,
-  Question,
-  Response,
-  InterviewAnalysis,
-  InterviewFeedback,
-  APIResponse,
-  PaginatedResponse,
-} from '../types';
+
+export interface SetupInterviewPayload {
+  role: string;
+  experienceLevel: string;
+  interviewType: string;
+  difficultyMode: string;
+  company?: string;
+  language?: string;
+  plannedQuestions?: number;
+  resumeId?: string;
+  jobDescription?: string;
+  jobRequirements?: string[];
+  settings?: {
+    duration?: number;
+    includeVideo?: boolean;
+    includeAudio?: boolean;
+  };
+}
+
+export interface ActiveQuestionData {
+  interviewId: string;
+  interactionId: string;
+  question: string;
+  intent: string;
+  topic: string;
+  difficulty: string;
+  stage: string;
+  expectedDuration: number;
+  totalAnswered: number;
+  plannedQuestions: number;
+}
+
+export interface AnswerSubmitPayload {
+  answer: string;
+  answerSource: 'voice' | 'text';
+  responseTimeSeconds?: number;
+}
+
+export interface AnswerResponseData {
+  finished: boolean;
+  interviewId?: string;
+  evaluation?: {
+    correctness: number;
+    technicalDepth: number;
+    relevance: number;
+    clarity: number;
+    communication: number;
+    overallScore: number;
+    conceptsCovered: string[];
+    conceptsMissing: string[];
+    strengths: string[];
+    weaknesses: string[];
+    feedbackSummary: string;
+    suggestedAnswerImprovement?: string;
+  };
+  decision?: {
+    action: string;
+    nextStage: string;
+    nextTopic: string;
+    nextDifficulty: string;
+    reason: string;
+  };
+  nextQuestion?: ActiveQuestionData;
+  finalAssessment?: any;
+}
 
 class InterviewService {
-  // Interview Management
-  async createInterview(setup: InterviewSetupForm): Promise<APIResponse<Interview>> {
-    return apiService.post<Interview>('/interview/create', setup);
+  async createInterview(payload: SetupInterviewPayload) {
+    return apiService.post<any>('/interview/create', payload);
   }
 
-  async startInterview(interviewId: string): Promise<APIResponse<InterviewSession>> {
-    return apiService.post<InterviewSession>(`/interview/${interviewId}/start`, {});
+  async startInterview(interviewId: string) {
+    return apiService.post<ActiveQuestionData>(`/interview/${interviewId}/start`, {});
   }
 
-  async endInterview(interviewId: string): Promise<APIResponse<Interview>> {
-    return apiService.post<Interview>(`/interview/${interviewId}/end`, {});
+  async submitAnswer(interviewId: string, payload: AnswerSubmitPayload) {
+    return apiService.post<AnswerResponseData>(`/interview/${interviewId}/answer`, payload);
   }
 
-  async getInterview(interviewId: string): Promise<APIResponse<Interview>> {
-    return apiService.get<Interview>(`/interview/${interviewId}`);
+  async endInterview(interviewId: string) {
+    return apiService.post<any>(`/interview/${interviewId}/end`, {});
   }
 
-  async getInterviewHistory(
-    page: number = 1,
-    limit: number = 10
-  ): Promise<PaginatedResponse<Interview>> {
-    return apiService.getPaginated<Interview>('/interview/history', page, limit);
+  async getInterview(interviewId: string) {
+    return apiService.get<any>(`/interview/${interviewId}`);
   }
 
-  // Question Management
-  async getNextQuestion(interviewId: string): Promise<APIResponse<Question>> {
-    return apiService.get<Question>(`/interview/${interviewId}/next-question`);
+  async getInterviewResult(interviewId: string) {
+    return apiService.get<any>(`/interview/${interviewId}/result`);
   }
 
-  async submitResponse(
-    interviewId: string,
-    questionId: string,
-    response: Partial<Response>
-  ): Promise<APIResponse<{ success: boolean }>> {
-    return apiService.post(`/interview/${interviewId}/response`, {
-      questionId,
-      ...response,
-    });
+  async getHistory(page = 1, limit = 10) {
+    return apiService.get<any>(`/interview/history/me?page=${page}&limit=${limit}`);
   }
 
-  // Real-time Analysis
-  async processVideoFrame(
-    interviewId: string,
-    frameData: string
-  ): Promise<APIResponse<{ analysis: any }>> {
-    return apiService.post(`/interview/${interviewId}/process-video`, {
-      frameData,
-    });
-  }
-
-  async processAudioChunk(
-    interviewId: string,
-    audioData: Blob
-  ): Promise<APIResponse<{ transcript: string; analysis: any }>> {
-    const formData = new FormData();
-    formData.append('audio', audioData);
-    formData.append('interviewId', interviewId);
-
-    return apiService.upload(`/interview/${interviewId}/process-audio`, formData);
-  }
-
-  // Analysis & Feedback
-  async getInterviewAnalysis(interviewId: string): Promise<APIResponse<InterviewAnalysis>> {
-    return apiService.get<InterviewAnalysis>(`/interview/${interviewId}/analysis`);
-  }
-
-  async generateFeedback(interviewId: string): Promise<APIResponse<InterviewFeedback>> {
-    return apiService.post<InterviewFeedback>(`/interview/${interviewId}/feedback`);
-  }
-
-  async getFeedback(interviewId: string): Promise<APIResponse<InterviewFeedback>> {
-    return apiService.get<InterviewFeedback>(`/interview/${interviewId}/feedback`);
-  }
-
-  // Reports
-  async generateReport(interviewId: string): Promise<APIResponse<{ reportUrl: string }>> {
-    return apiService.post<{ reportUrl: string }>(`/interview/${interviewId}/report`);
-  }
-
-  async downloadReport(interviewId: string): Promise<Blob> {
-    const response = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL}/interview/${interviewId}/report/download`,
-      {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to download report');
-    }
-
-    return response.blob();
-  }
-
-  // Coding Interview Specific
-  async submitCode(
-    interviewId: string,
-    questionId: string,
-    code: string,
-    language: string
-  ): Promise<APIResponse<{ testResults: any[] }>> {
-    return apiService.post(`/interview/${interviewId}/submit-code`, {
-      questionId,
-      code,
-      language,
-    });
-  }
-
-  async runCode(
-    interviewId: string,
-    code: string,
-    language: string,
-    testCases: any[]
-  ): Promise<APIResponse<{ results: any[] }>> {
-    return apiService.post(`/interview/${interviewId}/run-code`, {
-      code,
-      language,
-      testCases,
-    });
-  }
-
-  // Practice Mode
-  async getPracticeQuestions(
-    type: string,
-    difficulty: string,
-    count: number = 5
-  ): Promise<APIResponse<Question[]>> {
-    return apiService.get<Question[]>('/interview/practice/questions', {
-      type,
-      difficulty,
-      count,
-    });
-  }
-
-  async submitPracticeResponse(
-    questionId: string,
-    response: Partial<Response>
-  ): Promise<APIResponse<{ feedback: string; score: number }>> {
-    return apiService.post('/interview/practice/response', {
-      questionId,
-      ...response,
-    });
-  }
-
-  // Mock Interview Scheduling
-  async scheduleInterview(
-    datetime: string,
-    type: string,
-    duration: number
-  ): Promise<APIResponse<Interview>> {
-    return apiService.post<Interview>('/interview/schedule', {
-      datetime,
-      type,
-      duration,
-    });
-  }
-
-  async cancelInterview(interviewId: string): Promise<APIResponse<{ success: boolean }>> {
-    return apiService.delete(`/interview/${interviewId}`);
-  }
-
-  async rescheduleInterview(
-    interviewId: string,
-    newDatetime: string
-  ): Promise<APIResponse<Interview>> {
-    return apiService.put<Interview>(`/interview/${interviewId}/reschedule`, {
-      datetime: newDatetime,
-    });
+  async recordIntegrityEvent(interviewId: string, type: string, details?: string) {
+    return apiService.post<any>(`/interview/${interviewId}/integrity`, { type, details });
   }
 }
 
 export const interviewService = new InterviewService();
-export default interviewService;

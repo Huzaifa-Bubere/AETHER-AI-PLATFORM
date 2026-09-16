@@ -412,3 +412,13 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   animation: scaleIn 0.3s ease;
 }
+
+/* ── AETHER Coding: Monaco ↔ AST source highlight ─────────────────────────── */
+.aether-ast-highlight {
+  background: rgba(37, 99, 235, 0.12);
+  border-left: 3px solid #2563EB;
+}
+
+.aether-ast-highlight-inline {
+  background: rgba(37, 99, 235, 0.10);
+}

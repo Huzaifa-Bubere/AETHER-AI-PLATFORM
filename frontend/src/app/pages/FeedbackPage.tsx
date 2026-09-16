@@ -1,266 +1,73 @@
-import { useNavigate, useSearchParams, useParams } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Download,
   Award,
   TrendingUp,
-  Eye,
-  Volume2,
-  MessageCircle,
-  Clock,
-  CheckCircle,
-  AlertCircle,
-  Home,
-  Loader2,
   Brain,
-  Target,
-  BookOpen,
-  Tag,
-  AlignLeft,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
   ChevronDown,
   ChevronUp,
-} from "lucide-react";
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
+  RotateCcw,
+  Home,
+  FileText,
+  Briefcase,
+  Layers,
+  Sparkles,
+  BookOpen,
+  ArrowRight,
+  ShieldCheck,
+  Loader2,
+  Share2,
+} from 'lucide-react';
+import { Card } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
   ResponsiveContainer,
   RadarChart,
   Radar,
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  Cell,
-} from "recharts";
-import { apiService } from "../services/api";
-import toast from "react-hot-toast";
-
-const printStyles = `
-  @media print {
-    .no-print { display: none !important; }
-    @page { margin: 0.75cm; size: A4 portrait; }
-    body { print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
-    .print-section { page-break-inside: avoid; margin-bottom: 20px; break-inside: avoid; }
-    svg { max-width: 100% !important; height: auto !important; }
-    .print-container { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
-    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    h1, h2, h3, h4, h5, h6, p, span, div, li { color: #000 !important; opacity: 1 !important; }
-    .bg-card, [class*="bg-"] { background-color: #ffffff !important; border: 1px solid #e5e7eb !important; }
-    .border, [class*="border-"] { border-color: #d1d5db !important; }
-    .gradient-text { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; background-clip: text !important; }
-    .min-h-screen { min-height: auto !important; }
-    .max-w-7xl { max-width: 100% !important; }
-    .overflow-hidden { overflow: visible !important; }
-    .container { width: 100% !important; max-width: 100% !important; }
-    .space-y-8 > * + * { margin-top: 1.5rem !important; }
-    .p-6, .p-4 { padding: 1rem !important; }
-    .text-4xl { font-size: 2rem !important; line-height: 1.2 !important; }
-    .lg\\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-    .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-    .bg-secondary { background-color: #f3f4f6 !important; border: 1px solid #e5e7eb !important; }
-  }
-`;
-
-// Helper: always show number with 2 decimal places
-const f2 = (n: number) => Number(n).toFixed(2);
-
-// Collapsible Q&A card component
-function QuestionCard({
-  question,
-  response,
-  index,
-}: {
-  question: any;
-  response: any;
-  index: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const answered =
-    response?.answer && !response.answer.toLowerCase().startsWith("sorry");
-  const duration = response?.duration || 0;
-
-  return (
-    <div className="border border-border rounded-xl overflow-hidden print-section">
-      {/* Header - always visible */}
-      <div
-        className="flex items-start justify-between gap-4 p-4 cursor-pointer hover:bg-secondary/40 transition-colors no-print"
-        onClick={() => setOpen(!open)}
-      >
-        <div className="flex items-start gap-3 flex-1">
-          <div
-            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${answered ? "bg-indigo-500/20 text-indigo-400" : "bg-red-500/20 text-red-400"}`}
-          >
-            {index + 1}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium line-clamp-2">{question.text}</p>
-            <div className="flex items-center gap-3 mt-1">
-              <span
-                className={`text-xs px-2 py-0.5 rounded-full ${
-                  question.difficulty === "easy"
-                    ? "bg-green-500/20 text-green-400"
-                    : question.difficulty === "medium"
-                      ? "bg-yellow-500/20 text-yellow-400"
-                      : "bg-red-500/20 text-red-400"
-                }`}
-              >
-                {question.difficulty}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {question.category}
-              </span>
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                {duration}s answered
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span
-            className={`text-xs px-2 py-0.5 rounded ${answered ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}
-          >
-            {answered ? "Attempted" : "Skipped"}
-          </span>
-          {open ? (
-            <ChevronUp className="w-4 h-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
-          )}
-        </div>
-      </div>
-
-      {/* Print version — always show full content */}
-      <div className="hidden print:block p-4 border-t border-border">
-        <p className="text-sm font-medium mb-2">{question.text}</p>
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">
-            {question.difficulty}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {question.category}
-          </span>
-          <span className="text-xs text-muted-foreground">{duration}s</span>
-        </div>
-        <div className="bg-secondary/60 rounded-lg p-3">
-          <p className="text-xs font-medium text-muted-foreground mb-1">
-            Your Answer
-          </p>
-          <p className="text-sm">{response?.answer || "No answer provided"}</p>
-        </div>
-      </div>
-
-      {/* Expandable body */}
-      {open && (
-        <div className="border-t border-border p-4 space-y-4 no-print">
-          {/* Candidate answer */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              Your Answer
-            </p>
-            <div className="bg-secondary/60 rounded-lg p-3">
-              <p className="text-sm leading-relaxed">
-                {response?.answer || "No answer recorded."}
-              </p>
-            </div>
-          </div>
-
-          {/* Follow-up questions */}
-          {question.followUpQuestions?.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                Follow-up Questions
-              </p>
-              <ul className="space-y-1">
-                {question.followUpQuestions.map((fq: string, i: number) => (
-                  <li
-                    key={i}
-                    className="text-sm text-muted-foreground flex items-start gap-2"
-                  >
-                    <span className="text-indigo-400 shrink-0">→</span>
-                    {fq}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  LineChart,
+  Line,
+} from 'recharts';
+import { interviewService } from '../services/interview';
+import toast from 'react-hot-toast';
 
 export function FeedbackPage() {
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const { id: paramId } = useParams();
-  const interviewId = paramId || searchParams.get("id");
 
   const [loading, setLoading] = useState(true);
-  const [feedbackData, setFeedbackData] = useState<any>(null);
-  const [interviewData, setInterviewData] = useState<any>(null);
+  const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
+  const [expandedQuestion, setExpandedQuestion] = useState<number | null>(0);
 
   useEffect(() => {
-    if (interviewId) fetchFeedback();
-    else {
-      setError("No interview ID provided");
-      setLoading(false);
+    if (id) {
+      fetchAssessment(id);
     }
-  }, [interviewId]);
+  }, [id]);
 
-  const fetchFeedback = async () => {
-    setLoading(true);
+  const fetchAssessment = async (interviewId: string) => {
     try {
-      const interviewResponse = await apiService.get(
-        `/interview/${interviewId}`,
-      );
-
-      if (interviewResponse.success && interviewResponse.data) {
-        const iData = interviewResponse.data as any;
-        setInterviewData(iData);
-
-        // If interview is still in-progress, end it first
-        if (iData.status === "in-progress") {
-          await apiService.post(`/interview/${interviewId}/end`, {});
-          // Re-fetch to get updated data
-          const refreshed = await apiService.get(`/interview/${interviewId}`);
-          if (refreshed.success && refreshed.data)
-            setInterviewData(refreshed.data);
-        }
-      } else throw new Error("Failed to load interview data");
-
-      const feedbackResponse = await apiService.get(
-        `/interview/${interviewId}/feedback`,
-      );
-      if (feedbackResponse.success && feedbackResponse.data) {
-        setFeedbackData(feedbackResponse.data);
+      setLoading(true);
+      const res = await interviewService.getInterviewResult(interviewId);
+      if (res.success && res.data) {
+        setData(res.data);
       } else {
-        setIsGeneratingFeedback(true);
-        const generateResponse = await apiService.post(
-          `/interview/${interviewId}/feedback`,
-          {},
-          { timeout: 90000 },
-        );
-        setIsGeneratingFeedback(false);
-        if (generateResponse.success && generateResponse.data)
-          setFeedbackData(generateResponse.data);
-        else
-          throw new Error(
-            generateResponse.error || "Failed to generate feedback",
-          );
+        setError(res.message || 'Failed to load assessment report.');
       }
-      setError(null);
-    } catch (error: any) {
-      setIsGeneratingFeedback(false);
-      setError(error.message || "Failed to load feedback");
-      toast.error("Failed to load feedback");
+    } catch (err: any) {
+      setError(err.message || 'Failed to load assessment report.');
     } finally {
       setLoading(false);
     }
@@ -268,575 +75,442 @@ export function FeedbackPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen py-20 px-4 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 text-primary animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">
-            {isGeneratingFeedback
-              ? "Generating your feedback, this may take a moment..."
-              : "Loading feedback..."}
-          </p>
-        </div>
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-200">
+        <Loader2 className="w-10 h-10 animate-spin text-indigo-500 mb-4" />
+        <h2 className="text-xl font-bold">Synthesizing Explainable AI Report...</h2>
+        <p className="text-slate-400 text-sm mt-1">Analyzing candidate answers and evidence references</p>
       </div>
     );
   }
 
-  if (error || !feedbackData) {
+  if (error || !data) {
     return (
-      <div className="min-h-screen py-20 px-4 flex items-center justify-center">
-        <Card className="max-w-md w-full p-6 text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Error Loading Feedback</h2>
-          <p className="text-muted-foreground mb-4">
-            {error || "Feedback not available"}
-          </p>
-          <div className="flex gap-2 justify-center">
-            <Button onClick={fetchFeedback} variant="outline">
-              Retry
-            </Button>
-            <Button onClick={() => navigate("/dashboard")} variant="default">
-              Back to Dashboard
-            </Button>
-          </div>
-        </Card>
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-center">
+        <AlertCircle className="w-12 h-12 text-rose-500 mb-3" />
+        <h2 className="text-2xl font-bold text-white mb-2">Report Unavailable</h2>
+        <p className="text-slate-400 text-sm max-w-md mb-6">{error || 'Could not locate interview assessment data.'}</p>
+        <Button onClick={() => navigate('/dashboard')} className="bg-indigo-600 hover:bg-indigo-500">
+          Return to Dashboard
+        </Button>
       </div>
     );
   }
 
-  // ── Data extraction ──────────────────────────────────────────────────────────
-  const overallScore =
-    feedbackData.overallRating ?? interviewData?.analysis?.overallScore ?? 0;
-
-  const contentMetrics = interviewData?.analysis?.contentMetrics || {};
-  const communicationClarity = contentMetrics.communicationClarity ?? 0;
-  const relevanceScore = contentMetrics.relevanceScore ?? 0;
-  const structureScore = contentMetrics.structureScore ?? 0;
-  const technicalAccuracy = contentMetrics.technicalAccuracy ?? 0;
-  const keywordMatches: string[] = contentMetrics.keywordMatches || [];
-
-  const questions: any[] = interviewData?.questions || [];
-  const responses: any[] = interviewData?.responses || [];
-  console.log(feedbackData);
-
-  const strengths = feedbackData.strengths || [];
-  const improvements = feedbackData.improvements || [];
-  const nextSteps = feedbackData.nextSteps || [];
-  const skillAssessment = feedbackData.skillAssessment || [];
-  const recommendations = (feedbackData.recommendations || []).map(
-    (rec: any, i: number) =>
-      typeof rec === "string"
-        ? {
-            title: rec,
-            description: rec,
-            priority: i === 0 ? "high" : "medium",
-          }
-        : rec,
-  );
-  const detailedFeedback: string = feedbackData.detailedFeedback || "";
-
-  const categoryScores = [
-    {
-      category: "Communication",
-      score: communicationClarity,
-      color: "#6366f1",
-    },
-    { category: "Relevance", score: relevanceScore, color: "#8b5cf6" },
-    { category: "Structure", score: structureScore, color: "#ec4899" },
-    { category: "Technical", score: technicalAccuracy, color: "#f59e0b" },
-  ];
+  const assessment = data.finalAssessment || {};
+  const interview = data.interview || {};
+  const interactions = data.interactions || [];
+  const difficultyProgression = data.difficultyProgression || [];
 
   const radarData = [
-    { subject: "Communication", value: communicationClarity },
-    { subject: "Relevance", value: relevanceScore },
-    { subject: "Structure", value: structureScore },
-    { subject: "Technical", value: technicalAccuracy },
+    { subject: 'Technical Depth', score: assessment.technicalScore ?? 75, fullMark: 100 },
+    { subject: 'Communication', score: assessment.communicationScore ?? 70, fullMark: 100 },
+    { subject: 'Problem Solving', score: assessment.problemSolvingScore ?? 80, fullMark: 100 },
+    { subject: 'Role Readiness', score: assessment.roleReadinessScore ?? 75, fullMark: 100 },
   ];
 
-  const attemptedCount = responses.filter(
-    (r) => r.answer && !r.answer.toLowerCase().startsWith("sorry"),
-  ).length;
-  const avgDuration = responses.length
-    ? Math.round(
-        responses.reduce((sum, r) => sum + (r.duration || 0), 0) /
-          responses.length,
-      )
-    : 0;
+  const topicChartData = (assessment.topicScores || []).map((t: any) => ({
+    topic: t.topic?.length > 18 ? t.topic.slice(0, 16) + '…' : t.topic,
+    score: t.score,
+  }));
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  const progressionChartData = difficultyProgression.map((p: any, idx: number) => ({
+    step: `Q${idx + 1}`,
+    score: p.score,
+    difficulty: p.difficulty,
+  }));
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-emerald-400';
+    if (score >= 60) return 'text-amber-400';
+    return 'text-rose-400';
+  };
+
+  const getScoreBadgeBg = (score: number) => {
+    if (score >= 80) return 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400';
+    if (score >= 60) return 'bg-amber-500/10 border-amber-500/20 text-amber-400';
+    return 'bg-rose-500/10 border-rose-500/20 text-rose-400';
+  };
+
   return (
-    <>
-      <style>{printStyles}</style>
-      <div className="min-h-screen py-20 px-4 print-container">
-        <div className="max-w-7xl mx-auto space-y-8">
-          {/* ── Header ── */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 print-section">
-            <div>
-              <h1 className="text-4xl gradient-text mb-2">
-                Interview Feedback Report
-              </h1>
-              <p className="text-muted-foreground">
-                {interviewData?.type || "Technical"} Round &nbsp;•&nbsp;
-                {interviewData?.createdAt
-                  ? new Date(interviewData.createdAt).toLocaleDateString()
-                  : "Recent"}{" "}
-                &nbsp;•&nbsp; Role:{" "}
-                {interviewData?.settings?.role || "Software Developer"}{" "}
-                &nbsp;•&nbsp; Difficulty:{" "}
-                {interviewData?.settings?.difficulty || "easy"} &nbsp;•&nbsp;
-                Duration: {interviewData?.session?.actualDuration || 0} min
-              </p>
+    <div className="min-h-screen bg-slate-950 text-slate-100 py-12 px-4 sm:px-6 lg:px-8 font-sans">
+      <div className="max-w-6xl mx-auto space-y-8">
+
+        {/* ── Header ── */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-slate-800">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mb-2">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Explainable AI Assessment & Career Intelligence</span>
             </div>
-            <div className="flex gap-3 no-print">
-              <Button variant="outline" onClick={() => navigate("/dashboard")}>
-                <Home className="mr-2 w-4 h-4" />
-                Dashboard
-              </Button>
-              <Button
-                variant="default"
-                onClick={() => window.print()}
-                className="shadow-lg shadow-primary/50"
-              >
-                <Download className="mr-2 w-4 h-4" />
-                Download PDF
-              </Button>
-            </div>
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+              Mock Interview Performance Report
+            </h1>
+            <p className="text-sm text-slate-400 mt-1">
+              Role: <strong className="text-slate-200">{interview.role}</strong> · Type: <strong className="text-slate-200 capitalize">{interview.type}</strong> · Duration: {interview.durationMinutes || 15}m
+            </p>
           </div>
 
-          {/* ── Overall Score ── */}
-          <Card className="text-center shadow-lg shadow-primary/10 print-section p-6">
-            <div className="flex flex-col md:flex-row items-center justify-around gap-8">
-              <div>
-                <h2 className="text-lg text-muted-foreground mb-4">
-                  Overall Performance
-                </h2>
-                <div className="relative inline-block">
-                  <svg className="w-48 h-48 transform -rotate-90">
-                    <circle
-                      cx="96"
-                      cy="96"
-                      r="80"
-                      stroke="rgba(99,102,241,0.2)"
-                      strokeWidth="16"
-                      fill="none"
-                    />
-                    <circle
-                      cx="96"
-                      cy="96"
-                      r="80"
-                      stroke="url(#gradient)"
-                      strokeWidth="16"
-                      fill="none"
-                      strokeDasharray={`${(overallScore / 100) * 502} 502`}
-                      strokeLinecap="round"
-                    />
-                    <defs>
-                      <linearGradient
-                        id="gradient"
-                        x1="0%"
-                        y1="0%"
-                        x2="100%"
-                        y2="100%"
-                      >
-                        <stop offset="0%" stopColor="#6366f1" />
-                        <stop offset="50%" stopColor="#8b5cf6" />
-                        <stop offset="100%" stopColor="#ec4899" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center">
-                      {/* Overall score with 2 decimal places */}
-                      <div className="text-5xl gradient-text">
-                        {f2(overallScore)}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        out of 100
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              onClick={() => navigate('/interview-setup')}
+              className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 text-xs"
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Practice Again
+            </Button>
+            <Button
+              onClick={() => navigate('/dashboard')}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/20"
+            >
+              <Home className="w-3.5 h-3.5 mr-1.5" /> Dashboard
+            </Button>
+          </div>
+        </div>
 
-              <div className="grid grid-cols-2 gap-4 flex-1">
-                <Card className="text-center p-6">
-                  <Award className="w-8 h-8 text-green-400 mx-auto mb-2" />
-                  <p className="text-2xl gradient-text">
-                    {overallScore >= 90
-                      ? "A+"
-                      : overallScore >= 80
-                        ? "A"
-                        : overallScore >= 70
-                          ? "B"
-                          : overallScore >= 60
-                            ? "C"
-                            : "D"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Grade</p>
-                </Card>
-                <Card className="text-center p-6">
-                  <TrendingUp className="w-8 h-8 text-blue-400 mx-auto mb-2" />
-                  <p className="text-2xl gradient-text">
-                    {feedbackData?.improvement
-                      ? `${f2(feedbackData.improvement)}%`
-                      : "0.00%"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    vs Last Interview
-                  </p>
-                </Card>
-                <Card className="text-center p-6">
-                  <CheckCircle className="w-8 h-8 text-purple-400 mx-auto mb-2" />
-                  <p className="text-2xl gradient-text">
-                    {attemptedCount}/{questions.length}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Questions Attempted
-                  </p>
-                </Card>
-                <Card className="text-center p-6">
-                  <Clock className="w-8 h-8 text-pink-400 mx-auto mb-2" />
-                  <p className="text-2xl gradient-text">
-                    {interviewData?.session?.actualDuration || 0}m
-                  </p>
-                  <p className="text-sm text-muted-foreground">Duration</p>
-                </Card>
-              </div>
+        {/* ── Key Scores Grid ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+          <Card className="p-5 bg-gradient-to-br from-indigo-950/60 to-slate-900 border-indigo-500/30 text-center rounded-2xl col-span-2 lg:col-span-1 shadow-lg">
+            <div className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1">Overall Score</div>
+            <div className={`text-5xl font-black ${getScoreColor(assessment.overallScore || 0)}`}>
+              {assessment.overallScore || 0}
+            </div>
+            <div className="text-xs text-slate-400 mt-1.5">Out of 100 points</div>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/80 border-slate-800 rounded-2xl flex flex-col justify-between">
+            <span className="text-xs font-semibold text-slate-400">Technical Depth</span>
+            <div className={`text-3xl font-bold ${getScoreColor(assessment.technicalScore || 0)}`}>
+              {assessment.technicalScore || 0}%
+            </div>
+            <span className="text-[11px] text-slate-500">Core engineering accuracy</span>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/80 border-slate-800 rounded-2xl flex flex-col justify-between">
+            <span className="text-xs font-semibold text-slate-400">Communication</span>
+            <div className={`text-3xl font-bold ${getScoreColor(assessment.communicationScore || 0)}`}>
+              {assessment.communicationScore || 0}%
+            </div>
+            <span className="text-[11px] text-slate-500">Clarity & articulation</span>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/80 border-slate-800 rounded-2xl flex flex-col justify-between">
+            <span className="text-xs font-semibold text-slate-400">Problem Solving</span>
+            <div className={`text-3xl font-bold ${getScoreColor(assessment.problemSolvingScore || 0)}`}>
+              {assessment.problemSolvingScore || 0}%
+            </div>
+            <span className="text-[11px] text-slate-500">Trade-offs & structure</span>
+          </Card>
+
+          <Card className="p-4 bg-slate-900/80 border-slate-800 rounded-2xl flex flex-col justify-between">
+            <span className="text-xs font-semibold text-slate-400">Role Readiness</span>
+            <div className={`text-3xl font-bold ${getScoreColor(assessment.roleReadinessScore || 0)}`}>
+              {assessment.roleReadinessScore || 0}%
+            </div>
+            <span className="text-[11px] text-slate-500">Placement alignment</span>
+          </Card>
+        </div>
+
+        {/* ── Visual Analytics Section: Radar & Topic Charts ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+          {/* Radar Chart: Core Competencies */}
+          <Card className="p-6 bg-slate-900/80 border-slate-800 rounded-2xl shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Brain className="w-4 h-4 text-indigo-400" />
+                Competency Radar Profile
+              </h3>
+              <span className="text-xs text-slate-400">Benchmark: 100</span>
+            </div>
+
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={radarData}>
+                  <PolarGrid stroke="#334155" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                  <Radar name="Candidate" dataKey="score" stroke="#6366f1" fill="#6366f1" fillOpacity={0.4} />
+                </RadarChart>
+              </ResponsiveContainer>
             </div>
           </Card>
 
-          {/* ── Content Metrics ── */}
-          <div className="print-section">
-            <h3 className="text-xl mb-4 flex items-center gap-2">
-              <Brain className="w-5 h-5 text-primary" />
-              Content Metrics
-            </h3>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                {
-                  label: "Communication Clarity",
-                  value: communicationClarity,
-                  color: "text-indigo-400",
-                  bg: "bg-indigo-500/10",
-                },
-                {
-                  label: "Relevance Score",
-                  value: relevanceScore,
-                  color: "text-purple-400",
-                  bg: "bg-purple-500/10",
-                },
-                {
-                  label: "Structure Score",
-                  value: structureScore,
-                  color: "text-pink-400",
-                  bg: "bg-pink-500/10",
-                },
-                {
-                  label: "Technical Accuracy",
-                  value: technicalAccuracy,
-                  color: "text-amber-400",
-                  bg: "bg-amber-500/10",
-                },
-              ].map(({ label, value, color, bg }) => (
-                <Card key={label} className={`p-5 ${bg} border-0`}>
-                  {/* Score with 2 decimal places */}
-                  <p className={`text-3xl font-bold ${color} mb-1`}>
-                    {f2(value)}
-                    <span className="text-lg text-muted-foreground">/100</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground">{label}</p>
-                  <div className="mt-3 h-1.5 rounded-full bg-border overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${color.replace("text-", "bg-")}`}
-                      style={{ width: `${value}%` }}
+          {/* Bar Chart: Topic Scores */}
+          <Card className="p-6 bg-slate-900/80 border-slate-800 rounded-2xl shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-indigo-400" />
+                Topic Performance Breakdown
+              </h3>
+              <span className="text-xs text-slate-400">Score per Domain</span>
+            </div>
+
+            <div className="h-64 w-full">
+              {topicChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topicChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="topic" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: 8, fontSize: 12 }}
                     />
+                    <Bar dataKey="score" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                  Topic breakdown generated upon multiple topic coverage
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {/* ── Difficulty Progression Timeline ── */}
+        {progressionChartData.length > 1 && (
+          <Card className="p-6 bg-slate-900/80 border-slate-800 rounded-2xl shadow-xl space-y-3">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-indigo-400" />
+              Adaptive Difficulty & Score Progression
+            </h3>
+            <p className="text-xs text-slate-400">
+              Shows how the Adaptive Engine adjusted question complexity in response to your answer accuracy.
+            </p>
+            <div className="h-44 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={progressionChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="step" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: 8, fontSize: 12 }}
+                  />
+                  <Line type="monotone" dataKey="score" stroke="#10b981" strokeWidth={2} dot={{ r: 4, fill: '#10b981' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        )}
+
+        {/* ── Explainable AI Justification ── */}
+        {assessment.explainableEvidence && assessment.explainableEvidence.length > 0 && (
+          <Card className="p-6 bg-slate-900/80 border-slate-800 rounded-2xl shadow-xl space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+              <ShieldCheck className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-base font-bold text-white">Explainable AI Evidence Justifications</h3>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              {assessment.explainableEvidence.map((ev: any, idx: number) => (
+                <div key={idx} className="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-300">
+                      {ev.dimension}
+                    </span>
+                    <span className="text-xs font-extrabold text-white px-2 py-0.5 rounded bg-slate-800">
+                      {ev.score}/100
+                    </span>
                   </div>
-                </Card>
+                  <ul className="space-y-1 text-xs text-slate-400">
+                    {(ev.justification || []).map((j: string, jIdx: number) => (
+                      <li key={jIdx} className="flex items-start gap-1.5">
+                        <span className="text-indigo-500 font-bold">•</span>
+                        <span>{j}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
             </div>
-          </div>
+          </Card>
+        )}
 
-          {/* ── Charts ── */}
-          <div className="grid lg:grid-cols-2 gap-8 print-section">
-            <Card className="p-6">
-              <h3 className="text-xl mb-6">Category Scores</h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={categoryScores}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(99,102,241,0.1)"
-                  />
-                  <XAxis
-                    dataKey="category"
-                    tick={{ fill: "#a1aaa5", fontSize: 12 }}
-                  />
-                  <YAxis
-                    tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                    domain={[0, 100]}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#f0b70d",
-                      border: "1px solid rgba(99,102,241,0.3)",
-                      borderRadius: "8px",
-                    }}
-                    formatter={(value: any) => [f2(value), "Score"]}
-                  />
-                  <Bar dataKey="score" radius={[8, 8, 0, 0]}>
-                    {categoryScores.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </Card>
+        {/* ── Strengths, Weaknesses, Roadmap & Recommendations ── */}
+        <div className="grid sm:grid-cols-2 gap-6">
 
-            <Card className="p-6">
-              <h3 className="text-xl mb-6">Performance Radar</h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="rgba(99,102,241,0.2)" />
-                  <PolarAngleAxis
-                    dataKey="subject"
-                    tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                  />
-                  <PolarRadiusAxis
-                    angle={30}
-                    domain={[0, 100]}
-                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                    tickFormatter={(v) => f2(v)}
-                  />
-                  <Radar
-                    name="Score"
-                    dataKey="value"
-                    stroke="#8b5cf6"
-                    fill="#8b5cf6"
-                    fillOpacity={0.3}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            </Card>
-          </div>
+          {/* Strengths */}
+          <Card className="p-6 bg-slate-900/80 border-slate-800 rounded-2xl space-y-3">
+            <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4" />
+              Observed Strengths
+            </h3>
+            <ul className="space-y-2 text-xs sm:text-sm text-slate-300">
+              {(assessment.strengths || ['Strong technical vocabulary', 'Well-structured thoughts']).map((s: string, idx: number) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-2 shrink-0" />
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
 
-          {/* ── Keyword Matches ── */}
-          {keywordMatches.length > 0 && (
-            <Card className="p-6 print-section">
-              <div className="flex items-center gap-2 mb-4">
-                <Tag className="w-5 h-5 text-primary" />
-                <h3 className="text-xl">Keyword Analysis</h3>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {keywordMatches.map((kw, i) => {
-                  const isMissing =
-                    kw.toLowerCase().includes("none") ||
-                    kw.toLowerCase().includes("no technical");
-                  return (
-                    <span
-                      key={i}
-                      className={`px-3 py-1.5 rounded-full text-sm ${isMissing ? "bg-red-500/15 text-red-400 border border-red-500/30" : "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30"}`}
-                    >
-                      {kw}
-                    </span>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
+          {/* Areas for Improvement & Gaps */}
+          <Card className="p-6 bg-slate-900/80 border-slate-800 rounded-2xl space-y-3">
+            <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              Areas to Improve & Skill Gaps
+            </h3>
+            <ul className="space-y-2 text-xs sm:text-sm text-slate-300">
+              {(assessment.weaknesses || ['Provide deeper trade-off discussions']).map((w: string, idx: number) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-2 shrink-0" />
+                  <span>{w}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
 
-          {/* ── Question-by-Question Breakdown ── */}
-          <div className="print-section">
-            <div className="flex items-center gap-2 mb-4">
-              <BookOpen className="w-5 h-5 text-primary" />
-              <h3 className="text-xl">Question-by-Question Breakdown</h3>
-              <span className="ml-auto text-sm text-muted-foreground">
-                {attemptedCount}/{questions.length} answered &nbsp;• avg{" "}
-                {avgDuration}s per answer
-              </span>
-            </div>
-            <div className="space-y-3">
-              {questions.map((q, i) => {
-                const resp =
-                  responses.find((r) => r.questionId === q.id) || responses[i];
-                return (
-                  <QuestionCard
-                    key={q.id || i}
-                    question={q}
-                    response={resp}
-                    index={i}
-                  />
-                );
-              })}
-            </div>
-          </div>
+          {/* Recommended Practice */}
+          <Card className="p-6 bg-slate-900/80 border-slate-800 rounded-2xl space-y-3">
+            <h3 className="text-sm font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+              <BookOpen className="w-4 h-4" />
+              Personalized Practice Roadmap
+            </h3>
+            <ul className="space-y-2 text-xs sm:text-sm text-slate-300">
+              {(assessment.recommendedPractice || ['Focus on system architecture concepts']).map((p: string, idx: number) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-2 shrink-0" />
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
 
-          {/* ── Strengths & Improvements ── */}
-          <div className="grid lg:grid-cols-2 gap-8 print-section">
-            <Card className="p-6">
-              <div className="flex items-center gap-2 mb-6">
-                <CheckCircle className="w-5 h-5 text-green-400" />
-                <h3 className="text-xl">Key Strengths</h3>
-              </div>
-              <ul className="space-y-3">
-                {strengths.map((s: string, i: number) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <div className="w-6 h-6 bg-green-500/20 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                      <CheckCircle className="w-4 h-4 text-green-400" />
-                    </div>
-                    <span className="text-muted-foreground">{s}</span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
+          {/* Career Recommendations */}
+          <Card className="p-6 bg-slate-900/80 border-slate-800 rounded-2xl space-y-3">
+            <h3 className="text-sm font-bold text-pink-400 uppercase tracking-wider flex items-center gap-2">
+              <Briefcase className="w-4 h-4" />
+              Placement & Career Recommendations
+            </h3>
+            <ul className="space-y-2 text-xs sm:text-sm text-slate-300">
+              {(assessment.careerRecommendations || ['Target software engineer openings']).map((c: string, idx: number) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-pink-500 mt-2 shrink-0" />
+                  <span>{c}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </div>
 
-            <Card className="p-6">
-              <div className="flex items-center gap-2 mb-6">
-                <AlertCircle className="w-5 h-5 text-yellow-400" />
-                <h3 className="text-xl">Areas for Improvement</h3>
-              </div>
-              <ul className="space-y-3">
-                {improvements.map((imp: string, i: number) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <div className="w-6 h-6 bg-yellow-500/20 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                      <AlertCircle className="w-4 h-4 text-yellow-400" />
-                    </div>
-                    <span className="text-muted-foreground">{imp}</span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          </div>
+        {/* ── Executive Summary ── */}
+        {assessment.summary && (
+          <Card className="p-6 bg-slate-900/70 border-slate-800 rounded-2xl space-y-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Evaluator Executive Summary
+            </h3>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              {assessment.summary}
+            </p>
+          </Card>
+        )}
 
-          {/* ── Detailed Feedback ── */}
-          {detailedFeedback && (
-            <Card className="p-6 print-section">
-              <div className="flex items-center gap-2 mb-4">
-                <AlignLeft className="w-5 h-5 text-primary" />
-                <h3 className="text-xl">Detailed Feedback</h3>
-              </div>
-              <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
-                {detailedFeedback}
-              </p>
-            </Card>
-          )}
+        {/* ── Collapsible Question-by-Question Deep Dive ── */}
+        <div className="space-y-4">
+          <h3 className="text-xl font-bold text-white flex items-center gap-2">
+            <FileText className="w-5 h-5 text-indigo-400" />
+            Detailed Question-by-Question Review ({interactions.length} Interactions)
+          </h3>
 
-          {/* ── Recommendations ── */}
-          {recommendations.length > 0 && (
-            <Card className="p-6 print-section">
-              <div className="flex items-center gap-2 mb-6">
-                <Target className="w-5 h-5 text-primary" />
-                <h3 className="text-xl">Personalized Recommendations</h3>
-              </div>
-              <div className="grid md:grid-cols-2 gap-4">
-                {recommendations.map((rec: any, i: number) => (
-                  <div key={i} className="p-4 bg-secondary rounded-lg">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs shrink-0 ${
-                          rec.priority === "high"
-                            ? "bg-red-500/20 text-red-400"
-                            : rec.priority === "medium"
-                              ? "bg-yellow-500/20 text-yellow-400"
-                              : "bg-blue-500/20 text-blue-400"
-                        }`}
-                      >
-                        {rec.priority}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {rec.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
+          <div className="space-y-3">
+            {interactions.map((item: any, idx: number) => {
+              const isExpanded = expandedQuestion === idx;
+              const evalData = item.evaluation || {};
+              const score = evalData.overallScore ?? 70;
 
-          {/* ── Next Steps ── */}
-          {nextSteps.length > 0 && (
-            <Card className="p-6 print-section">
-              <div className="flex items-center gap-2 mb-6">
-                <Target className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-xl">Next Steps</h3>
-              </div>
-
-              <div className="space-y-3">
-                {nextSteps.map((step: string, i: number) => (
-                  <div
-                    key={i}
-                    className="p-4 bg-secondary rounded-lg border border-border"
+              return (
+                <Card
+                  key={idx}
+                  className="bg-slate-900/80 border-slate-800 rounded-xl overflow-hidden transition-all"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedQuestion(isExpanded ? null : idx)}
+                    className="w-full p-4 text-left flex items-start justify-between gap-4 hover:bg-slate-800/40 transition-colors"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xs font-bold shrink-0">
-                        {i + 1}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-indigo-400">
+                          Q{idx + 1}
+                        </span>
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                          {item.stage}
+                        </span>
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                          {item.topic}
+                        </span>
+                      </div>
+                      <div className="text-sm font-semibold text-slate-100">
+                        {item.question}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full border ${getScoreBadgeBg(score)}`}>
+                        {score}/100
+                      </span>
+                      {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="p-5 border-t border-slate-800/80 bg-slate-950/40 space-y-4 text-xs sm:text-sm">
+                      {/* Candidate Answer */}
+                      <div>
+                        <div className="font-semibold text-slate-400 mb-1">Your Response:</div>
+                        <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 text-slate-200 leading-relaxed font-sans">
+                          {item.answer || '(No answer was provided for this question)'}
+                        </div>
                       </div>
 
-                      <p className="text-sm text-muted-foreground">{step}</p>
+                      {/* Concepts Breakdown */}
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/20">
+                          <span className="font-bold text-emerald-400 text-xs block mb-1">Concepts Covered:</span>
+                          <span className="text-slate-300 text-xs">
+                            {evalData.conceptsCovered?.length > 0
+                              ? evalData.conceptsCovered.join(', ')
+                              : 'None specifically identified'}
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-xl bg-rose-950/20 border border-rose-500/20">
+                          <span className="font-bold text-rose-400 text-xs block mb-1">Concepts Missed / Under-explained:</span>
+                          <span className="text-slate-300 text-xs">
+                            {evalData.conceptsMissing?.length > 0
+                              ? evalData.conceptsMissing.join(', ')
+                              : 'None missed'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* AI Evaluation */}
+                      {evalData.feedbackSummary && (
+                        <div>
+                          <div className="font-semibold text-indigo-400 mb-1">AI Evaluator Feedback:</div>
+                          <p className="text-slate-300 leading-relaxed bg-indigo-950/20 p-3 rounded-xl border border-indigo-500/20">
+                            {evalData.feedbackSummary}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Suggested Better Answer */}
+                      {evalData.suggestedAnswerImprovement && (
+                        <div>
+                          <div className="font-semibold text-emerald-400 mb-1">Suggested Model Answer:</div>
+                          <p className="text-slate-300 leading-relaxed bg-slate-900/90 p-3 rounded-xl border border-slate-800 font-mono text-xs">
+                            {evalData.suggestedAnswerImprovement}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-
-          {/* ── Skill Assessment ── */}
-          {skillAssessment.length > 0 && (
-            <Card className="p-6 print-section">
-              <div className="flex items-center gap-2 mb-6">
-                <Brain className="w-5 h-5 text-purple-400" />
-                <h3 className="text-xl">Skill Assessment</h3>
-              </div>
-
-              <div className="space-y-4">
-                {skillAssessment.map((skill: any, i: number) => (
-                  <div
-                    key={i}
-                    className="p-4 rounded-lg bg-secondary border border-border"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-medium">{skill.skill}</h4>
-
-                      <span className="text-sm text-muted-foreground">
-                        {skill.currentLevel || 0}/100
-                      </span>
-                    </div>
-
-                    <div className="w-full h-2 rounded-full bg-border overflow-hidden mb-3">
-                      <div
-                        className="h-full bg-purple-500 rounded-full"
-                        style={{
-                          width: `${skill.currentLevel || 0}%`,
-                        }}
-                      />
-                    </div>
-
-                    <p className="text-sm text-muted-foreground">
-                      {skill.feedback}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-
-          {/* ── Action Buttons ── */}
-          <div className="flex flex-col sm:flex-row gap-4 justify-center no-print">
-            <Button
-              variant="default"
-              size="lg"
-              onClick={() => navigate("/interview-setup")}
-              className="shadow-lg shadow-primary/50"
-            >
-              Start Another Interview
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => navigate("/dashboard")}
-            >
-              Back to Dashboard
-            </Button>
+                  )}
+                </Card>
+              );
+            })}
           </div>
         </div>
+
       </div>
-    </>
+    </div>
   );
 }

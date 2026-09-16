@@ -54,9 +54,19 @@ class APIService {
     }
   }
 
-  async upload<T>(url: string, formData: FormData): Promise<APIResponse<T>> {
+  async getBlob(url: string): Promise<Blob> {
+    return (await this.api.get<Blob>(url, { responseType: 'blob' })).data;
+  }
+
+  async patch<T>(url: string, data?: any): Promise<APIResponse<T>> {
+    try { return (await this.api.patch<APIResponse<T>>(url, data)).data; }
+    catch (error: any) { return this.handleError(error); }
+  }
+
+  async upload<T>(url: string, formData: FormData, timeout = 60000): Promise<APIResponse<T>> {
     try {
       const response: AxiosResponse<APIResponse<T>> = await this.api.post(url, formData, {
+        timeout,
         headers: {
           'Content-Type': 'multipart/form-data',
         },

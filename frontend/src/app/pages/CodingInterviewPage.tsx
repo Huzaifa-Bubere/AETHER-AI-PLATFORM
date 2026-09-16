@@ -54,11 +54,11 @@ const inferFunctionNameFromQuestion = (question: any): string | undefined => {
   if (explicit.length > 0) return explicit[0];
 
   // 2. Function signature in the question text e.g. "twoSum(nums, target)"
-  const sigMatch = String(question?.text || '').match(/([A-Za-z_]\w*)\s*\(/);
+  const sigMatch = String(question?.question || '').match(/([A-Za-z_]\w*)\s*\(/);
   if (sigMatch?.[1]) return sigMatch[1];
 
   // 3. Convert question title to camelCase e.g. "Two Sum" -> "twoSum"
-  const title = String(question?.text || '').trim();
+  const title = String(question?.question || '').trim();
   if (title) {
     const words = title.replace(/[^a-zA-Z0-9 ]/g, '').trim().split(/\s+/).filter(Boolean);
     if (words.length > 0) {
@@ -117,7 +117,7 @@ export function CodingInterviewPage() {
   const [searchParams] = useSearchParams();
   const interviewId = searchParams.get('id');
   
-  const { currentInterview, currentQuestion, currentQuestionIndex, getNextQuestion, submitResponse, endInterview, resetSession } = useInterviewStore();
+  const { activeQuestion, questionsAnswered, submitAnswer, reset } = useInterviewStore();
   
   const [language, setLanguage] = useState('python');
   const [code, setCode] = useState(CODE_TEMPLATES.python);
@@ -160,14 +160,14 @@ export function CodingInterviewPage() {
 
     // Bug 11 fix: if store has a question from a DIFFERENT interview, reset first
     const store = useInterviewStore.getState();
-    const existingId = (store.currentInterview as any)?._id?.toString() || store.currentInterview?.id;
+    const existingId = store.interviewId;
     if (existingId && existingId !== interviewId) {
-      resetSession();
+      reset();
     }
 
     // If the store already has a question for THIS interview, just clear loading
     const freshStore = useInterviewStore.getState();
-    if (freshStore.currentQuestion) {
+    if (freshStore.activeQuestion) {
       setLoading(false);
       return;
     }
@@ -199,39 +199,15 @@ export function CodingInterviewPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interviewId]);
 
-  const loadQuestion = async () => {
-    setLoading(true);
-    try {
-      await getNextQuestion();
-      setLoading(false);
-    } catch (error: any) {
-      // Ignore cancel errors — harmless race condition
-      if (
-        error?.code === 'ERR_CANCELED' ||
-        error?.message === 'canceled' ||
-        error?.name === 'CanceledError'
-      ) {
-        setLoading(false);
-        return;
-      }
-      console.error('Failed to load question:', error);
-      toast.error('Failed to load question');
-      setLoading(false);
-    }
-  };
-
-  // When question changes, reset code to template and load hints
+  // When the active question changes, reset the editor to a fresh template
   useEffect(() => {
-    if (!currentQuestion) return;
-    setCode(getTemplateForQuestion(language, currentQuestion));
+    if (!activeQuestion) return;
+    setCode(getTemplateForQuestion(language, activeQuestion));
     setOutput('');
     setTestsPassed(0);
     setTotalTests(0);
     setHints([]);
-    // Seed hints from followUpQuestions immediately
-    const staticHints = (currentQuestion as any).followUpQuestions || [];
-    if (staticHints.length > 0) setHints(staticHints);
-  }, [currentQuestion?.id]);
+  }, [activeQuestion?.interactionId]);
 
   const handleLanguageChange = (newLanguage: string) => {
     // Bug 15 fix: warn user before wiping their code
@@ -239,17 +215,16 @@ export function CodingInterviewPage() {
       if (!window.confirm('Switching language will reset your code. Continue?')) return;
     }
     setLanguage(newLanguage);
-    setCode(getTemplateForQuestion(newLanguage, currentQuestion));
+    setCode(getTemplateForQuestion(newLanguage, activeQuestion));
     setUserHasEdited(false);
   };
 
   const fetchDynamicHints = async () => {
-    if (!currentQuestion) return;
+    if (!activeQuestion) return;
     setHintsLoading(true);
     try {
       const res = await apiService.post('/code/hints', {
-        questionTitle: (currentQuestion as any).text || '',
-        questionDescription: (currentQuestion as any).description || '',
+        questionTitle: activeQuestion.question,
         language,
       });
       if (res.success && (res.data as any)?.hints?.length > 0) {
@@ -270,7 +245,7 @@ export function CodingInterviewPage() {
   };
 
   const handleRunCode = async () => {
-    if (!currentQuestion) {
+    if (!activeQuestion) {
       toast.error('No question loaded');
       return;
     }
@@ -280,22 +255,15 @@ export function CodingInterviewPage() {
     setExecutionTime(null);
 
     try {
-      // Normalize testCases — input/expectedOutput may be objects or arrays from DB
-      const rawTestCases: any[] = (currentQuestion as any).testCases || [];
-      const testCases = rawTestCases.length > 0
-        ? rawTestCases.map((tc: any) => ({
-            input: typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input),
-            expectedOutput: typeof tc.expectedOutput === 'string'
-              ? tc.expectedOutput
-              : JSON.stringify(tc.expectedOutput),
-          }))
-        : [{ input: '', expectedOutput: '' }]; // fallback so execution still runs
+      // The adaptive engine serves plain-text coding questions without structured
+      // test cases — run with a single open test case so execution still works.
+      const testCases = [{ input: '', expectedOutput: '' }];
 
       const response = await apiService.post('/code/execute-tests', {
         language,
         code,
         testCases,
-        functionName: inferFunctionNameFromQuestion(currentQuestion),
+        functionName: inferFunctionNameFromQuestion(activeQuestion),
       });
 
       if (response.success && response.data) {
@@ -359,45 +327,37 @@ export function CodingInterviewPage() {
   };
 
   const handleSubmit = async () => {
-    if (!currentQuestion || !interviewId) {
+    if (!activeQuestion || !interviewId) {
       toast.error('Cannot submit: No question or interview ID');
       return;
     }
 
     try {
-      // 1. Submit the current solution
-      await submitResponse({
-        questionId: currentQuestion.id,
-        answer: code,
-        codeSubmission: { language, code, testResults: [] },
-        duration: timeElapsed,
-      });
+      // Submit through the adaptive answer flow: the backend evaluates the
+      // answer and returns either the next adaptive question or completion
+      // (finished=true, with the final assessment already generated).
+      const result = await submitAnswer(code, 'text', timeElapsed);
+
+      if (!result) {
+        toast.error('Failed to submit solution');
+        return;
+      }
 
       toast.success('Solution submitted!');
 
-      // 2. Ask backend for the next question.
-      //    getNextQuestion() sets currentQuestion to null if completed=true.
-      await getNextQuestion();
+      // Read the updated store state AFTER the await
+      const nextQ = useInterviewStore.getState().activeQuestion;
 
-      // 3. Read the updated store state AFTER the await
-      const nextQ = useInterviewStore.getState().currentQuestion;
-
-      if (nextQ) {
-        // More questions — advance UI (Bug 16: use store index, not local state)
+      if (result.finished || !nextQ) {
+        // Interview complete — go to the feedback/results page
+        navigate(`/feedback/${interviewId}`);
+      } else {
+        // More adaptive questions — advance the editor to the next question
         setCode(getTemplateForQuestion(language, nextQ));
         setUserHasEdited(false);
         setOutput('');
         setTestsPassed(0);
         setTotalTests(0);
-      } else {
-        // No more questions — end interview and go to feedback
-        toast.loading('Finishing interview…', { id: 'ending' });
-        await endInterview();
-        toast.dismiss('ending');
-        const finalId = (useInterviewStore.getState().currentInterview as any)?._id
-          || useInterviewStore.getState().currentInterview?.id
-          || interviewId;
-        navigate(`/feedback/${finalId}`);
       }
     } catch (error: any) {
       console.error('Submit error:', error);
@@ -405,14 +365,14 @@ export function CodingInterviewPage() {
     }
   };
 
-  if (!loading && !currentQuestion) {
+  if (!loading && !activeQuestion) {
     return <main className="min-h-screen pt-32 px-6 text-center">
       <p role="status">{useInterviewStore.getState().error || 'There are no unanswered coding questions.'}</p>
       <Button className="mt-4" onClick={() => navigate(`/feedback/${interviewId}`)}>View interview</Button>
       <Button variant="outline" className="mt-4 ml-3" onClick={() => window.location.reload()}>Retry</Button>
     </main>;
   }
-  if (loading || !currentQuestion) {
+  if (loading || !activeQuestion) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -425,13 +385,13 @@ export function CodingInterviewPage() {
 
   // Parse question data
   const problem = {
-    title: currentQuestion.text || 'Coding Challenge',
-    difficulty: currentQuestion.difficulty || 'Medium',
-    description: (currentQuestion as any).description || currentQuestion.text,
-    examples: (currentQuestion as any).examples || [],
-    constraints: (currentQuestion as any).constraints || [],
-    hints: currentQuestion.followUpQuestions || [],
-    testCases: (currentQuestion as any).testCases || [],
+    title: activeQuestion.question || 'Coding Challenge',
+    difficulty: activeQuestion.difficulty || 'Medium',
+    description: activeQuestion.question,
+    examples: [] as any[],
+    constraints: [] as string[],
+    hints,
+    testCases: [] as any[],
   };
 
   return (
@@ -457,7 +417,7 @@ export function CodingInterviewPage() {
               </div>
             )}
             <div className="px-3 sm:px-4 py-2 bg-secondary rounded-lg">
-              <span className="text-sm sm:text-base text-muted-foreground">Q {currentQuestionIndex}</span>
+              <span className="text-sm sm:text-base text-muted-foreground">Q {questionsAnswered + 1}</span>
             </div>
           </div>
           <Button variant="default" onClick={handleSubmit} className="w-full sm:w-auto bg-gradient-to-r from-primary to-purple-600 hover:opacity-90">
@@ -532,7 +492,7 @@ export function CodingInterviewPage() {
             </Card>
 
             {/* AI Hints */}
-            {(hints.length > 0 || currentQuestion) && (
+            {(hints.length > 0 || activeQuestion) && (
               <Card className='p-6'>
                 <button
                   onClick={handleToggleHints}

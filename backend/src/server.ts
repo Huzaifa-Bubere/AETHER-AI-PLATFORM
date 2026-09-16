@@ -10,6 +10,7 @@ import { initializeRedis } from './services/redis';
 import { initializeCloudinary } from './services/cloudinary';
 import { setupSocketHandlers } from './services/socket';
 import logger from './utils/logger';
+import { ensureDnsFallback, forcePublicDns, isDnsError } from './utils/dnsFallback';
 
 // Create Express app
 const app = createApp();
@@ -43,7 +44,6 @@ const io = new Server(server, {
 });
 
 const PORT = parseInt(process.env.PORT || '5001', 10);
-
 // Database connection with improved error handling
 const connectDB = async () => {
   try {
@@ -51,6 +51,10 @@ const connectDB = async () => {
     if (!mongoUri || mongoUri.trim() === '') {
       throw new Error('MONGODB_URI is not defined in environment variables');
     }
+
+    // Probe the system resolver; fall back to public DNS if it is broken.
+    // (Without this, mongodb+srv:// discovery can fail with querySrv ECONNREFUSED.)
+    await ensureDnsFallback();
 
     // Enhanced MongoDB connection options
     const options = {
@@ -111,6 +115,13 @@ const connectDB = async () => {
         retries--;
         logger.error(`❌ Connection attempt failed. Retries left: ${retries}`);
 
+        // If SRV/DNS discovery failed, retry with public resolvers before
+        // burning another connection attempt.
+        if (isDnsError(error)) {
+          logger.warn('🌐 DNS resolver failure detected — retrying with public DNS (8.8.8.8, 1.1.1.1)');
+          forcePublicDns();
+        }
+
         if (retries === 0) {
           throw error;
         }
@@ -131,7 +142,7 @@ const connectDB = async () => {
     } else if (error.message.includes('authentication failed')) {
       logger.error('🔐 AUTHENTICATION ISSUE DETECTED 🔐');
       logger.error('SOLUTION: Check your username and password in the connection string');
-    } else if (error.message.includes('ENOTFOUND')) {
+    } else if (error.message.includes('ENOTFOUND') || error.message.includes('querySrv')) {
       logger.error('🌐 DNS/NETWORK ISSUE DETECTED 🌐');
       logger.error('SOLUTION: Check your internet connection and cluster URL');
     }
@@ -249,4 +260,4 @@ const startServer = async () => {
 
 startServer();
 
-export { app, io };
+export { app, io };

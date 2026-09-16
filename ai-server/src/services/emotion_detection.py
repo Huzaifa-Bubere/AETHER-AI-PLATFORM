@@ -12,7 +12,7 @@ try:
     DEEPFACE_AVAILABLE = True
 except ImportError:
     DEEPFACE_AVAILABLE = False
-    logger.warning("DeepFace not available, using fallback emotion detection")
+    logger.warning("DeepFace not available; emotion analysis is unavailable")
 
 class EmotionDetectionService:
     def __init__(self):
@@ -36,26 +36,25 @@ class EmotionDetectionService:
     async def analyze_emotions(self, image_data: str, timestamp: float = 0) -> Dict[str, Any]:
         """Analyze emotions from a single image"""
         try:
+            if not DEEPFACE_AVAILABLE:
+                return {"error": "Emotion model is unavailable", "timestamp": timestamp}
             # Decode base64 image
-            image_bytes = base64.b64decode(image_data)
+            encoded = image_data.split(',', 1)[1] if image_data.startswith('data:') else image_data
+            image_bytes = base64.b64decode(encoded, validate=True)
             nparr = np.frombuffer(image_bytes, np.uint8)
             image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
             if image is None:
                 raise ValueError("Could not decode image")
             
-            # Use DeepFace if available, otherwise use fallback
-            if DEEPFACE_AVAILABLE:
-                result = await self._analyze_with_deepface(image, timestamp)
-            else:
-                result = await self._analyze_with_fallback(image, timestamp)
+            result = await self._analyze_with_deepface(image, timestamp)
             
             logger.info(f"Emotion analysis completed for timestamp {timestamp}")
             return result
             
         except Exception as e:
             logger.error(f"Emotion analysis error: {e}")
-            return self._get_fallback_emotion_result(timestamp)
+            return {"error": "Emotion analysis unavailable for this frame", "timestamp": timestamp}
 
     async def batch_analyze_video(self, video_data: bytes) -> List[Dict[str, Any]]:
         """Analyze emotions throughout an entire video"""
@@ -142,7 +141,7 @@ class EmotionDetectionService:
                 result = DeepFace.analyze(
                     img_path=temp_file_path,
                     actions=['emotion'],
-                    enforce_detection=False
+                    enforce_detection=True
                 )
                 
                 # Extract emotion data
@@ -170,7 +169,7 @@ class EmotionDetectionService:
                     
         except Exception as e:
             logger.error(f"DeepFace analysis error: {e}")
-            return await self._analyze_with_fallback(image, timestamp)
+            return {"error": "Emotion analysis unavailable for this frame", "timestamp": timestamp}
 
     async def _analyze_with_fallback(self, image: np.ndarray, timestamp: float) -> Dict[str, Any]:
         """Fallback emotion analysis using basic face detection"""

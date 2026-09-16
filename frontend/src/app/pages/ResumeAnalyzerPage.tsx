@@ -36,7 +36,6 @@ export function ResumeAnalyzerPage() {
         setError(response.error || 'Failed to load resume');
       }
     } catch (error: any) {
-      console.error('Resume fetch error:', error);
       setError(error.message || 'Failed to load resume');
     } finally {
       setLoading(false);
@@ -47,9 +46,9 @@ export function ResumeAnalyzerPage() {
     const file = e.target.files?.[0];
     if (file) {
       // Validate file type
-      const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
       if (!validTypes.includes(file.type)) {
-        toast.error('Please upload a PDF or DOC file');
+        toast.error('Please upload a PDF or DOCX file');
         return;
       }
 
@@ -69,30 +68,19 @@ export function ResumeAnalyzerPage() {
       return;
     }
 
-    console.log('=== Starting Resume Upload ===');
-    console.log('File:', {
-      name: selectedFile.name,
-      type: selectedFile.type,
-      size: selectedFile.size,
-      lastModified: selectedFile.lastModified
-    });
-
     setUploading(true);
     try {
       const formData = new FormData();
       formData.append('resume', selectedFile);
 
-      console.log('FormData created, sending request...');
-      console.log('Token:', localStorage.getItem('accessToken') ? 'Present' : 'Missing');
 
       // Use the upload method from apiService
-      const response = await apiService.upload('/resume/upload', formData);
+      const response = await apiService.upload<any>('/resume/upload', formData, 120000);
 
-      console.log('Upload response:', response);
 
       if (response.success) {
-        console.log('Upload successful!', response.data);
-        toast.success('Resume uploaded and analyzed successfully!');
+        if (response.data?.analysisStatus === 'completed') toast.success('Resume saved and content reviewed.');
+        else toast(response.data?.errorMessage || 'Resume saved. Analysis is unavailable.');
         setSelectedFile(null);
         // Reset file input
         if (fileInputRef.current) {
@@ -105,18 +93,11 @@ export function ResumeAnalyzerPage() {
         // Refresh resume data
         await fetchResume();
       } else {
-        console.error('Upload failed:', response.error, response.message);
         const errorMessage = response.message || response.error || 'Failed to upload resume';
         toast.error(errorMessage);
         
-        // Show debug info if available
-        if (response.debug) {
-          console.error('Debug info:', response.debug);
-        }
       }
     } catch (error: any) {
-      console.error('Resume upload error:', error);
-      console.error('Error response:', error.response?.data);
       
       const errorMessage = error.response?.data?.message || 
                           error.response?.data?.error || 
@@ -125,20 +106,9 @@ export function ResumeAnalyzerPage() {
       
       toast.error(errorMessage);
       
-      // Show additional debug info
-      if (error.response?.data?.debug) {
-        console.error('Server debug info:', error.response.data.debug);
-      }
     } finally {
       setUploading(false);
-      console.log('=== Upload Process Complete ===');
     }
-  };
-
-  const getApiBase = () => {
-    const raw = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api';
-    // Strip trailing /api so we can append /api/resume/:id/...
-    return raw.replace(/\/api\/?$/, '');
   };
 
   // Shared helper — fetches file through backend (Cloudinary never exposed)
@@ -147,11 +117,7 @@ export function ResumeAnalyzerPage() {
       toast.error('No resume available');
       return null;
     }
-    const token = localStorage.getItem('accessToken');
-    const url = `${getApiBase()}/api/resume/${resumeData._id}/${endpoint}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) throw new Error(`Server returned ${res.status}`);
-    const blob = await res.blob();
+    const blob = await apiService.getBlob(`/resume/${resumeData._id}/${endpoint}`);
     const filename = resumeData.fileName || 'resume.pdf';
     return { blob, filename };
   };
@@ -183,12 +149,9 @@ export function ResumeAnalyzerPage() {
       const result = await fetchResumeBlob('view');
       if (!result) { toast.dismiss(toastId); return; }
       const blobUrl = URL.createObjectURL(result.blob);
-      const win = window.open(blobUrl, '_blank', 'noopener,noreferrer');
-      if (!win) {
-        toast.error('Popup blocked — please allow popups for this site', { id: toastId });
-        URL.revokeObjectURL(blobUrl);
-        return;
-      }
+      const link = document.createElement('a');
+      link.href = blobUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      document.body.appendChild(link); link.click(); link.remove();
       toast.success('Opened in new tab', { id: toastId });
       // Revoke after the tab has had time to load the blob
       setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
@@ -225,6 +188,7 @@ export function ResumeAnalyzerPage() {
     (skill: string) => !jdWords.includes(skill)
   );
 
+  if (!resumeSkills.length) { toast.error('No skills have been extracted for comparison.'); return; }
   const score = Math.round((matched.length / resumeSkills.length) * 100);
 
   setMatchedKeywords(matched);
@@ -284,7 +248,7 @@ export function ResumeAnalyzerPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,.doc,.docx"
+                    accept=".pdf,.docx"
                     onChange={handleFileSelect}
                     className="hidden"
                   />
@@ -342,7 +306,7 @@ export function ResumeAnalyzerPage() {
               <input
                 ref={headerFileInputRef}
                 type="file"
-                accept=".pdf,.doc,.docx"
+                accept=".pdf,.docx"
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -425,8 +389,9 @@ export function ResumeAnalyzerPage() {
                 <div>
                   <h4 className="text-lg mb-2">Resume Analysis</h4>
                   <p className="text-muted-foreground text-sm">
-                    Your resume has been analyzed and scored based on content quality, formatting, 
-                    keyword optimization, and overall impact. Check the suggestions below for improvements.
+                    {resumeData.analysisStatus === 'completed'
+                      ? 'AI content feedback covers clarity, keywords and impact based on extracted text.'
+                      : resumeData.errorMessage || 'Content feedback is unavailable. Your original file is saved.'}
                   </p>
                 </div>
 
@@ -479,7 +444,7 @@ export function ResumeAnalyzerPage() {
           <div className="space-y-8">
             {/* Overall Score */}
             <Card className="border-primary/20 p-6">
-  <h3 className="text-xl mb-6 text-center">ATS Resume Score</h3>
+  <h3 className="text-xl mb-6 text-center">AI Content Review</h3>
 
   <div className="flex flex-col items-center">
 
@@ -507,12 +472,12 @@ export function ResumeAnalyzerPage() {
       </svg>
 
       <div className="absolute inset-0 flex items-center justify-center text-2xl font-bold">
-        {resumeData.score || 0}
+        {resumeData.score ?? 'Unavailable'}
       </div>
     </div>
 
     <p className="text-muted-foreground text-sm">
-      Higher score means better ATS compatibility
+      Qualitative feedback on extracted content; visual formatting is not assessed.
     </p>
   </div>
 </Card>
@@ -537,30 +502,13 @@ export function ResumeAnalyzerPage() {
 
   <div className="space-y-3">
 
-    <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-      <span>Summary</span>
-      <CheckCircle className="text-green-500 w-5 h-5" />
-    </div>
-
-    <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-      <span>Experience</span>
-      <Lightbulb className="text-yellow-500 w-5 h-5" />
-    </div>
-
-    <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-      <span>Skills</span>
-      <CheckCircle className="text-green-500 w-5 h-5" />
-    </div>
-
-    <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-      <span>Projects</span>
-      <XCircle className="text-red-500 w-5 h-5" />
-    </div>
-
-    <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-      <span>Education</span>
-      <CheckCircle className="text-green-500 w-5 h-5" />
-    </div>
+    {[
+      ['Summary', !!resumeData.summary], ['Experience', !!resumeData.experience?.length],
+      ['Skills', !!extractedSkills.length], ['Projects', !!resumeData.projects?.length],
+      ['Education', !!resumeData.education?.length],
+    ].map(([label, present]) => <div key={String(label)} className="flex justify-between items-center p-3 bg-secondary rounded-lg">
+      <span>{label}</span><span className="text-sm text-muted-foreground">{present ? 'Found' : 'Not extracted'}</span>
+    </div>)}
 
   </div>
 </Card>
@@ -572,7 +520,7 @@ export function ResumeAnalyzerPage() {
                 <h3 className="text-lg">Missing Skills</h3>
               </div>
               <p className="text-sm text-muted-foreground mb-4">
-                These skills are commonly required for Full Stack Developer roles
+                Compare your extracted skills with a target job description to identify relevant gaps.
               </p>
               <div className="flex flex-wrap gap-2">
                 {missingSkills.map((skill, index) => (

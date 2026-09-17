@@ -25,7 +25,7 @@ interface AdaptiveState {
   createSession: (p: { domain: string; role: string; difficulty: string; questionCount: number }) => Promise<string | null>;
   resumeSession: (sessionId: string) => Promise<void>;
   submitAnswer: (answer: string, durationSeconds: number) => Promise<boolean>;
-  endInterview: () => Promise<string | null>;
+  endInterview: (terminationReason?: 'INTEGRITY_WARNING_LIMIT') => Promise<string | null>;
   reset: () => void;
 }
 
@@ -101,12 +101,12 @@ export const useAdaptiveInterviewStore = create<AdaptiveState>((set, get) => ({
     }
   },
 
-  endInterview: async () => {
+  endInterview: async (terminationReason?: 'INTEGRITY_WARNING_LIMIT') => {
     const { sessionId } = get();
     if (!sessionId) return null;
     set({ ending: true, error: null });
     try {
-      await adaptiveInterviewApi.endInterview(sessionId);
+      await adaptiveInterviewApi.endInterview(sessionId, terminationReason);
       set({ phase: 'ended', ending: false });
       return sessionId;
     } catch (e: any) {

@@ -39,6 +39,7 @@ export interface IAptitudeQuestion extends Document {
   marks: number;
   explanation: string;
   status: QuestionStatus;
+  seedId?: string;
   createdBy?: Types.ObjectId;
   timesUsed: number; // how many attempts have included this question (for rotation)
   createdAt: Date;
@@ -92,6 +93,8 @@ const AptitudeQuestionSchema = new Schema<IAptitudeQuestion>(
     marks: { type: Number, required: true, default: 1, min: 0.0001, max: 1000 },
     explanation: { type: String, default: '' },
     status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
+    // Set only for seeded default questions; unique-sparse makes re-seeding idempotent.
+    seedId: { type: String, index: { unique: true, sparse: true } },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: false },
     timesUsed: { type: Number, default: 0 },
   },

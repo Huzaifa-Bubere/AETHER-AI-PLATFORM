@@ -100,6 +100,8 @@ export interface IAdaptiveInterview extends Document {
   responses: IAdaptiveResponse[];
   proctorEvents: IProctorEvent[];
   integrityScore: number;
+  /** Set when the session was force-ended by the shared integrity system (5 warnings). */
+  terminationReason?: 'INTEGRITY_WARNING_LIMIT' | 'USER_ENDED' | 'COMPLETED' | null;
   report: IAdaptiveReport | null;
   startedAt: Date;
   endedAt?: Date;
@@ -219,6 +221,7 @@ const adaptiveInterviewSchema = new Schema<IAdaptiveInterview>(
     responses: { type: [responseSchema], default: [] },
     proctorEvents: { type: [proctorEventSchema], default: [] },
     integrityScore: { type: Number, default: 100 },
+    terminationReason: { type: String, enum: ['INTEGRITY_WARNING_LIMIT', 'USER_ENDED', 'COMPLETED', null], default: null },
     report: { type: reportSchema, default: null },
     startedAt: { type: Date, default: Date.now },
     endedAt: { type: Date, default: null },

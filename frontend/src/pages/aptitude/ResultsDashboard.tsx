@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api, { aptitudeImageUrl } from '../../lib/aptitudeApi';
+import { integrityApi, IntegritySummary, sanitizeIntegritySummary } from '../../app/features/integrity/integrity.types';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 
@@ -73,10 +74,11 @@ export default function ResultsDashboard() {
   }
 
   const pieData = [
-    { name: 'Correct', value: result.correctCount },
-    { name: 'Incorrect', value: result.incorrectCount },
-    { name: 'Unanswered', value: result.unansweredCount },
+    { name: 'Correct', value: result.correctCount ?? 0 },
+    { name: 'Incorrect', value: result.incorrectCount ?? 0 },
+    { name: 'Unanswered', value: result.unansweredCount ?? 0 },
   ];
+  const review = Array.isArray(result.review) ? result.review : [];
 
   return (
     <div className="min-h-screen bg-background px-6 py-20 text-foreground">
@@ -97,10 +99,11 @@ export default function ResultsDashboard() {
           </div>
         </section>
         {result.autoSubmitted && (
-          <p className="rounded-lg bg-amber-950 px-4 py-2 text-sm text-amber-400">
-            This test was auto-submitted (time expired or tab was switched).
+          <p className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-sm text-amber-700">
+            This test was auto-submitted (time expired or integrity warning limit reached). Your answered questions were scored normally.
           </p>
         )}
+        <IntegritySummarySection attemptId={attemptId || ''} />
 
         {/* Charts */}
         <section className="grid gap-6 sm:grid-cols-2">
@@ -120,7 +123,7 @@ export default function ResultsDashboard() {
           {result.aiAnalysis && (
             <ChartCard title="Category-wise Performance">
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={result.aiAnalysis.categoryPerformance}>
+                <BarChart data={result.aiAnalysis.categoryPerformance ?? []}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
                   <XAxis dataKey="category" tick={{ fill: '#a3a3a3', fontSize: 11 }} tickFormatter={(v) => v.replace(/-/g, ' ')} />
                   <YAxis tick={{ fill: '#a3a3a3', fontSize: 11 }} domain={[0, 100]} />
@@ -139,7 +142,7 @@ export default function ResultsDashboard() {
         <section>
           <h2 className="mb-4 text-lg font-semibold">Question-wise Review</h2>
           <div className="space-y-4">
-            {result.review.map((item, i) => (
+            {review.map((item, i) => (
               <div key={i} className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
@@ -238,7 +241,7 @@ function AIFeedbackPanel({ analysis }: { analysis: AIAnalysis }) {
         <div>
           <h4 className="mb-2 text-sm font-medium text-muted-foreground">Study Plan</h4>
           <ol className="list-decimal space-y-1 pl-4 text-sm text-foreground">
-            {analysis.studyPlan.map((s, i) => (
+            {(analysis.studyPlan ?? []).map((s, i) => (
               <li key={i}>{s}</li>
             ))}
           </ol>
@@ -254,7 +257,7 @@ function AIFeedbackPanel({ analysis }: { analysis: AIAnalysis }) {
   );
 }
 
-function TagList({ label, items, color }: { label: string; items: string[]; color: 'emerald' | 'red' | 'amber' }) {
+function TagList({ label, items, color }: { label: string; items?: string[]; color: 'emerald' | 'red' | 'amber' }) {
   const colorClasses = {
     emerald: 'bg-emerald-50 text-emerald-700',
     red: 'bg-red-50 text-destructive',
@@ -265,7 +268,7 @@ function TagList({ label, items, color }: { label: string; items: string[]; colo
     <div>
       <h4 className="mb-2 text-sm font-medium text-muted-foreground">{label}</h4>
       <div className="flex flex-wrap gap-1.5">
-        {items.map((item, i) => (
+        {(items ?? []).map((item, i) => (
           <span key={i} className={`rounded-full px-2.5 py-0.5 text-xs ${colorClasses}`}>
             {item.replace(/-/g, ' ')}
           </span>
@@ -279,4 +282,39 @@ function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}m ${s}s`;
+}
+
+/** Shared integrity summary — one system for all modules (AETHER). */
+function IntegritySummarySection({ attemptId }: { attemptId: string }) {
+  const [summary, setSummary] = useState<IntegritySummary | null>(null);
+  useEffect(() => {
+    if (!attemptId) return;
+    integrityApi.getSummary('APTITUDE', attemptId).then(raw => setSummary(sanitizeIntegritySummary(raw))).catch(() => {});
+  }, [attemptId]);
+
+  if (!summary) return null;
+  const statusLabel = summary.status === 'terminated' ? 'Automatically Submitted' : summary.status === 'warning' ? 'Warning' : 'Clean';
+  const statusCls = summary.status === 'terminated' ? 'bg-red-50 border-red-200 text-red-700'
+    : summary.status === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-700'
+    : 'bg-emerald-50 border-emerald-200 text-emerald-700';
+  return (
+    <section className="rounded-xl border border-border bg-card p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">Assessment Integrity</h3>
+        <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusCls}`}>Status: {statusLabel}</span>
+      </div>
+      <p className="text-sm text-slate-600 mb-3">Warnings: <strong>{summary.warningCount} / {summary.maximumWarnings}</strong></p>
+      {summary.events.length > 0 && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          {summary.events.map((e, i) => (
+            <div key={i} className={`flex items-center gap-3 px-4 py-2.5 text-xs ${i % 2 ? 'bg-slate-50' : 'bg-white'}`}>
+              <span className="tabular-nums text-slate-400">{new Date(e.timestamp).toLocaleTimeString()}</span>
+              <span className="font-semibold text-slate-700">{e.type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())}</span>
+              <span className="ml-auto text-slate-400">Warning {e.warningNumber}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }

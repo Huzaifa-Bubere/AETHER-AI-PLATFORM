@@ -53,7 +53,6 @@ interface InterviewStoreState {
   incrementElapsed: () => void;
 
   // Integrity reporting
-  recordIntegrityEvent: (type: string, detail?: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -132,7 +131,9 @@ export const useInterviewStore = create<InterviewStoreState>((set, get) => ({
     if (!interviewId) return null;
 
     get().stopSpeech();
-    set({ isSubmitting: true, phase: 'evaluating' });
+    // Stay in phase 'active' while evaluating: the integrity monitor must keep
+    // running while the AI evaluates (tab switches during evaluation still count).
+    set({ isSubmitting: true });
 
     try {
       const res = await interviewService.submitAnswer(interviewId, {
@@ -312,16 +313,6 @@ export const useInterviewStore = create<InterviewStoreState>((set, get) => ({
   appendTranscript: (text: string) => set(s => ({ transcript: (s.transcript + ' ' + text).trimStart() })),
   setIsListening: (val: boolean) => set({ isListening: val }),
   incrementElapsed: () => set(s => ({ elapsedSeconds: s.elapsedSeconds + 1 })),
-
-  recordIntegrityEvent: async (type: string, detail?: string) => {
-    const { interviewId } = get();
-    if (!interviewId) return;
-    try {
-      await interviewService.recordIntegrityEvent(interviewId, type, detail);
-    } catch {
-      // Keep session resilient if event recording fails silently
-    }
-  },
 
   reset: () => {
     get().stopSpeech();

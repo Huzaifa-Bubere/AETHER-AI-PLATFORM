@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import {
   Play, Send, RotateCcw, Loader2, ChevronLeft, Maximize2, Minimize2,
-  CheckCircle2, XCircle, Clock, MemoryStick, Eye, EyeOff,
+  CheckCircle2, XCircle, Clock, MemoryStick, Eye, EyeOff, ShieldAlert,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
@@ -11,6 +11,10 @@ import { useCodingStore } from '../stores/codingStore';
 import { AstTreeView } from '../components/AstTreeView';
 import { ComplexityPanel, AstMetricsPanel, ScorePanel } from '../components/AnalysisPanels';
 import { CODING_LANGUAGES, type ITestOutcome } from '../types';
+import { useIntegrityMonitor } from '../../integrity/useIntegrityMonitor';
+import { DEFAULT_POLICIES } from '../../integrity/integrity.types';
+import { IntegrityIndicator } from '../../integrity/IntegrityIndicator';
+import { IntegrityWarningModal } from '../../integrity/IntegrityWarningModal';
 import toast from 'react-hot-toast';
 
 /**
@@ -23,6 +27,7 @@ export function ProblemWorkspacePage() {
   const navigate = useNavigate();
   const store = useCodingStore();
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [integrityLocked, setIntegrityLocked] = useState(false);
 
   const {
     problem, language, codeByLanguage, activeTab, isRunning, isSubmitting,
@@ -63,6 +68,25 @@ export function ProblemWorkspacePage() {
     window.addEventListener('aether-ast-reveal', handler);
     return () => window.removeEventListener('aether-ast-reveal', handler);
   }, []);
+
+  // ── Shared integrity system ──────────────────────────────────────────────
+  // Coding policy: Monaco copy/cut/paste stays fully functional; only leaving
+  // the page (tab switch / window blur) is monitored. Warning 5: flush the
+  // current code as a final submission, then lock the editor.
+  const integrity = useIntegrityMonitor({
+    policy: DEFAULT_POLICIES.CODING,
+    attemptId: slug ?? null,
+    active: true,
+    onAutoSubmit: async () => {
+      try {
+        if (code.trim() && problem) {
+          await store.submitCode(); // idempotent official submission of current work
+        }
+      } catch { /* keep completed/submitted work */ }
+      setIntegrityLocked(true);
+      toast.success('Code saved. Submission locked after integrity warnings.', { duration: 6000 });
+    },
+  });
 
   const handleSubmit = async () => {
     const result = await submitCode();
@@ -114,6 +138,7 @@ export function ProblemWorkspacePage() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <IntegrityIndicator warningCount={integrity.warningCount} maximumWarnings={integrity.maximumWarnings} />
           <select
             value={language}
             onChange={e => setLanguage(e.target.value as any)}
@@ -151,12 +176,13 @@ export function ProblemWorkspacePage() {
               language={monacoLanguage}
               value={code}
               onChange={v => setCode(v || '')}
+              theme="vs"
               onMount={(editor) => {
                 editorRef.current = editor;
                 editor.onDidChangeCursorPosition(e => handleEditorCursor(e.position.lineNumber));
               }}
-              theme="vs"
               options={{
+                readOnly: integrityLocked,
                 minimap: { enabled: false },
                 fontSize: 14,
                 lineNumbers: 'on',
@@ -191,7 +217,7 @@ export function ProblemWorkspacePage() {
                 {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                 Run
               </Button>
-              <Button size="sm" onClick={handleSubmit} disabled={isSubmitting}
+              <Button size="sm" onClick={handleSubmit} disabled={isSubmitting || integrityLocked}
                 className="bg-blue-600 hover:bg-blue-700 text-white">
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 Submit
@@ -310,6 +336,26 @@ export function ProblemWorkspacePage() {
           </div>
         </main>
       </div>
+
+      {/* Shared integrity warning modal (warnings 1–4) */}
+      {integrity.modalEvent && !integrity.shouldAutoSubmit && (
+        <IntegrityWarningModal
+          event={integrity.modalEvent}
+          warningNumber={integrity.modalWarningNumber}
+          maximumWarnings={integrity.maximumWarnings}
+          onContinue={integrity.dismissModal}
+        />
+      )}
+
+      {/* Warning-5 auto-submit overlay — huge full-screen red */}
+      {integrity.submittingWork && (
+        <div className="fixed inset-0 z-[210] bg-red-700 flex flex-col items-center justify-center gap-4">
+          <ShieldAlert className="w-20 h-20 text-white animate-pulse" />
+          <p className="text-4xl font-black tracking-tight text-white text-center px-4">SUBMISSION LOCKED</p>
+          <p className="text-lg font-bold text-red-100 text-center px-4">Maximum integrity warnings reached (5 of 5)</p>
+          <p className="text-sm text-red-200 text-center px-4">Your code has been saved as your final submission.</p>
+        </div>
+      )}
     </div>
   );
 }

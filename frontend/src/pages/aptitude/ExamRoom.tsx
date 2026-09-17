@@ -1,13 +1,21 @@
 import { aptitudeImageUrl } from '../../lib/aptitudeApi';
+import { ShieldAlert } from 'lucide-react';
 import { useEffect, useCallback, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAptitudeStore } from '../../store/aptitudeStore';
 import Timer from '../../components/aptitude/Timer';
 import QuestionPalette from '../../components/aptitude/QuestionPalette';
+import { useIntegrityMonitor } from '../../app/features/integrity/useIntegrityMonitor';
+import { DEFAULT_POLICIES } from '../../app/features/integrity/integrity.types';
+import { IntegrityWarningModal } from '../../app/features/integrity/IntegrityWarningModal';
+import { IntegrityIndicator } from '../../app/features/integrity/IntegrityIndicator';
 
 export default function ExamRoom() {
   const { attemptId } = useParams<{ attemptId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Technical MCQ shares this room — module determines the integrity policy.
+  const module = searchParams.get('round') === 'technical' ? DEFAULT_POLICIES.TECHNICAL_MCQ : DEFAULT_POLICIES.APTITUDE;
   const {
     loading,
     error,
@@ -34,7 +42,6 @@ export default function ExamRoom() {
   const [zoom, setZoom] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
-  const tabSwitchCountRef = useRef(0);
 
   useEffect(() => {
     if (attemptId) loadAttempt(attemptId);
@@ -61,17 +68,22 @@ export default function ExamRoom() {
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
 
-  // Tab-switch / minimize -> auto-submit (per spec)
+  // ── Shared integrity system (5 warnings → auto-submit) ────────────────────
+  const integrity = useIntegrityMonitor({
+    policy: module,
+    attemptId: attemptId ?? null,
+    active: !loading && !submitted && loadedAttemptId === attemptId,
+    // Warning 5: flush the current answer, then submit. The backend grades
+    // whatever was actually answered — unanswered stays unanswered.
+    onAutoSubmit: async () => {
+      await flushCurrent().catch(() => {});
+      await submit(true);
+    },
+  });
+
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden && !submitted && !loading && loadedAttemptId === attemptId) {
-        tabSwitchCountRef.current += 1;
-        submit(true);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [submit, submitted, loading, loadedAttemptId, attemptId]);
+    if (integrity.requestFullscreen) integrity.requestFullscreen();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const enterFullscreen = useCallback(() => {
     containerRef.current?.requestFullscreen?.().catch(() => {
@@ -100,13 +112,16 @@ export default function ExamRoom() {
       {error && <p role="alert" className="bg-red-50 p-4 text-red-700">{error} <button disabled={submitting || navigating} onClick={() => { setConfirmSubmitOpen(false); void submit(deadline ? Date.now() >= deadline.getTime() : false); }} className="underline">Retry submission</button></p>}
       <p role="status" className="px-6 text-sm text-muted-foreground">{submitting ? 'Submitting…' : saving ? 'Saving answer…' : 'Answers save automatically.'}</p>
       {/* Top bar */}
-      <header className="sticky top-0 z-10 flex flex-wrap gap-2 items-center justify-between border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
+      <header className="sticky top-16 z-10 flex flex-wrap gap-2 items-center justify-between border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
         <div>
           <p className="text-sm text-muted-foreground">
             Question {currentIndex + 1} of {questions.length} · {q.category.replace(/-/g, ' ')} · <span className="uppercase">{q.difficulty}</span>
           </p>
         </div>
-        {deadline && <Timer deadline={deadline} onExpire={handleExpire} />}
+        <div className="flex items-center gap-3">
+          <IntegrityIndicator warningCount={integrity.warningCount} maximumWarnings={integrity.maximumWarnings} active={!submitted} />
+          {deadline && <Timer deadline={deadline} onExpire={handleExpire} />}
+        </div>
       </header>
 
       <div className="mx-auto flex max-w-7xl flex-col lg:flex-row gap-6 p-4 sm:p-6">
@@ -159,7 +174,8 @@ export default function ExamRoom() {
                 <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-current text-sm">
                   {opt}
                 </span>
-                {q.options?.[opt] || `Option ${opt}`}
+                {/* Image-only questions carry their options inside the image. */}
+                {q.imageUrl ? '' : (q.options?.[opt] || `Option ${opt}`)}
               </button>
             ))}
           </div>
@@ -215,6 +231,26 @@ export default function ExamRoom() {
           onCancel={() => setConfirmSubmitOpen(false)}
           onConfirm={() => { setConfirmSubmitOpen(false); void submit(false); }}
         />
+      )}
+
+      {/* Shared integrity warning modal (warnings 1–4) */}
+      {integrity.modalEvent && !integrity.shouldAutoSubmit && (
+        <IntegrityWarningModal
+          event={integrity.modalEvent}
+          warningNumber={integrity.modalWarningNumber}
+          maximumWarnings={integrity.maximumWarnings}
+          onContinue={integrity.dismissModal}
+        />
+      )}
+
+      {/* Warning-5 auto-submit overlay — huge full-screen red */}
+      {integrity.submittingWork && (
+        <div className="fixed inset-0 z-[210] bg-red-700 flex flex-col items-center justify-center gap-4">
+          <ShieldAlert className="w-20 h-20 text-white animate-pulse" />
+          <p className="text-4xl font-black tracking-tight text-white text-center px-4">ASSESSMENT TERMINATED</p>
+          <p className="text-lg font-bold text-red-100 text-center px-4">Maximum integrity warnings reached (5 of 5)</p>
+          <p className="text-sm text-red-200 text-center px-4">Your answers are being saved and your attempt is being submitted.</p>
+        </div>
       )}
     </div>
   );

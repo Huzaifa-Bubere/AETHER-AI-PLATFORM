@@ -93,10 +93,6 @@ class InterviewService {
   async getHistory(page = 1, limit = 10) {
     return apiService.get<any>(`/interview/history/me?page=${page}&limit=${limit}`);
   }
-
-  async recordIntegrityEvent(interviewId: string, type: string, details?: string) {
-    return apiService.post<any>(`/interview/${interviewId}/integrity`, { type, details });
-  }
 }
 
 export const interviewService = new InterviewService();

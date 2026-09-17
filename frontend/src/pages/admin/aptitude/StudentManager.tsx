@@ -11,6 +11,7 @@ interface StudentRow {
   attempts: number;
   avgScorePercent: number;
   lastAttemptAt: string;
+  autoSubmittedAttempts?: number;
 }
 
 export default function StudentManager() {
@@ -74,6 +75,7 @@ export default function StudentManager() {
               <th className="p-3 text-left">Email</th>
               <th className="p-3 text-left">Attempts</th>
               <th className="p-3 text-left">Avg Score</th>
+              <th className="p-3 text-left">Integrity</th>
               <th className="p-3 text-left">Last Attempt</th>
               <th className="p-3 text-left">Status</th>
               <th className="p-3 text-left">Actions</th>
@@ -86,6 +88,11 @@ export default function StudentManager() {
                 <td className="p-3 text-muted-foreground">{s.email}</td>
                 <td className="p-3">{s.attempts}</td>
                 <td className="p-3">{s.avgScorePercent}%</td>
+                <td className="p-3">
+                  {(s.autoSubmittedAttempts ?? 0) > 0
+                    ? <span className="rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-xs font-semibold text-red-700">Auto-submitted ×{s.autoSubmittedAttempts}</span>
+                    : <span className="text-xs text-emerald-700">Clean</span>}
+                </td>
                 <td className="p-3 text-muted-foreground">{new Date(s.lastAttemptAt).toLocaleDateString()}</td>
                 <td className="p-3">
                   <span className={s.isBlocked ? 'text-destructive' : 'text-emerald-700'}>{s.isBlocked ? 'Blocked' : 'Active'}</span>
@@ -99,7 +106,7 @@ export default function StudentManager() {
             ))}
             {students.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-6 text-center text-muted-foreground">
+                <td colSpan={8} className="p-6 text-center text-muted-foreground">
                   {loading ? 'Loading students...' : 'No students with completed attempts found.'}
                 </td>
               </tr>

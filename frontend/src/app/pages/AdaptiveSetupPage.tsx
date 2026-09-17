@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Brain, ShieldCheck, Loader2, ChevronRight, CheckCircle2, Sparkles, Mic, Camera, ArrowLeft } from 'lucide-react';
+import { Brain, ShieldCheck, Loader2, ChevronRight, Sparkles, Mic, Camera, ArrowLeft } from 'lucide-react';
 import { useAdaptiveInterviewStore } from '../../store/adaptiveInterviewStore';
+import { SystemCheck } from '../components/interview/SystemCheck';
 import toast from 'react-hot-toast';
 
 const DOMAINS = [
@@ -23,11 +24,12 @@ const DOMAINS = [
 ];
 
 const DIFFICULTIES = [
-  { id: 'easy', label: 'Easy', desc: 'Fundamentals', color: '#10b981' },
-  { id: 'medium', label: 'Medium', desc: 'Interview level', color: '#f59e0b' },
-  { id: 'hard', label: 'Hard', desc: 'Expert level', color: '#ef4444' },
+  { id: 'easy', label: 'Easy', desc: 'Fundamentals' },
+  { id: 'medium', label: 'Medium', desc: 'Interview level' },
+  { id: 'hard', label: 'Hard', desc: 'Expert level' },
 ] as const;
 
+/** AETHER AI Mock Interview setup — light theme + pre-interview system check. */
 export function AdaptiveSetupPage() {
   const navigate = useNavigate();
   const createSession = useAdaptiveInterviewStore(s => s.createSession);
@@ -37,128 +39,110 @@ export function AdaptiveSetupPage() {
   const [role, setRole] = useState('');
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [questionCount, setQuestionCount] = useState(6);
+  const [systemOk, setSystemOk] = useState<boolean | null>(null);
 
   const handleStart = async () => {
     if (!domain) return toast.error('Select your domain first');
+    if (systemOk === false) return toast.error('System check failed — camera and microphone are required');
     const sessionId = await createSession({ domain, role, difficulty, questionCount });
     if (sessionId) navigate(`/ai-interview/${sessionId}`);
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0b1020', color: '#e2e8f0', fontFamily: "'Sora', system-ui, sans-serif", padding: '90px 16px 60px' }}>
-      <div style={{ maxWidth: 880, margin: '0 auto' }}>
-        {/* Header */}
-        <button onClick={() => navigate('/interview-setup')} style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#94a3b8', marginBottom: 24 }}>
-          <ArrowLeft style={{ width: 14, height: 14 }} /> Back to interview types
+    <div className="min-h-screen bg-slate-50 pt-20 pb-14 px-4 text-slate-900">
+      <div className="max-w-4xl mx-auto">
+        <button onClick={() => navigate('/interview-setup')} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-6">
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to interview types
         </button>
 
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 20, padding: '5px 14px', fontSize: 12, color: '#a5b4fc', marginBottom: 18, fontWeight: 600 }}>
-            <Brain style={{ width: 13, height: 13 }} />
-            Adaptive AI Interview
+        <div className="text-center mb-9">
+          <div className="inline-flex items-center gap-1.5 bg-primary/5 border border-primary/15 rounded-full px-3.5 py-1 text-xs font-semibold text-primary mb-4">
+            <Brain className="w-3.5 h-3.5" /> AI Mock Interview
           </div>
-          <h1 style={{ fontSize: 'clamp(1.8rem, 4.5vw, 2.6rem)', fontWeight: 700, margin: '0 0 12px', letterSpacing: '-0.03em' }}>
-            Pick Your Domain. AI Handles the Rest.
-          </h1>
-          <p style={{ color: '#94a3b8', fontSize: 15, margin: 0, lineHeight: 1.6 }}>
-            The AI asks questions that matter in your field — and every next question adapts to your last answer.
-            Your camera stays on. Tab-switching, copy-paste and leaving fullscreen are tracked.
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">Adaptive AI Interview</h1>
+          <p className="text-muted-foreground text-[15px] max-w-2xl mx-auto leading-relaxed">
+            Practice realistic adaptive interviews with voice, camera and explainable feedback.
+            The AI speaks every question and adapts the next one to your answers.
           </p>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginTop: 16, flexWrap: 'wrap' }}>
+          <div className="flex justify-center gap-4 mt-4 flex-wrap">
             {[
-              { icon: Sparkles, text: 'Adaptive follow-up questions' },
-              { icon: Camera, text: 'Camera proctoring' },
-              { icon: Mic, text: 'Speak or type your answers' },
-              { icon: ShieldCheck, text: 'Integrity report' },
+              { icon: Sparkles, text: 'Adaptive follow-ups' },
+              { icon: Camera, text: 'Camera + integrity monitoring' },
+              { icon: Mic, text: 'Speak or type answers' },
+              { icon: ShieldCheck, text: 'Explainable feedback' },
             ].map(f => (
-              <div key={f.text} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#818cf8' }}>
-                <f.icon style={{ width: 13, height: 13 }} /> {f.text}
-              </div>
+              <span key={f.text} className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                <f.icon className="w-3.5 h-3.5" /> {f.text}
+              </span>
             ))}
           </div>
         </div>
 
-        {/* Domain grid */}
-        <p style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 12px' }}>1 · Choose Domain</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10, marginBottom: 32 }}>
-          {DOMAINS.map(d => {
-            const active = domain === d.id;
-            return (
-              <button key={d.id} onClick={() => setDomain(d.id)} style={{
-                all: 'unset', cursor: 'pointer', padding: '16px', borderRadius: 14,
-                background: active ? 'rgba(99,102,241,0.14)' : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${active ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
-                transition: 'all 0.15s', textAlign: 'left',
-              }}>
-                <div style={{ fontSize: 20, marginBottom: 6 }}>{d.icon}</div>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: active ? '#c7d2fe' : '#e2e8f0' }}>{d.id}</div>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{d.desc}</div>
-              </button>
-            );
-          })}
-        </div>
+        <div className="grid lg:grid-cols-[1fr_320px] gap-5 items-start">
+          {/* Left column: configuration */}
+          <div className="space-y-6">
+            <section>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">1 · Choose domain</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {DOMAINS.map(d => {
+                  const active = domain === d.id;
+                  return (
+                    <button key={d.id} onClick={() => setDomain(d.id)} aria-pressed={active}
+                      className={`text-left p-3.5 rounded-xl border transition-colors ${active ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-blue-300'}`}>
+                      <span className="text-lg" aria-hidden>{d.icon}</span>
+                      <p className={`text-sm font-semibold mt-1 ${active ? 'text-primary' : 'text-slate-800'}`}>{d.id}</p>
+                      <p className="text-[11px] text-slate-400">{d.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
 
-        {/* Role + difficulty + count */}
-        <p style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 12px' }}>2 · Configure</p>
-        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 24, display: 'grid', gap: 20, marginBottom: 32 }}>
-          <div>
-            <label style={{ display: 'block', fontSize: 12.5, color: '#94a3b8', marginBottom: 8 }}>Target role <span style={{ color: '#475569' }}>(optional)</span></label>
-            <input
-              value={role}
-              onChange={e => setRole(e.target.value)}
-              placeholder="e.g. Frontend Developer, SDE-1, Data Analyst"
-              style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '12px 14px', color: '#e2e8f0', fontSize: 14, outline: 'none' }}
-            />
+            <section>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">2 · Target role <span className="normal-case font-normal text-slate-400">(optional)</span></p>
+              <input value={role} onChange={e => setRole(e.target.value)} placeholder="e.g. Backend Developer, Data Analyst…"
+                className="w-full rounded-xl border border-border bg-card px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400/50" />
+            </section>
+
+            <section>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">3 · Difficulty</p>
+              <div className="grid grid-cols-3 gap-2">
+                {DIFFICULTIES.map(d => {
+                  const active = difficulty === d.id;
+                  return (
+                    <button key={d.id} onClick={() => setDifficulty(d.id)} aria-pressed={active}
+                      className={`p-3 rounded-xl border text-center transition-colors ${active ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-blue-300'}`}>
+                      <p className={`text-sm font-bold ${active ? 'text-primary' : 'text-slate-800'}`}>{d.label}</p>
+                      <p className="text-[11px] text-slate-400">{d.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">4 · Questions</p>
+              <div className="flex items-center gap-3">
+                <input type="range" min={3} max={12} value={questionCount} onChange={e => setQuestionCount(Number(e.target.value))}
+                  className="flex-1 accent-blue-600" aria-label="Number of questions" />
+                <span className="text-sm font-bold tabular-nums text-slate-700 w-8 text-center">{questionCount}</span>
+              </div>
+            </section>
           </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 12.5, color: '#94a3b8', marginBottom: 8 }}>Difficulty</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-              {DIFFICULTIES.map(d => (
-                <button key={d.id} onClick={() => setDifficulty(d.id)} style={{
-                  all: 'unset', cursor: 'pointer', textAlign: 'center', padding: '11px 8px', borderRadius: 10,
-                  background: difficulty === d.id ? `${d.color}18` : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${difficulty === d.id ? d.color : 'rgba(255,255,255,0.1)'}`,
-                }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, color: difficulty === d.id ? d.color : '#94a3b8' }}>{d.label}</div>
-                  <div style={{ fontSize: 10.5, color: '#64748b' }}>{d.desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: '#94a3b8', marginBottom: 8 }}>
-              <span>Questions</span><span style={{ color: '#a5b4fc', fontWeight: 700 }}>{questionCount}</span>
-            </label>
-            <input type="range" min={4} max={12} value={questionCount} onChange={e => setQuestionCount(Number(e.target.value))}
-              style={{ width: '100%', accentColor: '#6366f1' }} />
-            <p style={{ fontSize: 11, color: '#475569', margin: '6px 0 0' }}>
-              The AI may ask extra follow-ups on weak answers — the count is the minimum it plans for.
+
+          {/* Right column: system check + start */}
+          <div className="space-y-4 lg:sticky lg:top-20">
+            <SystemCheck onDone={setSystemOk} />
+            <button onClick={handleStart} disabled={creating || !domain}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+              {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Preparing…</> : <>Start Interview <ChevronRight className="w-4 h-4" /></>}
+            </button>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              By starting you accept integrity monitoring: tab switches, leaving fullscreen and camera events are
+              recorded. 5 warnings automatically submit the interview. Scores from completed answers are always kept.
             </p>
           </div>
         </div>
-
-        {/* Start */}
-        <button
-          onClick={handleStart}
-          disabled={creating}
-          style={{
-            all: 'unset', cursor: 'pointer', width: '100%', boxSizing: 'border-box',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            padding: '16px', borderRadius: 14,
-            background: 'linear-gradient(135deg, #6366f1, #818cf8)',
-            color: '#fff', fontSize: 15, fontWeight: 700,
-            boxShadow: '0 6px 24px rgba(99,102,241,0.35)',
-          }}
-        >
-          {creating
-            ? <><Loader2 style={{ width: 18, height: 18, animation: 'spin 1s linear infinite' }} /> Preparing your interview…</>
-            : <>Start AI Interview <ChevronRight style={{ width: 18, height: 18 }} /></>}
-        </button>
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-
-        <p style={{ textAlign: 'center', fontSize: 12, color: '#475569', marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          <ShieldCheck style={{ width: 13, height: 13 }} /> You'll need camera + microphone access. Use Chrome or Edge.
-        </p>
       </div>
     </div>
   );

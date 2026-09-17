@@ -5,6 +5,8 @@ export const candidateNavigation = [
   { name: 'Coding Practice', path: '/coding' },
   { name: 'AI Mock Interview', path: '/interview-setup' },
   { name: 'Resume Analyzer', path: '/resume' },
+  { name: 'Career Learning', path: '/career-learning' },
+  { name: 'Career Intelligence', path: '/career-intelligence' },
   { name: 'History', path: '/history' },
   { name: 'Profile', path: '/profile' },
 ];
@@ -16,6 +18,7 @@ export const adminNavigation = [
   { name: 'Test Management', path: '/admin/aptitude/tests' },
   { name: 'Knowledge Sources', path: '/admin/knowledge' },
   { name: 'Coding Problems', path: '/admin/coding' },
+  { name: 'Career & Market', path: '/admin/careers' },
   { name: 'Students', path: '/admin/aptitude/students' },
   { name: 'Profile', path: '/profile' },
 ];

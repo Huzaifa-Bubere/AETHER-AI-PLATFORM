@@ -22,6 +22,8 @@ import ragRoutes from './routes/rag';
 import codingRoutes from './coding/routes/coding.routes';
 import codingAdminRoutes from './coding/routes/coding.admin.routes';
 import integrityRoutes from './integrity/integrity.service';
+import careerRoutes from './career/routes/career.routes';
+import careerAdminRoutes from './career/routes/careerAdmin.routes';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -177,6 +179,10 @@ export function createApp(): Application {
 
   // AETHER shared Assessment Integrity system (Aptitude / Technical / Coding / Interview)
   app.use('/api/integrity', apiLimiter, authenticateToken, requireCandidate, integrityRoutes);
+
+  // AETHER Career Learning + Career Intelligence module
+  app.use('/api/careers', apiLimiter, careerRoutes);
+  app.use('/api/admin/careers', apiLimiter, careerAdminRoutes);
 
   // Error handling middleware (must be last)
   app.use(notFound);

@@ -1,11 +1,18 @@
 import { Link } from 'react-router-dom';
-import { Play, FileText, TrendingUp, TrendingDown, Award, Clock, Target, Brain, Code, Calendar, ChevronRight, Minus } from 'lucide-react';
+import { Play, FileText, TrendingUp, TrendingDown, Award, Clock, Target, Brain, Code, Calendar, ChevronRight, Minus, Compass, LineChart as LineChartIcon, GraduationCap } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { memo, useMemo, useEffect, useState } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { apiService } from '../services/api';
+import careerService, { type ReadinessData } from '../services/career';
+
+/** First trending-up skill in the readiness data's demand info, or null. */
+function careerSnapshotTrending(data: ReadinessData): string | null {
+  const up = data.gaps.find(g => g.demand?.trend === 'TRENDING_UP');
+  return up ? up.name : null;
+}
 
 export const DashboardPage = memo(function DashboardPage() {
   const { user } = useAuthStore();
@@ -13,10 +20,14 @@ export const DashboardPage = memo(function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAllInterviews, setShowAllInterviews] = useState(false);
+  // AETHER Career panel — real goal/readiness/gap data (never fake values).
+  const [career, setCareer] = useState<ReadinessData | null>(null);
 
   useEffect(() => {
     fetchDashboardData(true);                                               // initial — show spinner
     const interval = setInterval(() => fetchDashboardData(false), 30000);  // poll — silent
+    // Career goal data (silent failure — the panel simply doesn't render without a goal)
+    careerService.getReadiness().then(setCareer).catch(() => {});
     return () => clearInterval(interval);
   }, []);
 
@@ -232,6 +243,49 @@ export const DashboardPage = memo(function DashboardPage() {
             </Card>
           ))}
         </div>
+
+        {/* AETHER Career panel — target role, readiness, top gap, market insight */}
+        {career && (
+          <Card className="p-6">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-6">
+              <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
+                  <Compass className="w-6 h-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Target Career</p>
+                  <h3 className="text-lg font-bold text-foreground truncate">{career.roleName}</h3>
+                  <p className="text-xs text-muted-foreground">Role Readiness: <strong className="text-foreground">{career.readiness}%</strong> · {career.skillsMatched}/{career.skillsTotal} skills matched</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-6 lg:gap-8">
+                {career.gaps.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Top Skill Gap</p>
+                    <p className="text-sm font-bold text-foreground mt-1">{career.gaps[0].name}</p>
+                    {career.gaps[0].demand?.frequency != null && (
+                      <p className="text-[11px] text-muted-foreground">in {Math.round(career.gaps[0].demand.frequency)}% of postings</p>
+                    )}
+                  </div>
+                )}
+                {career.snapshot && (() => {
+                  const up = career.snapshot && careerSnapshotTrending(career);
+                  return up ? (
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Market Insight</p>
+                      <p className="text-sm font-bold text-emerald-600 mt-1 inline-flex items-center gap-1"><TrendingUp className="w-4 h-4" /> {up} demand ↑</p>
+                      <p className="text-[11px] text-muted-foreground">snapshot {new Date(career.snapshot.periodEnd).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</p>
+                    </div>
+                  ) : null;
+                })()}
+                <div className="flex items-center gap-2">
+                  <Link to="/career-learning"><Button size="sm" className="text-xs font-bold"><GraduationCap className="w-3.5 h-3.5 mr-1" /> Continue Learning</Button></Link>
+                  <Link to="/career-intelligence" className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"><LineChartIcon className="w-3.5 h-3.5" /> Intelligence</Link>
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-8">
           {/* ── Left Column ── */}

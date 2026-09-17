@@ -47,6 +47,13 @@ const AptitudeAdminDashboard = lazy(() => import('../pages/admin/aptitude/AdminD
 const AdaptiveSetupPage = lazy(() => import('./pages/AdaptiveSetupPage'));
 const AdaptiveInterviewRoomPage = lazy(() => import('./pages/AdaptiveInterviewRoomPage'));
 const AdaptiveReportPage = lazy(() => import('./pages/AdaptiveReportPage'));
+
+// AETHER Career Learning + Career Intelligence
+const CareerLearningPage = lazy(() => import('./pages/CareerLearningPage'));
+const CareerRoadmapPage = lazy(() => import('./pages/CareerRoadmapPage'));
+const CareerIntelligencePage = lazy(() => import('./pages/CareerIntelligencePage'));
+const CareerIntelligenceRolePage = lazy(() => import('./pages/CareerIntelligenceRolePage'));
+const AdminCareerPage = lazy(() => import('./pages/admin/CareerAdminPage'));
 const AptitudeQuestionManager = lazy(() => import('../pages/admin/aptitude/QuestionManager'));
 const AptitudeTestManager = lazy(() => import('../pages/admin/aptitude/TestManager'));
 const AptitudeStudentManager = lazy(() => import('../pages/admin/aptitude/StudentManager'));
@@ -289,6 +296,35 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        {/* AETHER Career modules */}
+        <Route path="/career-learning" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <CareerLearningPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/career-learning/:roleSlug" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <CareerRoadmapPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/career-intelligence" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <CareerIntelligencePage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/career-intelligence/:roleSlug" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <CareerIntelligenceRolePage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="/aptitude" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -352,6 +388,13 @@ function AppContent() {
           <AdminRoute>
             <Suspense fallback={<PageLoader />}>
               <AdminCodingPage />
+            </Suspense>
+          </AdminRoute>
+        } />
+        <Route path="/admin/careers" element={
+          <AdminRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AdminCareerPage />
             </Suspense>
           </AdminRoute>
         } />

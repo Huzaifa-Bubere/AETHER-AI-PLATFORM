@@ -2,21 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Mic,
-  MicOff,
   Volume2,
   VolumeX,
   RotateCcw,
   Send,
-  Square,
   Clock,
   ChevronLeft,
   Loader2,
   AlertTriangle,
-  CheckCircle2,
   Sparkles,
   Shield,
-  Layers,
-  HelpCircle,
+  ShieldAlert,
   Video,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -24,11 +20,18 @@ import { Card } from '../components/ui/card';
 import { AIAvatar } from '../components/interview/AIAvatar';
 import { VideoRecorder } from '../components/interview/VideoRecorder';
 import { SpeechRecognition } from '../components/interview/SpeechRecognition';
-import { ProctoringHUD } from '../components/interview/ProctoringHUD';
-import { useProctor, ProctorEventType } from '../hooks/useProctor';
+import { useIntegrityMonitor } from '../features/integrity/useIntegrityMonitor';
+import { DEFAULT_POLICIES } from '../features/integrity/integrity.types';
+import { IntegrityIndicator } from '../features/integrity/IntegrityIndicator';
+import { IntegrityWarningModal } from '../features/integrity/IntegrityWarningModal';
 import { useInterviewStore } from '../stores/interviewStore';
 import toast from 'react-hot-toast';
 
+/**
+ * AETHER AI Mock Interview room — light theme.
+ * Integrity uses the shared backend-authoritative system: 5 recorded violations
+ * automatically conclude the interview and generate the final assessment.
+ */
 export function InterviewRoomPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -40,7 +43,6 @@ export function InterviewRoomPage() {
     isSpeaking,
     isMuted,
     isListening,
-    transcript,
     isSubmitting,
     isLoading,
     error,
@@ -53,21 +55,14 @@ export function InterviewRoomPage() {
     speakCurrentQuestion,
     stopSpeech,
     toggleMute,
-    setTranscript,
-    appendTranscript,
     setIsListening,
     incrementElapsed,
-    recordIntegrityEvent,
     reset,
   } = useInterviewStore();
 
   const [candidateAnswer, setCandidateAnswer] = useState('');
   const [showEndModal, setShowEndModal] = useState(false);
   const [questionStartTime, setQuestionStartTime] = useState<number>(Date.now());
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [proctorWarningOpen, setProctorWarningOpen] = useState(false);
-  const [proctorWarningMsg, setProctorWarningMsg] = useState('');
-  const [strikes, setStrikes] = useState(0);
 
   // Resume or start interview on mount
   useEffect(() => {
@@ -82,8 +77,9 @@ export function InterviewRoomPage() {
 
     return () => {
       stopSpeech();
+      reset();
     };
-  }, [interviewId]);
+  }, [interviewId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Timer interval
   useEffect(() => {
@@ -92,44 +88,45 @@ export function InterviewRoomPage() {
       incrementElapsed();
     }, 1000);
     return () => clearInterval(interval);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Shared integrity system (3 warnings → auto-conclude) ──────────────────
+  const concludedRef = useRef(false);
+  const concludeInterview = useCallback(async () => {
+    if (concludedRef.current) return;
+    concludedRef.current = true;
+    stopSpeech();
+    setIsListening(false);
+    const id = await endInterview();
+    if (id) {
+      toast.error('Interview concluded — maximum integrity warnings reached.', { duration: 6000 });
+      navigate(`/feedback/${interviewId}`);
+    }
+  }, [endInterview, interviewId, navigate, setIsListening, stopSpeech]);
+
+  const integrity = useIntegrityMonitor({
+    policy: DEFAULT_POLICIES.INTERVIEW,
+    attemptId: interviewId ?? null,
+    active: phase === 'active',
+    onAutoSubmit: concludeInterview,
+  });
+
+  useEffect(() => {
+    if (interviewId && phase === 'active') void integrity.restoreState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interviewId, phase]);
+
+  useEffect(() => {
+    if (phase === 'active') integrity.requestFullscreen();
+    // eslint-disable-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  // Sync candidateAnswer with speech transcript
+  // Face monitoring hooks are available for future camera frame loops:
+  // integrity.reportFaceAbsent(seconds), integrity.reportMultipleFaces(seconds)
+
   const handleTranscript = (text: string, isFinal: boolean) => {
     if (isFinal) {
       setCandidateAnswer(prev => (prev + ' ' + text).trimStart());
-    }
-  };
-
-  // Integrity / Proctoring hook
-  const handleProctorEvent = useCallback(
-    (type: ProctorEventType, detail?: string) => {
-      if (!interviewId || phase !== 'active') return;
-
-      recordIntegrityEvent(type, detail);
-
-      if (['tab-switch', 'window-blur', 'fullscreen-exit', 'copy-attempt', 'paste-attempt'].includes(type)) {
-        setStrikes(prev => {
-          const next = prev + 1;
-          setProctorWarningMsg(`Integrity Warning: ${type.replace(/-/g, ' ')}. Please stay on the interview room screen.`);
-          setProctorWarningOpen(true);
-          return next;
-        });
-      }
-    },
-    [interviewId, phase, recordIntegrityEvent]
-  );
-
-  const proctor = useProctor({
-    active: phase === 'active',
-    onEvent: handleProctorEvent,
-  });
-
-  const requestFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
-    } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
     }
   };
 
@@ -180,11 +177,11 @@ export function InterviewRoomPage() {
   const getDifficultyBadgeColor = (diff?: string) => {
     switch (diff?.toLowerCase()) {
       case 'easy':
-        return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'hard':
-        return 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+        return 'bg-rose-50 text-rose-700 border-rose-200';
       default:
-        return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+        return 'bg-amber-50 text-amber-700 border-amber-200';
     }
   };
 
@@ -195,35 +192,37 @@ export function InterviewRoomPage() {
 
   if (isLoading && !activeQuestion) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-200">
-        <Loader2 className="w-10 h-10 animate-spin text-indigo-500 mb-4" />
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center text-foreground">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
         <h2 className="text-xl font-bold">Connecting to AETHER Adaptive Interviewer...</h2>
-        <p className="text-slate-400 text-sm mt-1">Calibrating context & preparing session</p>
+        <p className="text-muted-foreground text-sm mt-1">Calibrating context & preparing session</p>
       </div>
     );
   }
 
+  const locked = integrity.shouldAutoSubmit;
+
   return (
-    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden font-sans select-none">
+    <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden font-sans select-none">
 
       {/* ── Top Bar ── */}
-      <header className="h-14 border-b border-slate-800/80 bg-slate-900/60 px-4 flex items-center justify-between shrink-0">
+      <header className="h-14 border-b border-border bg-card px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => navigate('/dashboard')}
-            className="text-slate-400 hover:text-white px-2.5 py-1 text-xs"
+            className="text-muted-foreground hover:text-foreground px-2.5 py-1 text-xs"
           >
             <ChevronLeft className="w-4 h-4 mr-1" />
             Dashboard
           </Button>
 
-          <span className="w-px h-4 bg-slate-800" />
+          <span className="w-px h-4 bg-border" />
 
           {/* Current Stage Badge */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
               {getStageDisplay(activeQuestion?.stage)}
             </span>
             {activeQuestion?.difficulty && (
@@ -234,36 +233,32 @@ export function InterviewRoomPage() {
           </div>
         </div>
 
-        {/* Proctoring status */}
+        {/* Integrity indicator — shared system across all assessments */}
         <div className="hidden md:flex items-center gap-2">
-          <ProctoringHUD
-            isFullscreen={isFullscreen}
-            strikes={strikes}
-            maxStrikes={3}
-            isFlagged={strikes >= 3}
-            warningModalOpen={proctorWarningOpen}
-            warningMessage={proctorWarningMsg}
-            onRequestFullscreen={requestFullscreen}
-            onAcknowledgeWarning={() => setProctorWarningOpen(false)}
+          <IntegrityIndicator
+            warningCount={integrity.warningCount}
+            maximumWarnings={integrity.maximumWarnings}
+            active={phase === 'active' && !locked}
           />
         </div>
 
         {/* Right Timer & End button */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs font-mono text-slate-300">
-            <Clock className="w-3.5 h-3.5 text-indigo-400" />
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-secondary border border-border text-xs font-mono text-muted-foreground">
+            <Clock className="w-3.5 h-3.5 text-primary" />
             <span>{formatTime(elapsedSeconds)}</span>
           </div>
 
-          <span className="text-xs font-semibold text-slate-400">
+          <span className="text-xs font-semibold text-muted-foreground">
             Q {questionsAnswered + 1} / {plannedQuestions}
           </span>
 
           <Button
             variant="ghost"
             size="sm"
+            disabled={locked}
             onClick={() => setShowEndModal(true)}
-            className="text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 text-xs px-2.5 py-1 border border-rose-500/20"
+            className="text-destructive hover:bg-red-50 hover:text-destructive text-xs px-2.5 py-1 border border-red-200"
           >
             End Interview
           </Button>
@@ -277,9 +272,9 @@ export function InterviewRoomPage() {
         <div className="lg:col-span-8 flex flex-col gap-3 h-full min-h-0">
 
           {/* AI Question & Avatar Banner */}
-          <Card className="bg-slate-900/80 border-slate-800/80 p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center gap-5 shadow-xl relative overflow-hidden shrink-0">
-            {/* 3D / Visual Avatar Container */}
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-br from-indigo-950/80 to-slate-900 border border-indigo-500/20 shrink-0 overflow-hidden relative shadow-inner">
+          <Card className="p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center gap-5 shadow-sm relative overflow-hidden shrink-0">
+            {/* Avatar Container */}
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-br from-indigo-50 to-secondary border border-border shrink-0 overflow-hidden relative">
               <AIAvatar
                 isListening={isListening}
                 isSpeaking={isSpeaking}
@@ -297,7 +292,7 @@ export function InterviewRoomPage() {
             {/* Question Text */}
             <div className="flex-1 min-w-0 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5" />
                   Topic: {activeQuestion?.topic || 'Core Engineering'}
                 </span>
@@ -308,15 +303,15 @@ export function InterviewRoomPage() {
                     type="button"
                     onClick={toggleMute}
                     title={isMuted ? 'Unmute Interviewer Voice' : 'Mute Interviewer Voice'}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition-colors"
+                    className="p-1.5 rounded-lg bg-secondary hover:bg-muted text-secondary-foreground border border-border text-xs transition-colors"
                   >
-                    {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+                    {isMuted ? <VolumeX className="w-3.5 h-3.5 text-destructive" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-600" />}
                   </button>
                   <button
                     type="button"
                     onClick={speakCurrentQuestion}
                     title="Replay Question"
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition-colors flex items-center gap-1"
+                    className="p-1.5 rounded-lg bg-secondary hover:bg-muted text-secondary-foreground border border-border text-xs transition-colors flex items-center gap-1"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span className="hidden sm:inline text-[11px]">Replay</span>
@@ -324,12 +319,12 @@ export function InterviewRoomPage() {
                 </div>
               </div>
 
-              <h2 className="text-base sm:text-lg font-bold text-slate-100 leading-snug">
+              <h2 className="text-base sm:text-lg font-bold text-foreground leading-snug">
                 {activeQuestion?.question || 'Preparing your customized interview question...'}
               </h2>
 
               {activeQuestion?.intent && (
-                <p className="text-xs text-slate-400 italic">
+                <p className="text-xs text-muted-foreground italic">
                   Focus: {activeQuestion.intent}
                 </p>
               )}
@@ -337,14 +332,14 @@ export function InterviewRoomPage() {
           </Card>
 
           {/* Candidate Response Workspace */}
-          <Card className="flex-1 bg-slate-900/60 border-slate-800/80 p-4 rounded-2xl flex flex-col justify-between overflow-hidden shadow-xl min-h-0">
+          <Card className="flex-1 p-4 rounded-2xl flex flex-col justify-between overflow-hidden shadow-sm min-h-0">
             <div className="flex-1 flex flex-col min-h-0 space-y-2">
-              <div className="flex items-center justify-between text-xs text-slate-400 pb-1 border-b border-slate-800">
-                <span className="font-semibold text-slate-300 flex items-center gap-1.5">
-                  <Mic className="w-3.5 h-3.5 text-indigo-400" />
+              <div className="flex items-center justify-between text-xs text-muted-foreground pb-1 border-b border-border">
+                <span className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Mic className="w-3.5 h-3.5 text-primary" />
                   Your Response (Speak or Type)
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-muted-foreground">
                   {candidateAnswer.split(/\s+/).filter(Boolean).length} words
                 </span>
               </div>
@@ -353,17 +348,18 @@ export function InterviewRoomPage() {
               <textarea
                 value={candidateAnswer}
                 onChange={e => setCandidateAnswer(e.target.value)}
+                disabled={locked}
                 placeholder={
                   isListening
                     ? 'Listening to your voice... (Live transcript will stream here, and you can edit anytime)'
                     : 'Click "Start Microphone" below to speak your answer, or type your answer directly here...'
                 }
-                className="flex-1 w-full p-3 bg-slate-950/60 border border-slate-800 rounded-xl text-slate-100 text-sm leading-relaxed resize-none focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/80 font-sans"
+                className="flex-1 w-full p-3 bg-input-background border border-border rounded-xl text-foreground text-sm leading-relaxed resize-none focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"
               />
             </div>
 
             {/* Bottom Controls */}
-            <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <div className="pt-3 border-t border-border flex flex-wrap items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2">
                 <SpeechRecognition
                   isListening={isListening}
@@ -371,7 +367,7 @@ export function InterviewRoomPage() {
                   onStopListening={() => setIsListening(false)}
                   onTranscript={handleTranscript}
                 />
-                <span className="text-xs text-slate-400 hidden sm:inline">
+                <span className="text-xs text-muted-foreground hidden sm:inline">
                   {isListening ? 'Microphone Active · Speak clearly' : 'Microphone Paused'}
                 </span>
               </div>
@@ -379,8 +375,8 @@ export function InterviewRoomPage() {
               <div className="flex items-center gap-2">
                 <Button
                   onClick={handleSubmit}
-                  disabled={isSubmitting || !candidateAnswer.trim()}
-                  className="px-5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 flex items-center gap-2"
+                  disabled={isSubmitting || !candidateAnswer.trim() || locked}
+                  className="px-5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2"
                 >
                   {isSubmitting ? (
                     <>
@@ -403,19 +399,19 @@ export function InterviewRoomPage() {
         <div className="lg:col-span-4 flex flex-col gap-3 h-full min-h-0">
 
           {/* Candidate Webcam */}
-          <Card className="bg-slate-900/80 border-slate-800/80 p-3 rounded-2xl flex flex-col overflow-hidden shadow-xl shrink-0">
-            <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-800">
-              <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <Video className="w-3.5 h-3.5 text-indigo-400" />
+          <Card className="p-3 rounded-2xl flex flex-col overflow-hidden shadow-sm shrink-0">
+            <div className="flex items-center justify-between pb-2 mb-1 border-b border-border">
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Video className="w-3.5 h-3.5 text-primary" />
                 Candidate Video Stream
               </span>
-              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 Monitoring
               </span>
             </div>
 
-            <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-950 relative border border-slate-800 flex items-center justify-center">
+            <div className="aspect-video w-full rounded-xl overflow-hidden bg-secondary relative border border-border flex items-center justify-center">
               <VideoRecorder
                 isRecording={phase === 'active'}
                 onStartRecording={() => {}}
@@ -426,22 +422,22 @@ export function InterviewRoomPage() {
           </Card>
 
           {/* Interview Progress Card */}
-          <Card className="flex-1 bg-slate-900/70 border-slate-800/80 p-4 rounded-2xl flex flex-col justify-between overflow-hidden shadow-xl min-h-0">
+          <Card className="flex-1 p-4 rounded-2xl flex flex-col justify-between overflow-hidden shadow-sm min-h-0">
             <div className="space-y-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Session Flow & Topics
               </div>
 
               <div className="space-y-2">
-                <div className="flex justify-between text-xs text-slate-300">
+                <div className="flex justify-between text-xs text-foreground">
                   <span>Questions Progress</span>
-                  <span className="font-bold text-indigo-400">
+                  <span className="font-bold text-primary">
                     {Math.round((questionsAnswered / Math.max(1, plannedQuestions)) * 100)}%
                   </span>
                 </div>
-                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                    className="h-full bg-primary rounded-full transition-all duration-500"
                     style={{
                       width: `${Math.min(100, (questionsAnswered / Math.max(1, plannedQuestions)) * 100)}%`,
                     }}
@@ -449,59 +445,81 @@ export function InterviewRoomPage() {
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/60 space-y-2">
-                <div className="text-[11px] font-semibold text-slate-400 uppercase">Adaptive Engine Telemetry</div>
-                <div className="text-xs text-slate-300 flex justify-between">
+              <div className="p-3 rounded-xl bg-secondary border border-border space-y-2">
+                <div className="text-[11px] font-semibold text-muted-foreground uppercase">Adaptive Engine Telemetry</div>
+                <div className="text-xs text-foreground flex justify-between">
                   <span>Current Difficulty:</span>
-                  <span className="font-semibold text-amber-400 capitalize">{activeQuestion?.difficulty || 'Medium'}</span>
+                  <span className="font-semibold text-amber-600 capitalize">{activeQuestion?.difficulty || 'Medium'}</span>
                 </div>
-                <div className="text-xs text-slate-300 flex justify-between">
+                <div className="text-xs text-foreground flex justify-between">
                   <span>Active Stage:</span>
-                  <span className="font-semibold text-indigo-300">{getStageDisplay(activeQuestion?.stage)}</span>
+                  <span className="font-semibold text-primary">{getStageDisplay(activeQuestion?.stage)}</span>
                 </div>
-                <div className="text-xs text-slate-300 flex justify-between">
+                <div className="text-xs text-foreground flex justify-between">
                   <span>Mode:</span>
-                  <span className="font-semibold text-emerald-400">Adaptive Dynamic Follow-ups</span>
+                  <span className="font-semibold text-emerald-600">Adaptive Dynamic Follow-ups</span>
                 </div>
               </div>
 
-              <div className="text-xs text-slate-400 leading-relaxed pt-1">
+              <div className="text-xs text-muted-foreground leading-relaxed pt-1">
                 Tip: Speak naturally. State your technical reasoning, trade-offs, and examples from your experience.
               </div>
             </div>
 
             <div className="pt-2">
-              <div className="p-2.5 rounded-xl bg-indigo-950/20 border border-indigo-500/20 text-[11px] text-indigo-300 flex items-center gap-2">
-                <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
-                <span>Explainable AI Evaluation is recorded after every answer.</span>
+              <div className="p-2.5 rounded-xl bg-accent border border-border text-[11px] text-accent-foreground flex items-center gap-2">
+                <Shield className="w-4 h-4 text-primary shrink-0" />
+                <span>
+                  Proctored: tab switches, leaving the window, and clipboard use are recorded. At 5 warnings the interview is automatically concluded and assessed on the answers submitted so far.
+                </span>
               </div>
             </div>
           </Card>
         </div>
       </div>
 
+      {/* ── Shared integrity warning modal (warnings 1–2) ── */}
+      {integrity.modalEvent && !locked && (
+        <IntegrityWarningModal
+          event={integrity.modalEvent}
+          warningNumber={integrity.modalWarningNumber}
+          maximumWarnings={integrity.maximumWarnings}
+          onContinue={integrity.dismissModal}
+        />
+      )}
+
+      {/* ── Final-warning overlay: auto-concluding — huge full-screen red ── */}
+      {integrity.submittingWork && (
+        <div className="fixed inset-0 z-[210] bg-red-700 flex flex-col items-center justify-center gap-4">
+          <ShieldAlert className="w-20 h-20 text-white animate-pulse" />
+          <p className="text-4xl font-black tracking-tight text-white text-center px-4">INTERVIEW TERMINATED</p>
+          <p className="text-lg font-bold text-red-100 text-center px-4">Maximum integrity warnings reached (5 of 5)</p>
+          <p className="text-sm text-red-200 text-center px-4">Your answers are being saved and your report is being generated.</p>
+        </div>
+      )}
+
       {/* ── End Interview Confirmation Modal ── */}
       {showEndModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-          <Card className="max-w-md w-full p-6 bg-slate-900 border-slate-800 text-slate-100 rounded-2xl shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-amber-400">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <Card className="max-w-md w-full p-6 rounded-2xl shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-amber-600">
               <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h3 className="text-lg font-bold text-white">Conclude Interview Now?</h3>
+              <h3 className="text-lg font-bold text-foreground">Conclude Interview Now?</h3>
             </div>
-            <p className="text-sm text-slate-300 leading-relaxed">
+            <p className="text-sm text-muted-foreground leading-relaxed">
               You have answered {questionsAnswered} of {plannedQuestions} planned questions. Ending the interview now will finalize your performance assessment based on the answers submitted so far.
             </p>
             <div className="flex items-center justify-end gap-3 pt-2">
               <Button
                 variant="ghost"
                 onClick={() => setShowEndModal(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
               >
                 Continue Interview
               </Button>
               <Button
                 onClick={handleEndEarly}
-                className="bg-rose-600 hover:bg-rose-500 text-white font-bold"
+                className="bg-destructive text-white hover:bg-destructive/90 font-bold"
               >
                 End & View Report
               </Button>

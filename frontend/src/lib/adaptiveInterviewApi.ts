@@ -69,8 +69,8 @@ export const adaptiveInterviewApi = {
     const res = await client.post(`/api/adaptive-interview/${sessionId}/proctor`, { type, detail });
     return unwrap(res.data) as { integrityScore: number; totalEvents: number };
   },
-  async endInterview(sessionId: string) {
-    const res = await client.post(`/api/adaptive-interview/${sessionId}/end`, {});
+  async endInterview(sessionId: string, terminationReason?: 'INTEGRITY_WARNING_LIMIT') {
+    const res = await client.post(`/api/adaptive-interview/${sessionId}/end`, terminationReason ? { terminationReason } : {});
     return unwrap(res.data) as { sessionId: string; completed: boolean; report: AdaptiveReport };
   },
   async uploadRecording(sessionId: string, blob: Blob, durationSeconds?: number) {

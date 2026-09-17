@@ -162,30 +162,30 @@ export function InterviewSetupPage() {
   );
 
   return (
-    <div className="min-h-screen py-16 px-4 bg-slate-950 text-slate-100 font-sans">
+    <div className="min-h-screen py-16 px-4 bg-background text-foreground font-sans">
       <div className="max-w-4xl mx-auto space-y-10">
 
         {/* Header */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-accent border border-border text-primary">
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
             <span>AETHER Adaptive Explainable Transformer Assessment</span>
           </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-200 bg-clip-text text-transparent">
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-foreground">
             Configure Your AI Mock Interview
           </h1>
-          <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
+          <p className="text-muted-foreground text-sm sm:text-base max-w-2xl mx-auto">
             Experience high-fidelity, interactive interview practice. The AI interviewer asks questions, probes gaps, and adapts difficulty based on your specific responses.
           </p>
         </div>
 
         {/* Main Configuration Card */}
-        <Card className="p-6 sm:p-8 bg-slate-900/90 border-slate-800 backdrop-blur shadow-2xl rounded-2xl space-y-8">
+        <Card className="p-6 sm:p-8 shadow-xl rounded-2xl space-y-8">
 
           {/* Section 1: Target Role */}
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-              <Briefcase className="w-4 h-4 text-indigo-400" />
+            <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <Briefcase className="w-4 h-4 text-primary" />
               1. Target Job Role
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -201,8 +201,8 @@ export function InterviewSetupPage() {
                     }}
                     className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all text-left border ${
                       isSelected
-                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200 shadow-sm shadow-indigo-500/20'
-                        : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                        ? 'bg-accent border-primary text-accent-foreground shadow-sm'
+                        : 'bg-secondary border-border text-muted-foreground hover:text-foreground hover:border-ring'
                     }`}
                   >
                     {r}
@@ -216,7 +216,7 @@ export function InterviewSetupPage() {
                 value={customRole}
                 onChange={e => setCustomRole(e.target.value)}
                 placeholder="Or type a custom role (e.g., Cloud Security Architect, iOS Engineer)..."
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                className="w-full px-4 py-2.5 rounded-xl bg-input-background border border-border text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-all"
               />
             </div>
           </div>
@@ -224,8 +224,8 @@ export function InterviewSetupPage() {
           {/* Section 2: Experience & Company */}
           <div className="grid sm:grid-cols-2 gap-6">
             <div className="space-y-3">
-              <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-indigo-400" />
+              <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-primary" />
                 2. Experience Level
               </label>
               <div className="space-y-2">
@@ -236,16 +236,16 @@ export function InterviewSetupPage() {
                     onClick={() => setExperienceLevel(lvl.id)}
                     className={`w-full p-3 rounded-xl text-left border transition-all flex items-start justify-between ${
                       experienceLevel === lvl.id
-                        ? 'bg-indigo-600/15 border-indigo-500 text-white'
-                        : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600'
+                        ? 'bg-accent border-primary text-accent-foreground'
+                        : 'bg-secondary border-border text-muted-foreground hover:border-ring'
                     }`}
                   >
                     <div>
                       <div className="text-sm font-semibold">{lvl.label}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{lvl.desc}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{lvl.desc}</div>
                     </div>
                     {experienceLevel === lvl.id && (
-                      <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                     )}
                   </button>
                 ))}
@@ -254,8 +254,8 @@ export function InterviewSetupPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2 mb-2">
-                  <Building2 className="w-4 h-4 text-indigo-400" />
+                <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-2">
+                  <Building2 className="w-4 h-4 text-primary" />
                   Target Company (Optional)
                 </label>
                 <input
@@ -263,19 +263,19 @@ export function InterviewSetupPage() {
                   value={company}
                   onChange={e => setCompany(e.target.value)}
                   placeholder="e.g. Google, Amazon, Stripe, Fintech Startup..."
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl bg-input-background border border-border text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-all"
                 />
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2 mb-2">
-                  <Globe className="w-4 h-4 text-indigo-400" />
+                <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-2">
+                  <Globe className="w-4 h-4 text-primary" />
                   Interview Language
                 </label>
                 <select
                   value={language}
                   onChange={e => setLanguage(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl bg-input-background border border-border text-foreground text-sm focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-all"
                 >
                   <option value="English">English (US / Global)</option>
                   <option value="English-IN">English (India / Neutral)</option>
@@ -283,8 +283,8 @@ export function InterviewSetupPage() {
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2 mb-2">
-                  <BarChart2 className="w-4 h-4 text-indigo-400" />
+                <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-2">
+                  <BarChart2 className="w-4 h-4 text-primary" />
                   Interview Length
                 </label>
                 <div className="flex items-center gap-3">
@@ -295,8 +295,8 @@ export function InterviewSetupPage() {
                       onClick={() => setPlannedQuestions(cnt)}
                       className={`flex-1 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
                         plannedQuestions === cnt
-                          ? 'bg-indigo-600 border-indigo-500 text-white'
-                          : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'
+                          ? 'bg-primary border-primary text-primary-foreground'
+                          : 'bg-secondary border-border text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       {cnt} Qs (~{cnt * 3}m)
@@ -309,8 +309,8 @@ export function InterviewSetupPage() {
 
           {/* Section 3: Interview Type */}
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-              <Layers className="w-4 h-4 text-indigo-400" />
+            <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <Layers className="w-4 h-4 text-primary" />
               3. Interview Round Type
             </label>
             <div className="grid sm:grid-cols-3 gap-3">
@@ -324,17 +324,17 @@ export function InterviewSetupPage() {
                     onClick={() => setInterviewType(t.id)}
                     className={`p-4 rounded-xl text-left border transition-all flex flex-col justify-between ${
                       isSelected
-                        ? 'bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-500/10'
-                        : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600'
+                        ? 'bg-accent border-primary text-accent-foreground shadow-sm'
+                        : 'bg-secondary border-border text-muted-foreground hover:border-ring'
                     }`}
                   >
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <Icon className="w-5 h-5" style={{ color: t.accent }} />
-                        {isSelected && <CheckCircle2 className="w-4 h-4 text-indigo-400" />}
+                        {isSelected && <CheckCircle2 className="w-4 h-4 text-primary" />}
                       </div>
-                      <div className="text-sm font-bold text-slate-200 mb-1">{t.label}</div>
-                      <div className="text-xs text-slate-500 leading-relaxed">{t.sub}</div>
+                      <div className="text-sm font-bold text-foreground mb-1">{t.label}</div>
+                      <div className="text-xs text-muted-foreground leading-relaxed">{t.sub}</div>
                     </div>
                   </button>
                 );
@@ -344,8 +344,8 @@ export function InterviewSetupPage() {
 
           {/* Section 4: Difficulty */}
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-indigo-400" />
+            <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-primary" />
               4. Intelligence & Difficulty Mode
             </label>
             <div className="grid sm:grid-cols-2 gap-3">
@@ -358,19 +358,19 @@ export function InterviewSetupPage() {
                     onClick={() => setDifficultyMode(d.id)}
                     className={`p-4 rounded-xl text-left border transition-all ${
                       isSelected
-                        ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-sm'
-                        : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600'
+                        ? 'bg-accent border-primary text-accent-foreground shadow-sm'
+                        : 'bg-secondary border-border text-muted-foreground hover:border-ring'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-sm text-slate-200">{d.label}</span>
+                      <span className="font-bold text-sm text-foreground">{d.label}</span>
                       {d.badge && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/30">
                           {d.badge}
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-slate-500">{d.desc}</div>
+                    <div className="text-xs text-muted-foreground">{d.desc}</div>
                   </button>
                 );
               })}
@@ -379,9 +379,9 @@ export function InterviewSetupPage() {
 
           {/* Section 5: Resume Selection / Analyzer Integration */}
           <div className="space-y-3">
-            <label className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+            <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-indigo-400" />
+                <FileText className="w-4 h-4 text-primary" />
                 5. Candidate Context & Resume (Optional but Recommended)
               </span>
               {selectedResumeId && (
@@ -391,15 +391,15 @@ export function InterviewSetupPage() {
               )}
             </label>
 
-            <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 space-y-3">
+            <div className="p-4 rounded-xl bg-secondary/60 border border-border space-y-3">
               {loadingResumes ? (
-                <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
                   Checking for existing resumes from Resume Analyzer...
                 </div>
               ) : existingResumes.length > 0 ? (
                 <div className="space-y-2">
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-muted-foreground">
                     We found your parsed resume from the Resume Analyzer module. The AI interviewer can craft personalized questions referencing your actual projects and skills:
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -413,8 +413,8 @@ export function InterviewSetupPage() {
                           onClick={() => setSelectedResumeId(isChosen ? '' : id)}
                           className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-2 transition-all ${
                             isChosen
-                              ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300'
-                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                              : 'bg-secondary border-border text-muted-foreground hover:text-foreground'
                           }`}
                         >
                           <FileText className="w-3.5 h-3.5" />
@@ -425,10 +425,10 @@ export function InterviewSetupPage() {
                     })}
                   </div>
                   {selectedResumeObj?.analysis?.skills && (
-                    <div className="text-[11px] text-slate-500 flex flex-wrap gap-1 pt-1">
-                      <span className="font-semibold text-slate-400">Detected Skills:</span>
+                    <div className="text-[11px] text-muted-foreground flex flex-wrap gap-1 pt-1">
+                      <span className="font-semibold text-muted-foreground">Detected Skills:</span>
                       {selectedResumeObj.analysis.skills.slice(0, 8).map((s: string) => (
-                        <span key={s} className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                        <span key={s} className="px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">
                           {s}
                         </span>
                       ))}
@@ -436,14 +436,14 @@ export function InterviewSetupPage() {
                   )}
                 </div>
               ) : (
-                <div className="text-xs text-slate-400">
+                <div className="text-xs text-muted-foreground">
                   No previous resume found. You can upload one now or continue without one:
                 </div>
               )}
 
               {/* Upload alternative */}
               <div className="flex items-center gap-3 pt-1">
-                <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 transition-all">
+                <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-secondary hover:bg-muted text-secondary-foreground border border-border transition-all">
                   <Upload className="w-3.5 h-3.5" />
                   <span>{uploadingResume ? 'Uploading...' : 'Upload New Resume (PDF)'}</span>
                   <input
@@ -464,14 +464,14 @@ export function InterviewSetupPage() {
           </div>
 
           {/* Section 6: Interaction Preferences */}
-          <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/40 flex items-center justify-between">
+          <div className="p-4 rounded-xl bg-secondary/40 border border-border flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+              <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center text-primary">
                 <Mic className="w-5 h-5" />
               </div>
               <div>
-                <div className="text-sm font-semibold text-slate-200">Voice Interview Mode</div>
-                <div className="text-xs text-slate-400">
+                <div className="text-sm font-semibold text-foreground">Voice Interview Mode</div>
+                <div className="text-xs text-muted-foreground">
                   Speak answers into microphone with live speech-to-text (includes full text-typing fallback)
                 </div>
               </div>
@@ -483,7 +483,7 @@ export function InterviewSetupPage() {
                 onChange={e => setVoiceModePreferred(e.target.checked)}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              <div className="w-11 h-6 bg-secondary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
             </label>
           </div>
 
@@ -492,7 +492,7 @@ export function InterviewSetupPage() {
             <Button
               onClick={handleStart}
               disabled={isLoading}
-              className="w-full py-4 rounded-xl text-base font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              className="w-full py-4 rounded-xl text-base font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               {isLoading ? (
                 <>
@@ -506,8 +506,8 @@ export function InterviewSetupPage() {
                 </>
               )}
             </Button>
-            <p className="text-center text-xs text-slate-500 mt-3">
-              Your camera and microphone will be requested upon entering the room. Tab switches and window blurs are monitored for integrity.
+            <p className="text-center text-xs text-muted-foreground mt-3">
+              Your camera and microphone will be requested upon entering the room. Tab switches, window blurs and clipboard use are monitored — at 5 integrity warnings the interview is automatically concluded and assessed on the answers submitted so far.
             </p>
           </div>
         </Card>

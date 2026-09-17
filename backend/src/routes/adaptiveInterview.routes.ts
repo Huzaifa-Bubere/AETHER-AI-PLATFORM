@@ -240,6 +240,10 @@ router.post(
 
     session.status = 'completed';
     session.endedAt = new Date();
+    // Integrity force-end: the shared integrity system reached warning 5.
+    if (req.body?.terminationReason === 'INTEGRITY_WARNING_LIMIT') {
+      session.terminationReason = 'INTEGRITY_WARNING_LIMIT';
+    }
     session.report = await generateFinalReport(session, session.proctorEvents);
     await session.save();
 

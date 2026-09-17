@@ -1,16 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Brain, Mic, MicOff, AlertTriangle, Loader2, SkipForward, Square,
-  ShieldCheck, ShieldAlert, Eye, ChevronLeft, CheckCircle2, Sparkles, RefreshCw, Volume2, X,
+  Brain, Mic, MicOff, AlertTriangle, Loader2, Square, ChevronLeft, CheckCircle2,
+  Sparkles, Volume2, VolumeX, RotateCcw, Send, Eye, ShieldCheck, ShieldAlert,
 } from 'lucide-react';
 import { VideoRecorder } from '../components/interview/VideoRecorder';
 import { SpeechRecognition } from '../components/interview/SpeechRecognition';
-import { useProctor } from '../hooks/useProctor';
+import { AIInterviewerOrb } from '../components/interview/AIInterviewerOrb';
+import { IntegrityIndicator } from '../features/integrity/IntegrityIndicator';
+import { IntegrityWarningModal } from '../features/integrity/IntegrityWarningModal';
+import { useIntegrityMonitor } from '../features/integrity/useIntegrityMonitor';
+import { DEFAULT_POLICIES } from '../features/integrity/integrity.types';
+import { useInterviewVoice } from '../features/interview/useInterviewVoice';
 import { useAdaptiveInterviewStore } from '../../store/adaptiveInterviewStore';
 import adaptiveInterviewApi from '../../lib/adaptiveInterviewApi';
 import toast from 'react-hot-toast';
 
+/**
+ * AETHER Adaptive Interview Room — light theme.
+ * AI orb state machine (IDLE/THINKING/SPEAKING/LISTENING/PROCESSING/COMPLETE)
+ * synchronized to real TTS events; shared integrity monitor with 5-warning auto-end.
+ */
 export function AdaptiveInterviewRoomPage() {
   const navigate = useNavigate();
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -27,9 +37,14 @@ export function AdaptiveInterviewRoomPage() {
   const [showEnd, setShowEnd] = useState(false);
   const [streamReady, setStreamReady] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [micDenied, setMicDenied] = useState(false);
   const busy = useRef(false);
   const frameCount = useRef(0);
   const recordingBlobRef = useRef<Blob | null>(null);
+  const faceMissingSince = useRef<number | null>(null);
+  const multiFaceSince = useRef<number | null>(null);
+
+  const voice = useInterviewVoice();
 
   // ── Resume session on reload ───────────────────────────────────────────
   useEffect(() => {
@@ -49,27 +64,123 @@ export function AdaptiveInterviewRoomPage() {
     return () => clearInterval(t);
   }, [phase]);
 
-  // ── Error toast ────────────────────────────────────────────────────────
   useEffect(() => { if (error) toast.error(error); }, [error]);
 
-  // ── Proctoring ─────────────────────────────────────────────────────────
-  const reportEvent = useCallback((type: any, detail?: string) => {
-    if (!sessionId) return;
-    // Integrity score is authoritative server-side; it is shown again on the report.
-    adaptiveInterviewApi.reportProctorEvent(sessionId, type, detail).catch(() => {
-      /* keep the interview running; server logs what it receives */
-    });
-  }, [sessionId]);
+  // ── Integrity monitor (shared system) ──────────────────────────────────
+  const integrityActive = (phase === 'active' || phase === 'evaluating') && !finishing;
 
-  const proctor = useProctor({ active: phase === 'active' || phase === 'evaluating', onEvent: reportEvent });
+  const finishAndNavigate = useCallback(async (submitPending: boolean, integrityTermination = false) => {
+    if (finishing || busy.current) return;
+    busy.current = true;
+    setFinishing(true);
+    setShowEnd(false);
+    setIsListening(false);
+    voice.stop();
+    try {
+      const store = useAdaptiveInterviewStore.getState();
+      if (submitPending && answer.trim() && question) {
+        await submitAnswer(answer, Math.round((Date.now() - answerStart) / 1000)).catch(() => {});
+      }
+      setStreamReady(false);
+      // Grab the final recording blob (best effort — never blocks the report).
+      const blob = await new Promise<Blob | null>(resolve => {
+        const startedAt = Date.now();
+        const tick = () => {
+          if (recordingBlobRef.current) return resolve(recordingBlobRef.current);
+          if (Date.now() - startedAt > 4000) return resolve(null);
+          setTimeout(tick, 250);
+        };
+        if (integrityTermination) resolve(null); else tick();
+      });
+      const fresh = useAdaptiveInterviewStore.getState();
+      let id = fresh.sessionId;
+      if (fresh.phase !== 'ended') id = (await endInterview(integrityTermination ? 'INTEGRITY_WARNING_LIMIT' : undefined)) || id;
+      if (blob && id) {
+        try {
+          toast.loading('Uploading your recording…', { id: 'recording-upload' });
+          await adaptiveInterviewApi.uploadRecording(id, blob).then(() =>
+            toast.success('Recording attached', { id: 'recording-upload' }));
+        } catch {
+          toast.error('Recording not uploaded — your report is still available', { id: 'recording-upload' });
+        }
+      }
+      if (id) navigate(`/ai-interview/${id}/report${integrityTermination ? '?integrity=terminated' : ''}`, { replace: true });
+    } finally {
+      busy.current = false;
+      setFinishing(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finishing, answer, question, answerStart, endInterview, navigate, submitAnswer, voice]);
 
-  useEffect(() => { proctor.enterFullscreen(); /* request once on mount */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const integrity = useIntegrityMonitor({
+    policy: DEFAULT_POLICIES.INTERVIEW,
+    attemptId: sessionId ?? null,
+    active: integrityActive,
+    onAutoSubmit: () => finishAndNavigate(false, true),
+  });
 
-  // Start recording as soon as the session goes live (VideoRecorder begins capturing
-  // once its own media is ready; the final blob is captured on stop for upload).
+  useEffect(() => { integrity.requestFullscreen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (sessionId && phase === 'active') void integrity.restoreState(); }, [sessionId, phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── AI speaks every new question (real TTS events drive the orb) ───────
+  const spokenQuestionId = useRef<string | null>(null);
+  useEffect(() => {
+    if (phase !== 'active' || !question) return;
+    if (spokenQuestionId.current === question.id) return;
+    spokenQuestionId.current = question.id;
+    voice.setThinking();
+    const t = setTimeout(() => {
+      voice.speak(question.text);
+    }, 450);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question?.id, phase]);
+
+  // Mic pressed while AI speaks → stop the voice first (never talk over the candidate)
+  const handleMicToggle = () => {
+    if (!isListening && voice.interviewerState === 'SPEAKING') voice.stop();
+    setIsListening(v => !v);
+  };
+
+  // ── Recording + camera state ───────────────────────────────────────────
   useEffect(() => {
     if (phase === 'active' || phase === 'evaluating') setStreamReady(true);
   }, [phase]);
+
+  const handleVideoFrame = useCallback((frameData: string) => {
+    frameCount.current += 1;
+    // Face-presence checks run on the Shape Detection API when available (best effort).
+    // Sustained absence (5s) / multiple faces (2.5s) report ONE integrity event each.
+    const FD = (window as any).FaceDetector;
+    if (!FD || frameCount.current % 4 !== 0) return;
+    void (async () => {
+      try {
+        const detector = new FD({ fastMode: true, maxDetectedFaces: 5 });
+        const bitmap = await createImageBitmap(await (await fetch(frameData)).blob());
+        const faces = await detector.detect(bitmap);
+        const now = Date.now();
+        if (faces.length === 0) {
+          if (faceMissingSince.current == null) faceMissingSince.current = now;
+          else if (now - faceMissingSince.current > 5000) {
+            integrity.reportFaceAbsent(Math.round((now - faceMissingSince.current) / 1000));
+            faceMissingSince.current = now; // re-arm: only re-warn after another sustained gap
+          }
+        } else {
+          faceMissingSince.current = null;
+          if (faces.length > 1) {
+            if (multiFaceSince.current == null) multiFaceSince.current = now;
+            else if (now - multiFaceSince.current > 2500) {
+              integrity.reportMultipleFaces(Math.round((now - multiFaceSince.current) / 1000));
+              multiFaceSince.current = now;
+            }
+          } else {
+            multiFaceSince.current = null;
+          }
+        }
+      } catch { /* detection best-effort; camera-off events still cover the basics */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [integrity.reportFaceAbsent, integrity.reportMultipleFaces]);
 
   // ── Submit answer ──────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -77,164 +188,103 @@ export function AdaptiveInterviewRoomPage() {
     if (busy.current || submitting) return;
     busy.current = true;
     setIsListening(false);
+    voice.setProcessing();
     const durationSeconds = Math.round((Date.now() - answerStart) / 1000);
     const ok = await submitAnswer(answer, durationSeconds);
     if (ok) {
       setAnswer('');
       setAnswerStart(Date.now());
-      setTimeout(() => setIsListening(true), 600);
+    } else {
+      voice.setListening();
     }
     busy.current = false;
   };
 
-  // Auto end when completed — stop the recorder, save the recording, then go to the report
+  // Auto end when completed
   useEffect(() => {
-    if (phase === 'ended' && sessionId && !finishing) {
-      void finishAndNavigate(false);
-    }
+    if (phase === 'ended' && sessionId && !finishing) voice.setComplete();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, sessionId]);
 
-  // Wait (max timeoutMs) for VideoRecorder's MediaRecorder to emit the final blob after stop.
-  const waitForRecordingBlob = (timeoutMs: number): Promise<Blob | null> =>
-    new Promise(resolve => {
-      const startedAt = Date.now();
-      const tick = () => {
-        if (recordingBlobRef.current) return resolve(recordingBlobRef.current);
-        if (Date.now() - startedAt > timeoutMs) return resolve(null);
-        setTimeout(tick, 250);
-      };
-      tick();
-    });
-
-  const finishAndNavigate = async (submitPending: boolean) => {
-    if (finishing || busy.current) return;
-    busy.current = true;
-    setFinishing(true);
-    setShowEnd(false);
-    setIsListening(false);
-    try {
-      const store = useAdaptiveInterviewStore.getState();
-      // 1. Save any in-progress answer (manual end only).
-      if (submitPending && answer.trim() && question) {
-        await submitAnswer(answer, Math.round((Date.now() - answerStart) / 1000)).catch(() => {});
-      }
-      // 2. Stop the MediaRecorder and grab the final webm blob.
-      setStreamReady(false);
-      const blob = await waitForRecordingBlob(6000);
-      // 3. Close the interview server-side (generates the report) if not already done.
-      const fresh = useAdaptiveInterviewStore.getState();
-      let id = fresh.sessionId;
-      if (fresh.phase !== 'ended') {
-        id = (await endInterview()) || id;
-      }
-      // 4. Attach the webcam recording — report is still generated if this fails.
-      if (blob && id) {
-        try {
-          toast.loading('Uploading your recording…', { id: 'recording-upload' });
-          const totalSeconds = fresh.startedAt ? Math.round((Date.now() - fresh.startedAt) / 1000) : undefined;
-          await adaptiveInterviewApi.uploadRecording(id, blob, totalSeconds);
-          toast.success('Recording attached to your report', { id: 'recording-upload' });
-        } catch {
-          toast.error('Recording could not be uploaded — your report is still available', { id: 'recording-upload' });
-        }
-      }
-      if (id) navigate(`/ai-interview/${id}/report`, { replace: true });
-    } finally {
-      busy.current = false;
-      setFinishing(false);
-    }
-  };
-
-  const handleEnd = () => { void finishAndNavigate(true); };
-
-  // ── Transcript → answer text ───────────────────────────────────────────
   const handleTranscript = (t: string, isFinal: boolean) => {
     if (isFinal) setAnswer(prev => (prev + ' ' + t).trimStart());
   };
 
-  // ── Face analysis frames from VideoRecorder ────────────────────────────
-  const handleVideoFrame = useCallback((frameData: string) => {
-    frameCount.current += 1;
-    if (frameCount.current % 2 === 0) void proctor.analyzeFrameForFace(frameData);
-  }, [proctor]);
+  const locked = integrity.shouldAutoSubmit || finishing;
 
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   const wordCount = answer.split(/\s+/).filter(Boolean).length;
   const progress = plannedQuestions ? Math.min(100, (answeredCount / plannedQuestions) * 100) : 0;
 
-  // ── Loading / error gates ──────────────────────────────────────────────
+  // ── Loading gate ───────────────────────────────────────────────────────
   if (phase === 'idle' || (phase === 'creating' && !question)) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0b1020', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14, color: '#94a3b8', fontFamily: "'Sora', sans-serif" }}>
-        {error
-          ? <>
-              <AlertTriangle style={{ width: 30, height: 30, color: '#f59e0b' }} />
-              <p style={{ fontSize: 14 }}>{error}</p>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => window.location.reload()} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: '#e2e8f0', fontSize: 13 }}>
-                  <RefreshCw style={{ width: 13, height: 13 }} /> Retry
-                </button>
-                <button onClick={() => navigate('/ai-interview')} style={{ all: 'unset', cursor: 'pointer', padding: '9px 16px', borderRadius: 10, background: '#6366f1', color: '#fff', fontSize: 13, fontWeight: 600 }}>
-                  New interview
-                </button>
-              </div>
-            </>
-          : <><Loader2 style={{ width: 28, height: 28, color: '#818cf8', animation: 'spin 1s linear infinite' }} /><p style={{ fontSize: 13 }}>Loading your interview…</p></>}
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <div className="min-h-screen pt-16 bg-slate-50 flex items-center justify-center">
+        {error ? (
+          <div className="text-center space-y-3 p-6">
+            <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" />
+            <p className="text-sm text-slate-700">{error}</p>
+            <div className="flex gap-2 justify-center">
+              <button onClick={() => window.location.reload()} className="px-4 py-2 rounded-lg bg-white border border-border text-sm font-medium">Retry</button>
+              <button onClick={() => navigate('/ai-interview')} className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold">New interview</button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center space-y-3">
+            <Loader2 className="w-7 h-7 text-blue-500 animate-spin mx-auto" />
+            <p className="text-sm text-muted-foreground">Preparing your adaptive interview…</p>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0b1020', color: '#e2e8f0', fontFamily: "'Sora', system-ui, sans-serif", display: 'flex', flexDirection: 'column' }}>
-      {/* ── Header ── */}
-      <header style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(11,16,32,0.9)', backdropFilter: 'blur(8px)', position: 'sticky', top: 0, zIndex: 40 }}>
-        <div style={{ height: 3, background: 'rgba(255,255,255,0.05)' }}>
-          <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #6366f1, #a78bfa)', transition: 'width 0.6s' }} />
-        </div>
-        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 16px', height: 56, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => setShowEnd(true)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#94a3b8' }}>
-            <ChevronLeft style={{ width: 14, height: 14 }} /> Exit
+    <div className="h-screen pt-16 flex flex-col overflow-hidden bg-slate-50 text-slate-900">
+      {/* Header */}
+      <header className="shrink-0 bg-white border-b border-border">
+        <div className="max-w-[1400px] mx-auto px-4 h-14 flex items-center gap-3">
+          <button onClick={() => setShowEnd(true)} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800" aria-label="Exit interview">
+            <ChevronLeft className="w-4 h-4" /> Exit
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 12px', borderRadius: 99, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)' }}>
-            <Brain style={{ width: 13, height: 13, color: '#a5b4fc' }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#c7d2fe' }}>{domain || 'AI Interview'}</span>
-            <span style={{ fontSize: 11, color: '#64748b' }}>· {difficulty}</span>
+          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/5 border border-primary/15">
+            <Brain className="w-3.5 h-3.5 text-primary" />
+            <span className="text-xs font-semibold text-primary">{domain || 'AI Interview'}</span>
+            <span className="text-[11px] text-muted-foreground">· {difficulty}</span>
           </div>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: '#94a3b8', marginLeft: 4 }}>
-            Q <span style={{ color: '#a5b4fc' }}>{Math.min(answeredCount + 1, plannedQuestions)}</span>/{plannedQuestions}
-          </span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}>
-              <Eye style={{ width: 12, height: 12, color: proctor.warnings.length ? '#f59e0b' : '#10b981' }} />
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: proctor.warnings.length ? '#fbbf24' : '#34d399' }}>
-                {proctor.warnings.length ? 'Proctoring' : 'Monitored'}
-              </span>
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' }}>{fmt(elapsed)}</span>
+          <span className="text-xs font-semibold text-slate-600">Question {Math.min(answeredCount + 1, plannedQuestions)} of {plannedQuestions}</span>
+          <div className="ml-auto flex items-center gap-2.5">
+            <IntegrityIndicator warningCount={integrity.warningCount} maximumWarnings={integrity.maximumWarnings} active={integrityActive} />
+            <span className="text-sm font-semibold tabular-nums text-slate-700">{fmt(elapsed)}</span>
           </div>
         </div>
+        <div className="h-0.5 bg-slate-100"><div className="h-full bg-gradient-to-r from-blue-600 to-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div>
       </header>
 
-      {/* ── Proctor warnings ── */}
-      {proctor.warnings.length > 0 && (
-        <div style={{ position: 'fixed', top: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 100, display: 'grid', gap: 8, width: 'min(420px, 90vw)' }}>
-          {proctor.warnings.map((w, i) => (
-            <div key={`${w.at}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderRadius: 12, background: '#451a03', border: '1px solid #b45309', animation: 'fadeUp 0.25s ease' }}>
-              <ShieldAlert style={{ width: 16, height: 16, color: '#fbbf24', flexShrink: 0 }} />
-              <span style={{ fontSize: 12.5, color: '#fde68a', flex: 1 }}>{w.message}</span>
-              <button onClick={proctor.dismissWarning} style={{ all: 'unset', cursor: 'pointer', color: '#d97706' }}><X style={{ width: 13, height: 13 }} /></button>
+      {/* Main grid */}
+      <main className="flex-1 min-h-0 max-w-[1400px] w-full mx-auto px-4 py-4 grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)] gap-4 overflow-y-auto lg:overflow-hidden">
+        {/* Left: interviewer + camera */}
+        <div className="flex flex-col gap-4 min-h-0">
+          {/* AI interviewer card */}
+          <div className="rounded-2xl bg-white border border-border p-6 flex flex-col items-center justify-center gap-3">
+            <AIInterviewerOrb state={voice.interviewerState} size={190} />
+            {/* voice controls */}
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+              <button onClick={() => question && voice.replay(question.text)} disabled={!question || voice.interviewerState === 'SPEAKING'}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-white text-xs font-medium hover:bg-slate-50 disabled:opacity-40" aria-label="Replay question">
+                <RotateCcw className="w-3.5 h-3.5" /> Replay
+              </button>
+              <button onClick={() => { voice.setMuted(m => !m); voice.stop(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-white text-xs font-medium hover:bg-slate-50" aria-label={voice.muted ? 'Unmute interviewer' : 'Mute interviewer'}>
+                {voice.muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />} {voice.muted ? 'Muted' : 'Voice on'}
+              </button>
+              <input type="range" min={0} max={1} step={0.1} value={voice.volume} aria-label="Voice volume"
+                onChange={e => voice.setVolume(Number(e.target.value))} className="w-20 accent-blue-600" />
             </div>
-          ))}
-        </div>
-      )}
+          </div>
 
-      {/* ── Main grid ── */}
-      <main style={{ flex: 1, maxWidth: 1280, width: '100%', margin: '0 auto', padding: '16px', display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1.6fr)', gap: 14, alignItems: 'start' }}>
-        {/* Left: camera + integrity */}
-        <div style={{ display: 'grid', gap: 12, position: 'sticky', top: 76 }}>
-          <div style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.09)', background: '#0f172a', height: 300 }}>
+          {/* camera */}
+          <div className="rounded-2xl overflow-hidden border border-border bg-slate-900 h-[240px] lg:h-[220px] shrink-0">
             <VideoRecorder
               isRecording={streamReady}
               onStartRecording={() => setStreamReady(true)}
@@ -243,91 +293,85 @@ export function AdaptiveInterviewRoomPage() {
               onVideoFrame={handleVideoFrame}
             />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 14px', borderRadius: 12, background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)' }}>
-            <ShieldCheck style={{ width: 15, height: 15, color: '#34d399', flexShrink: 0 }} />
-            <p style={{ fontSize: 11.5, color: '#6ee7b7', margin: 0, lineHeight: 1.5 }}>
-              Proctoring active: tab switches, copy-paste, leaving fullscreen and camera events are recorded and affect your integrity score.
-            </p>
-          </div>
-          {lastFeedback && (
-            <div style={{ padding: 14, borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Previous answer</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: lastFeedback.overallScore >= 70 ? '#34d399' : lastFeedback.overallScore >= 55 ? '#fbbf24' : '#f87171' }}>
-                  {lastFeedback.overallScore}/100
-                </span>
+
+          {/* status panel */}
+          <div className="rounded-2xl bg-white border border-border p-4 space-y-2.5 shrink-0">
+            {[
+              { label: 'Camera', value: streamReady ? 'Active' : 'Off', ok: streamReady, icon: Eye },
+              { label: 'Face', value: faceMissingSince.current == null ? 'Detected' : 'Not visible', ok: faceMissingSince.current == null, icon: ShieldCheck },
+              { label: 'Microphone', value: micDenied ? 'Blocked' : isListening ? 'Recording' : 'Ready', ok: !micDenied, icon: isListening ? Mic : MicOff },
+              { label: 'Integrity', value: integrity.warningCount === 0 ? 'Active' : `${integrity.warningCount} warning(s)`, ok: integrity.warningCount === 0, icon: ShieldCheck },
+            ].map(row => (
+              <div key={row.label} className="flex items-center justify-between text-xs">
+                <span className="flex items-center gap-2 text-slate-500"><row.icon className="w-3.5 h-3.5" /> {row.label}</span>
+                <span className={`font-semibold ${row.ok ? 'text-emerald-600' : 'text-amber-600'}`}>{row.value}</span>
               </div>
-              <p style={{ fontSize: 12, color: '#94a3b8', margin: 0, lineHeight: 1.6 }}>{lastFeedback.aiSummary || 'Saved.'}</p>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
 
         {/* Right: question + answer */}
-        <div style={{ display: 'grid', gap: 12 }}>
+        <div className="flex flex-col gap-4 min-h-0">
           {question ? (
-            <div style={{ padding: 22, borderRadius: 16, background: 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(168,85,247,0.06))', border: '1px solid rgba(99,102,241,0.25)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <div className="rounded-2xl bg-white border border-border p-6">
+              <div className="flex items-center gap-2 mb-3">
                 {question.depth === 'follow-up' || question.depth === 'deep-dive'
-                  ? <><Sparkles style={{ width: 13, height: 13, color: '#a78bfa' }} /><span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>AI follow-up — based on your last answer</span></>
-                  : <><Volume2 style={{ width: 13, height: 13, color: '#818cf8' }} /><span style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{question.topic} · {question.difficulty}</span></>}
+                  ? <><Sparkles className="w-3.5 h-3.5 text-indigo-500" /><span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">AI follow-up · based on your last answer</span></>
+                  : <><Volume2 className="w-3.5 h-3.5 text-blue-600" /><span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">{question.topic} · {question.difficulty}</span></>}
               </div>
-              <p style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.65, margin: 0, color: '#f1f5f9' }}>{question.text}</p>
-              <p style={{ fontSize: 11.5, color: '#64748b', margin: '10px 0 0' }}>Expected speaking time: ~{question.expectedDuration} min</p>
+              <p className="text-[17px] font-semibold leading-relaxed text-slate-900">{question.text}</p>
+              <p className="text-xs text-slate-400 mt-2">Expected speaking time: ~{question.expectedDuration} min</p>
             </div>
           ) : (
-            <div style={{ padding: 22, borderRadius: 16, background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <CheckCircle2 style={{ width: 18, height: 18, color: '#34d399' }} />
-              <p style={{ fontSize: 14, fontWeight: 600, color: '#6ee7b7', margin: 0 }}>All questions completed!</p>
+            <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-5 flex items-center gap-2.5">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <p className="text-sm font-semibold text-emerald-700">All questions completed!</p>
             </div>
           )}
 
-          {/* Answer box */}
-          <div style={{ padding: 18, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Your answer</span>
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: wordCount >= 50 ? '#34d399' : wordCount >= 20 ? '#fbbf24' : '#64748b' }}>
-                {wordCount} words {wordCount >= 50 ? '· great length' : wordCount >= 20 ? '· keep going' : ''}
+          {/* transcript / answer */}
+          <div className="rounded-2xl bg-white border border-border p-5 flex-1 flex flex-col min-h-0">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Live transcript</span>
+              <span className={`text-xs font-semibold ${wordCount >= 50 ? 'text-emerald-600' : wordCount >= 20 ? 'text-amber-600' : 'text-slate-400'}`}>
+                {wordCount} words
               </span>
             </div>
             <textarea
               value={answer}
               onChange={e => setAnswer(e.target.value)}
-              disabled={submitting || !question}
-              placeholder="Your spoken answer appears here — or type directly. Pasting is disabled."
-              style={{ width: '100%', boxSizing: 'border-box', minHeight: 150, resize: 'vertical', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 14, color: '#e2e8f0', fontSize: 14, lineHeight: 1.7, outline: 'none', fontFamily: 'inherit' }}
+              disabled={submitting || !question || locked}
+              placeholder="Your spoken answer appears here — or type directly."
+              className="w-full flex-1 min-h-[140px] resize-y rounded-xl border border-border bg-slate-50 p-3.5 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-blue-400/50 disabled:opacity-60"
+              aria-label="Your answer"
             />
-            <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+            <div className="mt-3 flex gap-2.5">
               <button
                 onClick={handleSubmit}
-                disabled={!answer.trim() || submitting || !question}
-                style={{ all: 'unset', cursor: !answer.trim() || submitting ? 'not-allowed' : 'pointer', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 13, borderRadius: 12, background: submitting ? 'rgba(99,102,241,0.3)' : 'linear-gradient(135deg, #6366f1, #818cf8)', color: '#fff', fontSize: 13.5, fontWeight: 700, opacity: !answer.trim() ? 0.5 : 1 }}
+                disabled={!answer.trim() || submitting || !question || locked}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold transition-colors"
               >
                 {submitting
-                  ? <><Loader2 style={{ width: 15, height: 15, animation: 'spin 1s linear infinite' }} /> AI is evaluating & picking your next question…</>
-                  : <><SkipForward style={{ width: 15, height: 15 }} /> Submit & Continue</>}
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing your response…</>
+                  : <><Send className="w-4 h-4" /> Submit answer</>}
               </button>
-              <button
-                onClick={() => setShowEnd(true)}
-                disabled={submitting}
-                style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: '13px 18px', borderRadius: 12, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', fontSize: 13, fontWeight: 600 }}
-              >
-                <Square style={{ width: 13, height: 13 }} /> End
+              <button onClick={() => setShowEnd(true)} disabled={submitting || locked}
+                className="flex items-center gap-1.5 px-4 rounded-xl border border-red-200 bg-red-50 text-red-600 text-sm font-semibold disabled:opacity-50">
+                <Square className="w-3.5 h-3.5" /> End
               </button>
             </div>
           </div>
 
-          {/* Speech recognition */}
-          <div style={{ padding: 14, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              {isListening ? <Mic style={{ width: 13, height: 13, color: '#34d399' }} /> : <MicOff style={{ width: 13, height: 13, color: '#64748b' }} />}
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>
-                {isListening ? 'Listening — speak your answer' : 'Speech recognition'}
+          {/* speech recognition */}
+          <div className="rounded-2xl bg-white border border-border p-4 shrink-0">
+            <div className="flex items-center gap-2 mb-2.5">
+              {isListening ? <Mic className="w-3.5 h-3.5 text-emerald-600" /> : <MicOff className="w-3.5 h-3.5 text-slate-400" />}
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                {isListening ? 'Listening — speak your answer' : 'Microphone'}
               </span>
-              <button
-                onClick={() => setIsListening(v => !v)}
-                style={{ all: 'unset', cursor: 'pointer', marginLeft: 'auto', fontSize: 11.5, fontWeight: 600, color: '#a5b4fc', padding: '4px 10px', borderRadius: 8, background: 'rgba(99,102,241,0.1)' }}
-              >
-                {isListening ? 'Pause mic' : 'Start mic'}
+              <button onClick={handleMicToggle} disabled={locked}
+                className="ml-auto px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 disabled:opacity-40">
+                {isListening ? 'Stop recording' : 'Start answering'}
               </button>
             </div>
             <SpeechRecognition
@@ -337,47 +381,51 @@ export function AdaptiveInterviewRoomPage() {
               onTranscript={handleTranscript}
             />
           </div>
-
-          {/* Evaluating banner */}
-          {submitting && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', borderRadius: 12, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
-              <Brain style={{ width: 15, height: 15, color: '#a5b4fc' }} />
-              <p style={{ fontSize: 12.5, color: '#c7d2fe', margin: 0 }}>The AI is scoring your answer and deciding what to ask next…</p>
-            </div>
-          )}
         </div>
       </main>
 
-      {/* ── End modal ── */}
-      {showEnd && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
-          <div style={{ width: 'min(420px, 100%)', padding: 26, borderRadius: 18, background: '#111827', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <AlertTriangle style={{ width: 18, height: 18, color: '#f87171' }} />
-              </div>
-              <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>End this interview?</h3>
+      {/* integrity warning modal (warnings 1–4) */}
+      {integrity.modalEvent && !locked && (
+        <IntegrityWarningModal
+          event={integrity.modalEvent}
+          warningNumber={integrity.modalWarningNumber}
+          maximumWarnings={integrity.maximumWarnings}
+          onContinue={integrity.dismissModal}
+        />
+      )}
+
+      {/* auto-submit overlay (warning 5) — huge full-screen red */}
+      {integrity.submittingWork && (
+        <div className="fixed inset-0 z-[210] bg-red-700 flex flex-col items-center justify-center gap-4">
+          <ShieldAlert className="w-20 h-20 text-white animate-pulse" />
+          <p className="text-4xl font-black tracking-tight text-white text-center px-4">INTERVIEW TERMINATED</p>
+          <p className="text-lg font-bold text-red-100 text-center px-4">Maximum integrity warnings reached (5 of 5)</p>
+          <p className="text-sm text-red-200 text-center px-4">Your completed answers are being saved and assessed.</p>
+        </div>
+      )}
+
+      {/* End modal */}
+      {showEnd && !locked && (
+        <div className="fixed inset-0 z-[200] bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white border border-border p-6">
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-red-600" /></div>
+              <h3 className="text-base font-bold">End this interview?</h3>
             </div>
-            <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.65, margin: '0 0 20px' }}>
-              You've answered <strong style={{ color: '#e2e8f0' }}>{answeredCount}</strong> of {plannedQuestions} planned questions.
-              Your report — including the integrity score — will be generated immediately.
+            <p className="text-sm text-slate-600 leading-relaxed mb-5">
+              You've answered <strong className="text-slate-900">{answeredCount}</strong> of {plannedQuestions} planned questions.
+              Your report will be generated immediately.
             </p>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setShowEnd(false)} style={{ all: 'unset', cursor: 'pointer', flex: 1, padding: 12, borderRadius: 11, background: 'rgba(255,255,255,0.06)', color: '#e2e8f0', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
-                Keep going
-              </button>
-              <button onClick={handleEnd} disabled={ending} style={{ all: 'unset', cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 12, borderRadius: 11, background: 'linear-gradient(135deg, #10b981, #34d399)', color: '#fff', fontSize: 13, fontWeight: 700 }}>
-                {ending ? <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} /> : <CheckCircle2 style={{ width: 14, height: 14 }} />} Finish
+            <div className="flex gap-2.5">
+              <button onClick={() => setShowEnd(false)} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-sm font-semibold hover:bg-slate-200">Keep going</button>
+              <button onClick={() => void finishAndNavigate(true)} disabled={ending}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-60">
+                {ending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Finish
               </button>
             </div>
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg) } }
-        @keyframes fadeUp { from { opacity: 0; transform: translateY(-8px) } to { opacity: 1; transform: translateY(0) } }
-      `}</style>
     </div>
   );
 }

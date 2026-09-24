@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Brain, ShieldCheck, Loader2, ChevronRight, Sparkles, Mic, Camera, ArrowLeft } from 'lucide-react';
+import { Brain, ShieldCheck, Loader2, ChevronRight, Sparkles, Mic, Camera, ArrowLeft, FileText, Video } from 'lucide-react';
 import { useAdaptiveInterviewStore } from '../../store/adaptiveInterviewStore';
 import { SystemCheck } from '../components/interview/SystemCheck';
+import { resumeService } from '../services/resume';
 import toast from 'react-hot-toast';
 
 const DOMAINS = [
@@ -29,6 +30,16 @@ const DIFFICULTIES = [
   { id: 'hard', label: 'Hard', desc: 'Expert level' },
 ] as const;
 
+const INTERVIEW_TYPES = [
+  { id: 'technical', label: 'Technical' },
+  { id: 'behavioral', label: 'Behavioral' },
+  { id: 'hr', label: 'HR' },
+  { id: 'project', label: 'Project Deep-Dive' },
+  { id: 'mixed', label: 'Mixed (Full Loop)' },
+] as const;
+
+const EXPERIENCE_LEVELS = ['Fresher / Junior', 'Mid-Level', 'Senior'] as const;
+
 /** AETHER AI Mock Interview setup — light theme + pre-interview system check. */
 export function AdaptiveSetupPage() {
   const navigate = useNavigate();
@@ -40,11 +51,33 @@ export function AdaptiveSetupPage() {
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [questionCount, setQuestionCount] = useState(6);
   const [systemOk, setSystemOk] = useState<boolean | null>(null);
+  const [interviewType, setInterviewType] = useState<string>('technical');
+  const [experienceLevel, setExperienceLevel] = useState<string>('Fresher / Junior');
+  const [resumeId, setResumeId] = useState<string | null>(null);
+  const [resumeLabel, setResumeLabel] = useState('');
+  const [jobDescription, setJobDescription] = useState('');
+  const [consentRecording, setConsentRecording] = useState(false);
+  const [resumes, setResumes] = useState<Array<{ _id: string; filename: string }>>([]);
+
+  useEffect(() => {
+    resumeService.getResumes(1, 20)
+      .then((res: any) => {
+        const items = res?.resumes || res?.data?.resumes || res?.items || [];
+        setResumes(items.map((r: any) => ({ _id: r._id ?? r.id, filename: r.filename || 'Resume' })));
+      })
+      .catch(() => setResumes([]));
+  }, []);
 
   const handleStart = async () => {
     if (!domain) return toast.error('Select your domain first');
     if (systemOk === false) return toast.error('System check failed — camera and microphone are required');
-    const sessionId = await createSession({ domain, role, difficulty, questionCount });
+    const sessionId = await createSession({
+      domain, role, difficulty, questionCount,
+      interviewType, experienceLevel,
+      resumeId: resumeId || null,
+      jobDescription: jobDescription.trim() || undefined,
+      consentRecording,
+    });
     if (sessionId) navigate(`/ai-interview/${sessionId}`);
   };
 
@@ -128,11 +161,66 @@ export function AdaptiveSetupPage() {
                 <span className="text-sm font-bold tabular-nums text-slate-700 w-8 text-center">{questionCount}</span>
               </div>
             </section>
+
+            <section>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">5 · Interview type & experience</p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {INTERVIEW_TYPES.map(t => (
+                  <button key={t.id} onClick={() => setInterviewType(t.id)} aria-pressed={interviewType === t.id}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${interviewType === t.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground border-border hover:text-foreground'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {EXPERIENCE_LEVELS.map(x => (
+                  <button key={x} onClick={() => setExperienceLevel(x)} aria-pressed={experienceLevel === x}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${experienceLevel === x ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-card text-muted-foreground border-border hover:text-foreground'}`}>
+                    {x}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">6 · Resume & job description <span className="normal-case font-normal">(optional — makes questions personal)</span></p>
+              {resumes.length > 0 ? (
+                <select
+                  value={resumeId ?? ''}
+                  onChange={e => { setResumeId(e.target.value || null); setResumeLabel(resumes.find(r => r._id === e.target.value)?.filename || ''); }}
+                  className="w-full rounded-xl border border-border bg-card px-4 py-2.5 text-sm mb-2"
+                  aria-label="Use resume"
+                >
+                  <option value="">No resume — general questions</option>
+                  {resumes.map(r => <option key={r._id} value={r._id}>Use Resume: {r.filename}</option>)}
+                </select>
+              ) : (
+                <p className="text-xs text-slate-400 mb-2">Upload a resume in the Resume Analyzer to unlock resume-aware questions.</p>
+              )}
+              <textarea
+                value={jobDescription}
+                onChange={e => setJobDescription(e.target.value)}
+                placeholder="Paste the job description (optional) — the interviewer will balance questions between your resume, the JD and role fundamentals."
+                className="w-full h-20 rounded-xl border border-border bg-card px-4 py-2.5 text-sm"
+                aria-label="Job description"
+              />
+            </section>
           </div>
 
           {/* Right column: system check + start */}
           <div className="space-y-4 lg:sticky lg:top-20">
             <SystemCheck onDone={setSystemOk} />
+
+            {/* Recording consent (spec §37) — explicit, stored with timestamp */}
+            <label className="flex items-start gap-2.5 rounded-xl border border-border bg-card p-3.5 cursor-pointer">
+              <input type="checkbox" checked={consentRecording} onChange={e => setConsentRecording(e.target.checked)}
+                className="mt-0.5 accent-blue-600" aria-label="Consent to recording" />
+              <span className="text-xs leading-relaxed text-slate-600">
+                <span className="inline-flex items-center gap-1 font-semibold text-slate-800"><Video className="w-3.5 h-3.5" /> Recording consent.</span>{' '}
+                This interview records audio/video for playback and feedback. Recordings are private — only you can view them,
+                and you can request deletion. If you decline, the interview runs normally without recording.
+              </span>
+            </label>
             <button onClick={handleStart} disabled={creating || !domain}
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Preparing…</> : <>Start Interview <ChevronRight className="w-4 h-4" /></>}

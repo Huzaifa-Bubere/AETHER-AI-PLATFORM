@@ -22,7 +22,11 @@ interface AdaptiveState {
   startedAt: number | null;
   lastAdaptReason: string | null;
 
-  createSession: (p: { domain: string; role: string; difficulty: string; questionCount: number }) => Promise<string | null>;
+  createSession: (p: {
+    domain: string; role: string; difficulty: string; questionCount: number;
+    experienceLevel?: string; interviewType?: string; resumeId?: string | null;
+    jobDescription?: string; consentRecording?: boolean;
+  }) => Promise<string | null>;
   resumeSession: (sessionId: string) => Promise<void>;
   submitAnswer: (answer: string, durationSeconds: number) => Promise<boolean>;
   endInterview: (terminationReason?: 'INTEGRITY_WARNING_LIMIT') => Promise<string | null>;
@@ -39,10 +43,10 @@ const empty = {
 export const useAdaptiveInterviewStore = create<AdaptiveState>((set, get) => ({
   ...empty,
 
-  createSession: async ({ domain, role, difficulty, questionCount }) => {
+  createSession: async (p) => {
     set({ ...empty, creating: true, phase: 'creating' });
     try {
-      const data = await adaptiveInterviewApi.createSession({ domain, role, difficulty, questionCount });
+      const data = await adaptiveInterviewApi.createSession(p);
       set({
         sessionId: data.sessionId, domain: data.domain, difficulty: data.difficulty,
         plannedQuestions: data.plannedQuestions, plan: data.plan,

@@ -122,6 +122,45 @@ class CodingExecutionService {
     }
   }
 
+  /**
+   * Single-shot raw program execution used by the post-submission trace
+   * service. Runs the (already harness-composed) program through the same
+   * sandboxed chain as official runs — Judge0 when configured, otherwise the
+   * legacy runner. Never spawns or evals candidate code in-process.
+   */
+  async traceRun(program: string, language: CodingLanguage): Promise<{ stdout: string; stderr: string; success: boolean; error?: string }> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.judge0Key) {
+      headers['X-RapidAPI-Key'] = this.judge0Key;
+      if (this.judge0Host) headers['X-RapidAPI-Host'] = this.judge0Host;
+    }
+    if (this.useJudge0) {
+      const submitRes = await axios.post(
+        `${this.judge0Url}/submissions?base64_encoded=false&wait=false`,
+        {
+          language_id: CodingExecutionService.JUDGE0_LANG_IDS[language] || 63,
+          source_code: program,
+          stdin: '',
+          cpu_time_limit: Math.max(5, Math.ceil(15)),
+          memory_limit: 256000,
+        },
+        { headers, timeout: this.submitTimeoutMs }
+      );
+      const token = submitRes.data?.token;
+      if (!token) throw new Error('Judge0 did not return a submission token');
+      const final = await this.pollJudge0(token, headers);
+      return {
+        stdout: final?.stdout || '',
+        stderr: final?.stderr || final?.compile_output || '',
+        success: final?.status?.id === 3,
+        error: final?.status?.id >= 6 ? (final?.stderr || final?.compile_output || final?.message) : undefined,
+      };
+    }
+    // Legacy runner path — execute the program as-is (it is self-contained).
+    const result = await codeExecutionService.execute({ language, code: program });
+    return { stdout: result.output || '', stderr: result.error || '', success: !!result.success, error: result.error };
+  }
+
   // ── Pre-checks ──────────────────────────────────────────────────────────────
   private precheck(userId: string, sourceCode: string, tests: Array<{ input?: string }>): IExecutionResult | null {
     if (!this.checkRate(userId)) {

@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import {
   Play, Send, RotateCcw, Loader2, ChevronLeft, Maximize2, Minimize2,
-  CheckCircle2, XCircle, Clock, MemoryStick, Eye, EyeOff, ShieldAlert,
+  CheckCircle2, XCircle, Clock, MemoryStick, Eye, EyeOff, ShieldAlert, Layers,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
 import { useCodingStore } from '../stores/codingStore';
 import { AstTreeView } from '../components/AstTreeView';
 import { ComplexityPanel, AstMetricsPanel, ScorePanel } from '../components/AnalysisPanels';
+import { ExecutionVisualizer } from '../components/ExecutionVisualizer';
 import { CODING_LANGUAGES, type ITestOutcome } from '../types';
 import { useIntegrityMonitor } from '../../integrity/useIntegrityMonitor';
 import { DEFAULT_POLICIES } from '../../integrity/integrity.types';
@@ -28,6 +29,7 @@ export function ProblemWorkspacePage() {
   const store = useCodingStore();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [integrityLocked, setIntegrityLocked] = useState(false);
+  const [visualizerOpen, setVisualizerOpen] = useState(false);
 
   const {
     problem, language, codeByLanguage, activeTab, isRunning, isSubmitting,
@@ -197,7 +199,7 @@ export function ProblemWorkspacePage() {
 
           {/* Tabs */}
           <div className="shrink-0 border-b bg-white px-4 flex items-center gap-1 overflow-x-auto">
-            {['testcases', 'output', 'ast', 'complexity', 'analysis'].map(tab => (
+            {['testcases', 'output', 'ast', 'complexity', 'analysis', 'visualize'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -209,7 +211,7 @@ export function ProblemWorkspacePage() {
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                {tab === 'ast' ? 'AST' : tab === 'analysis' ? 'Analysis' : tab}
+                {tab === 'ast' ? 'AST' : tab === 'analysis' ? 'Analysis' : tab === 'visualize' ? 'Visualize' : tab}
               </button>
             ))}
             <div className="ml-auto flex items-center gap-2 py-1.5">
@@ -333,6 +335,27 @@ export function ProblemWorkspacePage() {
             {activeTab === 'analysis' && (
               <ScorePanel score={submitResult?.scoreBreakdown || null} explanation={submitResult?.explanation || null} />
             )}
+
+            {activeTab === 'visualize' && (
+              submitResult ? (
+                <div className="flex flex-col items-center justify-center gap-4 py-10">
+                  <Layers className="w-10 h-10 text-blue-600" />
+                  <div className="text-center space-y-1">
+                    <h3 className="font-semibold text-slate-800">Execution Visualization</h3>
+                    <p className="text-sm text-slate-500 max-w-md">
+                      Step through a real, instrumented run of your submitted code — variable states, data structures
+                      and the call stack come from actual execution, never from AI. Sample tests and custom input only;
+                      hidden tests stay hidden.
+                    </p>
+                  </div>
+                  <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setVisualizerOpen(true)}>
+                    <Layers className="w-4 h-4 mr-1" /> Visualize Execution
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Submit your solution first — visualization runs on the officially submitted code.</p>
+              )
+            )}
           </div>
         </main>
       </div>
@@ -344,6 +367,20 @@ export function ProblemWorkspacePage() {
           warningNumber={integrity.modalWarningNumber}
           maximumWarnings={integrity.maximumWarnings}
           onContinue={integrity.dismissModal}
+        />
+      )}
+
+      {/* Post-submission Execution Visualizer (never during official runs) */}
+      {visualizerOpen && submitResult && (
+        <ExecutionVisualizer
+          open={visualizerOpen}
+          onClose={() => setVisualizerOpen(false)}
+          submissionId={(submitResult as any).submissionId}
+          sourceCode={code}
+          language={language}
+          monacoLanguage={monacoLanguage}
+          astTree={analysis?.ast || null}
+          complexity={analysis?.complexity || null}
         />
       )}
 

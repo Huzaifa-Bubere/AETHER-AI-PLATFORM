@@ -22,6 +22,7 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage').then(m => ({ defaul
 const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage').then(m => ({ default: m.SubscriptionPage })));
 const PaymentSuccessPage = lazy(() => import('./pages/PaymentSuccessPage').then(m => ({ default: m.PaymentSuccessPage })));
 const ResumeAnalyzerPage = lazy(() => import('./pages/ResumeAnalyzerPage').then(m => ({ default: m.ResumeAnalyzerPage })));
+const ResumeBuilderPage = lazy(() => import('./pages/ResumeBuilderPage'));
 const InterviewSetupPage = lazy(() => import('./pages/InterviewSetupPage').then(m => ({ default: m.InterviewSetupPage })));
 const InterviewRoomPage = lazy(() => import('./pages/InterviewRoomPage').then(m => ({ default: m.InterviewRoomPage })));
 const CodingInterviewPage = lazy(() => import('./pages/CodingInterviewPage').then(m => ({ default: m.CodingInterviewPage })));
@@ -51,6 +52,7 @@ const AdaptiveReportPage = lazy(() => import('./pages/AdaptiveReportPage'));
 // AETHER Career Learning + Career Intelligence
 const CareerLearningPage = lazy(() => import('./pages/CareerLearningPage'));
 const CareerRoadmapPage = lazy(() => import('./pages/CareerRoadmapPage'));
+const CourseDetailPage = lazy(() => import('./pages/CourseDetailPage'));
 const CareerIntelligencePage = lazy(() => import('./pages/CareerIntelligencePage'));
 const CareerIntelligenceRolePage = lazy(() => import('./pages/CareerIntelligenceRolePage'));
 const AdminCareerPage = lazy(() => import('./pages/admin/CareerAdminPage'));
@@ -204,6 +206,13 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        <Route path="/resume-builder" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <ResumeBuilderPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="/history" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -308,6 +317,13 @@ function AppContent() {
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
               <CareerRoadmapPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/career-learning/:roleSlug/course/:courseSlug" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <CourseDetailPage />
             </Suspense>
           </ProtectedRoute>
         } />

@@ -416,4 +416,270 @@ router.post('/me/declare-skills', authenticateToken, requireCandidate, [body('sk
   res.json({ success: true });
 }));
 
+// ══ Career Learning — structured courses (spec §44–53) ═══════════════════
+
+import { Course, LearningProgress } from '../models/Course';
+import { buildCourseRecommendations } from '../services/courseRecommender.service';
+import { explainLessonConcept } from '../services/courseAI.service';
+
+/** GET /api/careers/courses?role=backend-developer — published course catalog. */
+router.get('/courses', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const role = String(req.query.role || '').toLowerCase();
+  const filter: Record<string, unknown> = { status: 'published' };
+  if (role) filter.roleSlugs = role;
+  const courses = await Course.find(filter)
+    .select('title slug description roleSlugs skillSlugs difficulty estimatedHours prerequisites modules.status')
+    .lean();
+  const slugs = courses.map(c => c.slug);
+  const progressDocs = await LearningProgress.find({
+    userId: (req as any).user.userId,
+    courseSlug: { $in: slugs },
+  }).lean();
+  const byCourse = new Map(progressDocs.map(p => [p.courseSlug, p]));
+  const data = courses.map((c: any) => {
+    const progress = byCourse.get(c.slug);
+    const totalLessons = (c.modules || []).reduce((s: number, m: any) => s + (m.lessons?.length || 0), 0);
+    const completed = (progress?.lessons || []).filter((l: any) => l.state === 'COMPLETED').length;
+    return {
+      title: c.title, slug: c.slug, description: c.description,
+      difficulty: c.difficulty, estimatedHours: c.estimatedHours,
+      moduleCount: (c.modules || []).length,
+      totalLessons,
+      completedLessons: completed,
+      progressPercent: totalLessons ? Math.round((completed / totalLessons) * 100) : 0,
+    };
+  });
+  res.json({ success: true, data: { courses: data } });
+}));
+
+/** GET /api/careers/courses/:slug — full course with lesson state for this user. */
+router.get('/courses/:slug', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const course = await Course.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' }).lean();
+  if (!course) {
+    res.status(404).json({ success: false, message: 'Course not found' });
+    return;
+  }
+  const progress = await LearningProgress.findByUserAndCourse((req as any).user.userId, course.slug);
+  const lessonState = new Map<string, string>((progress?.lessons || []).map((l: any) => [l.lessonId, l.state]));
+  const quizScore = new Map<string, number>((progress?.quizScores || []).map((q: any) => [q.moduleId, q.score]));
+
+  const modules = (course.modules || []).map((m: any) => ({
+    id: m.id,
+    title: m.title,
+    description: m.description,
+    order: m.order,
+    lessonCount: (m.lessons || []).length,
+    estimatedMinutes: (m.lessons || []).reduce((s: number, l: any) => s + (l.estimatedMinutes || 0), 0),
+    hasQuiz: (m.quiz || []).length > 0,
+    quizScore: quizScore.get(m.id) ?? null,
+    hasProject: !!m.project,
+    completedLessons: (m.lessons || []).filter((l: any) => lessonState.get(l.id) === 'COMPLETED').length,
+  }));
+  const totalLessons = (course.modules || []).reduce((s: number, m: any) => s + (m.lessons?.length || 0), 0);
+  const completedLessons = (progress?.lessons || []).filter((l: any) => l.state === 'COMPLETED').length;
+  const quizScores = (progress?.quizScores || []).map((q: any) => q.score) as number[];
+  const remainingMinutes = (course.modules || []).reduce((s: number, m: any) =>
+    s + (m.lessons || []).filter((l: any) => lessonState.get(l.id) !== 'COMPLETED')
+      .reduce((t: number, l: any) => t + (l.estimatedMinutes || 0), 0), 0);
+
+  res.json({
+    success: true,
+    data: {
+      course: {
+        title: course.title, slug: course.slug, description: course.description,
+        difficulty: course.difficulty, estimatedHours: course.estimatedHours,
+        roleSlugs: course.roleSlugs, skillSlugs: course.skillSlugs, prerequisites: course.prerequisites,
+      },
+      modules,
+      progress: {
+        totalLessons,
+        completedLessons,
+        percentage: totalLessons ? Math.round((completedLessons / totalLessons) * 100) : 0,
+        quizAverage: quizScores.length ? Math.round(quizScores.reduce((s, q) => s + q, 0) / quizScores.length) : null,
+        projectsCompleted: progress?.projectsCompleted?.length || 0,
+        estimatedRemainingMinutes: remainingMinutes,
+      },
+    },
+  });
+}));
+
+/** GET /api/careers/courses/:slug/modules/:moduleId/lessons/:lessonId — lesson content. */
+router.get('/courses/:slug/modules/:moduleId/lessons/:lessonId', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const course = await Course.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' }).lean();
+  if (!course) {
+    res.status(404).json({ success: false, message: 'Course not found' });
+    return;
+  }
+  const mod = (course.modules || []).find((m: any) => m.id === req.params.moduleId);
+  const lesson = mod?.lessons?.find((l: any) => l.id === req.params.lessonId);
+  if (!mod || !lesson) {
+    res.status(404).json({ success: false, message: 'Lesson not found' });
+    return;
+  }
+  const progress = await LearningProgress.findByUserAndCourse((req as any).user.userId, course.slug);
+  const state = (progress?.lessons || []).find((l: any) => l.lessonId === lesson.id)?.state || 'NOT_STARTED';
+  const siblings = (mod.lessons || []).map((l: any) => ({ id: l.id, title: l.title, order: l.order }));
+  res.json({ success: true, data: { module: { id: mod.id, title: mod.title }, lesson, state, siblings } });
+}));
+
+/** PUT /api/careers/courses/:slug/lessons/:lessonId/progress — persist lesson state. */
+router.put('/courses/:slug/lessons/:lessonId/progress', authenticateToken, requireCandidate,
+  [body('state').isIn(['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'])],
+  asyncHandler(async (req: Request, res: Response) => {
+  const course = await Course.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' }).lean();
+  if (!course) {
+    res.status(404).json({ success: false, message: 'Course not found' });
+    return;
+  }
+  const lessonExists = (course.modules || []).some((m: any) => (m.lessons || []).some((l: any) => l.id === req.params.lessonId));
+  if (!lessonExists) {
+    res.status(404).json({ success: false, message: 'Lesson not found' });
+    return;
+  }
+  const state = req.body.state as 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
+  let progress = await LearningProgress.findByUserAndCourse((req as any).user.userId, course.slug);
+  if (!progress) {
+    progress = await LearningProgress.create({
+      userId: (req as any).user.userId,
+      courseSlug: course.slug,
+      roleSlug: course.roleSlugs?.[0] || '',
+      lessons: [], quizScores: [], projectsCompleted: [],
+    });
+  }
+  let entry = progress.lessons.find(l => l.lessonId === req.params.lessonId);
+  if (!entry) {
+    entry = { lessonId: req.params.lessonId, state, updatedAt: new Date() } as any;
+    progress.lessons.push(entry);
+  }
+  entry.state = state;
+  entry.updatedAt = new Date();
+  if (state === 'COMPLETED' && !entry.completedAt) entry.completedAt = new Date();
+  await progress.save();
+
+  // Completed lessons feed the unified skill profile (COMPLETED_LEARNING) — async.
+  if (state === 'COMPLETED') {
+    import('../services/skillProfile.service')
+      .then(m => m.rebuildSkillProfile(String((req as any).user.userId)))
+      .catch(() => undefined);
+  }
+
+  const totalLessons = (course.modules || []).reduce((s: number, m: any) => s + (m.lessons?.length || 0), 0);
+  const completed = progress.lessons.filter(l => l.state === 'COMPLETED').length;
+  res.json({
+    success: true,
+    data: {
+      lessonId: req.params.lessonId, state,
+      progressPercentage: totalLessons ? Math.round((completed / totalLessons) * 100) : 0,
+    },
+  });
+}));
+
+/** GET /api/careers/courses/:slug/modules/:moduleId/quiz — questions without answers. */
+router.get('/courses/:slug/modules/:moduleId/quiz', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const course = await Course.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' }).lean();
+  const mod = course?.modules?.find((m: any) => m.id === req.params.moduleId);
+  if (!course || !mod || !(mod.quiz || []).length) {
+    res.status(404).json({ success: false, message: 'No quiz for this module' });
+    return;
+  }
+  const questions = mod.quiz.map((q: any) => ({ id: q.id, question: q.question, options: q.options }));
+  res.json({ success: true, data: { questions } });
+}));
+
+/** POST /api/careers/courses/:slug/modules/:moduleId/quiz — grade server-side, persist mastery. */
+router.post('/courses/:slug/modules/:moduleId/quiz', authenticateToken, requireCandidate,
+  [body('answers').isArray()],
+  asyncHandler(async (req: Request, res: Response) => {
+  const course = await Course.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' }).lean();
+  const mod = course?.modules?.find((m: any) => m.id === req.params.moduleId);
+  if (!course || !mod || !(mod.quiz || []).length) {
+    res.status(404).json({ success: false, message: 'No quiz for this module' });
+    return;
+  }
+  const answers = (req.body.answers || []) as number[];
+  const results = mod.quiz.map((q: any, i: number) => ({
+    correct: answers[i] === q.correctIndex,
+    correctIndex: q.correctIndex,
+    explanation: q.explanation,
+    topicTag: q.topicTag,
+  }));
+  const score = Math.round((results.filter(r => r.correct).length / mod.quiz.length) * 100);
+
+  let progress = await LearningProgress.findByUserAndCourse((req as any).user.userId, course.slug);
+  if (!progress) {
+    progress = await LearningProgress.create({
+      userId: (req as any).user.userId,
+      courseSlug: course.slug,
+      roleSlug: course.roleSlugs?.[0] || '',
+      lessons: [], quizScores: [], projectsCompleted: [],
+    });
+  }
+  let qEntry = progress.quizScores.find(q => q.moduleId === mod.id);
+  if (!qEntry) {
+    qEntry = { moduleId: mod.id, score: 0, attempts: 0, lastAttemptAt: new Date() } as any;
+    progress.quizScores.push(qEntry);
+  }
+  qEntry.score = Math.max(qEntry.score, score); // best attempt counts toward mastery
+  qEntry.attempts += 1;
+  qEntry.lastAttemptAt = new Date();
+  await progress.save();
+
+  res.json({ success: true, data: { score, results } });
+}));
+
+/** POST /api/careers/courses/:slug/modules/:moduleId/project — mark project complete. */
+router.post('/courses/:slug/modules/:moduleId/project', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const course = await Course.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' }).lean();
+  const mod = course?.modules?.find((m: any) => m.id === req.params.moduleId);
+  if (!course || !mod?.project) {
+    res.status(404).json({ success: false, message: 'No project for this module' });
+    return;
+  }
+  let progress = await LearningProgress.findByUserAndCourse((req as any).user.userId, course.slug);
+  if (!progress) {
+    progress = await LearningProgress.create({
+      userId: (req as any).user.userId,
+      courseSlug: course.slug,
+      roleSlug: course.roleSlugs?.[0] || '',
+      lessons: [], quizScores: [], projectsCompleted: [],
+    });
+  }
+  if (!progress.projectsCompleted.includes(mod.id)) progress.projectsCompleted.push(mod.id);
+  await progress.save();
+  res.json({ success: true, data: { projectsCompleted: progress.projectsCompleted.length } });
+}));
+
+/**
+ * GET /api/careers/me/learning-recommendations — explainable "learn next".
+ * Combines skill confidence (evidence-based) + goal role + roadmap prereqs.
+ * Every item carries a documented WHY (spec §49, §67).
+ */
+router.get('/me/learning-recommendations', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const data = await buildCourseRecommendations((req as any).user.userId);
+  res.json({ success: true, data });
+}));
+
+/**
+ * POST /api/careers/courses/:slug/ask — lesson-grounded AI tutor (spec §48).
+ * RAG-grounded in the lesson content; deterministic fallback keeps content usable.
+ */
+router.post('/courses/:slug/ask', authenticateToken, requireCandidate,
+  [body('question').isString().trim().isLength({ min: 3, max: 500 }), body('lessonId').optional().isString()],
+  asyncHandler(async (req: Request, res: Response) => {
+  const course = await Course.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' }).lean();
+  if (!course) {
+    res.status(404).json({ success: false, message: 'Course not found' });
+    return;
+  }
+  const lesson = (course.modules || [])
+    .flatMap((m: any) => (m.lessons || []).map((l: any) => ({ ...l, moduleId: m.id })))
+    .find((l: any) => l.id === req.body.lessonId) || null;
+  const answer = await explainLessonConcept({
+    question: String(req.body.question),
+    course: { title: course.title, slug: course.slug },
+    lesson: lesson ? { title: lesson.title, content: lesson.content, codeExamples: lesson.codeExamples } : null,
+  });
+  res.json({ success: true, data: answer });
+}));
+
 export default router;

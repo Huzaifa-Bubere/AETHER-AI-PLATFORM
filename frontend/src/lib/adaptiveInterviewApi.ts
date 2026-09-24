@@ -13,7 +13,23 @@ export interface ClientQuestion {
   difficulty: 'easy' | 'medium' | 'hard';
   depth: 'starter' | 'follow-up' | 'deep-dive' | 'scenario';
   expectedDuration: number;
+  followUpEvidence?: { parentQuestionId: string; triggerText: string; reason: string; decidedBy: string } | null;
 }
+export interface FollowUpTrailItem {
+  questionId: string; parentQuestionId: string | null; questionText: string; topic: string;
+  depth: string; triggerText: string; reason: string; decidedBy: string;
+}
+export interface LearningRecommendation { skill: string; reason: string; learningPath?: string; cta: string }
+export interface EnglishAnalysis {
+  grammar: number; clarity: number; vocabulary: number; coherence: number;
+  evidence: string[]; improvements: string[]; measuredAt: string;
+}
+export interface SpeakingMetrics {
+  wordsPerMinute: number | null; totalWords: number; fillerCount: number;
+  fillerRatePerMinute: number | null; averageResponseSeconds: number | null;
+  pauseRatioEstimate: number | null; responseCount: number;
+}
+export interface StarResult { situation: boolean; task: boolean; action: boolean; result: boolean; recommendation: string }
 export interface AnswerFeedback {
   scores: { correctness: number; depth: number; communication: number; confidence: number };
   overallScore: number;
@@ -53,7 +69,11 @@ function unwrap(data: any): any {
 }
 
 export const adaptiveInterviewApi = {
-  async createSession(payload: { domain: string; role?: string; difficulty: string; questionCount: number }) {
+  async createSession(payload: {
+    domain: string; role?: string; difficulty: string; questionCount: number;
+    experienceLevel?: string; interviewType?: string; resumeId?: string | null;
+    jobDescription?: string; consentRecording?: boolean;
+  }) {
     const res = await client.post('/api/adaptive-interview/create', payload);
     return unwrap(res.data);
   },
@@ -61,7 +81,7 @@ export const adaptiveInterviewApi = {
     const res = await client.get(`/api/adaptive-interview/${sessionId}`);
     return unwrap(res.data);
   },
-  async submitAnswer(sessionId: string, payload: { questionId: string; answer: string; durationSeconds: number }) {
+  async submitAnswer(sessionId: string, payload: { questionId: string; answer: string; durationSeconds: number; answerSource?: 'voice' | 'text' }) {
     const res = await client.post(`/api/adaptive-interview/${sessionId}/answer`, payload);
     return unwrap(res.data) as { feedback: AnswerFeedback; nextQuestion: ClientQuestion | null; completed: boolean; answeredCount: number; plannedQuestions: number; reason: string };
   },
@@ -88,6 +108,11 @@ export const adaptiveInterviewApi = {
     return unwrap(res.data) as {
       sessionId: string; domain: string; role: string; difficulty: string;
       durationSeconds: number; report: AdaptiveReport; transcript: TranscriptItem[]; recording: RecordingInfo;
+      speakingMetrics?: SpeakingMetrics | null;
+      englishAnalysis?: EnglishAnalysis | null;
+      followUpTrail?: FollowUpTrailItem[];
+      learningRecommendations?: LearningRecommendation[];
+      starByQuestion?: Array<{ questionId: string; star: StarResult | null }>;
     };
   },
   // Authorized playback: <video src> cannot send the auth header, so we fetch bytes ourselves.

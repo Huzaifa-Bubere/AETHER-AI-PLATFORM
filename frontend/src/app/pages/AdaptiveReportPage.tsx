@@ -4,7 +4,10 @@ import {
   Brain, Trophy, TrendingUp, TrendingDown, ShieldCheck, ShieldAlert,
   BookOpen, Target, ArrowRight, Loader2, AlertTriangle, RefreshCw, Clock, MessageSquare, Video,
 } from 'lucide-react';
-import adaptiveInterviewApi, { AdaptiveReport, RecordingInfo, TranscriptItem } from '../../lib/adaptiveInterviewApi';
+import adaptiveInterviewApi, {
+  AdaptiveReport, RecordingInfo, TranscriptItem,
+  EnglishAnalysis, SpeakingMetrics, FollowUpTrailItem, LearningRecommendation, StarResult,
+} from '../../lib/adaptiveInterviewApi';
 import { integrityApi, IntegritySummary, sanitizeIntegritySummary } from '../features/integrity/integrity.types';
 
 const READINESS_STYLES: Record<string, { color: string; bg: string; border: string; label: string }> = {
@@ -69,7 +72,15 @@ export function AdaptiveReportPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<{ domain: string; difficulty: string; durationSeconds: number; report: AdaptiveReport; transcript: TranscriptItem[]; recording: RecordingInfo } | null>(null);
+  const [data, setData] = useState<{
+    domain: string; difficulty: string; durationSeconds: number; report: AdaptiveReport;
+    transcript: TranscriptItem[]; recording: RecordingInfo;
+    speakingMetrics?: SpeakingMetrics | null;
+    englishAnalysis?: EnglishAnalysis | null;
+    followUpTrail?: FollowUpTrailItem[];
+    learningRecommendations?: LearningRecommendation[];
+    starByQuestion?: Array<{ questionId: string; star: StarResult | null }>;
+  } | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState(false);
   // Shared integrity event log (backend-authoritative) enriches the report's own summary.
@@ -253,6 +264,79 @@ export function AdaptiveReportPage() {
           </Section>
         )}
 
+        {/* ── Speaking delivery (objective metrics only — spec §29–31) ── */}
+        {data.speakingMetrics && data.speakingMetrics.responseCount > 0 && (
+          <Section icon={MessageSquare} title="Speaking delivery" color="#38bdf8">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {[
+                ['Speaking rate', data.speakingMetrics.wordsPerMinute != null ? `${data.speakingMetrics.wordsPerMinute} WPM` : '—'],
+                ['Filler words', `${data.speakingMetrics.fillerCount} (${data.speakingMetrics.fillerRatePerMinute ?? '—'}/min)`],
+                ['Avg response', data.speakingMetrics.averageResponseSeconds != null ? `${data.speakingMetrics.averageResponseSeconds}s` : '—'],
+                ['Words spoken', String(data.speakingMetrics.totalWords)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl border border-border bg-slate-50 px-4 py-3">
+                  <p className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+                  <p className="text-lg font-bold text-slate-800">{value}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11.5px] text-slate-400 mt-3">
+              Measured from your transcript and response durations. These are objective delivery metrics — they do not measure
+              personality, confidence as a trait, or suitability for a role. Accent is never scored.
+            </p>
+          </Section>
+        )}
+
+        {/* ── English communication (transcript evidence — spec §32–33) ── */}
+        {data.englishAnalysis && (
+          <Section icon={BookOpen} title="English communication" color="#f59e0b">
+            <div style={{ display: 'grid', gap: 10 }}>
+              {([['Grammar', data.englishAnalysis.grammar], ['Clarity', data.englishAnalysis.clarity], ['Vocabulary', data.englishAnalysis.vocabulary], ['Coherence', data.englishAnalysis.coherence]] as const).map(([label, score]) => {
+                const c = score >= 75 ? '#10b981' : score >= 55 ? '#f59e0b' : '#ef4444';
+                return (
+                  <div key={label} style={{ display: 'grid', gap: 5 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>{label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: c }}>{score}/100</span>
+                    </div>
+                    <div style={{ height: 7, borderRadius: 99, background: '#F1F5F9', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${score}%`, background: c, borderRadius: 99 }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {data.englishAnalysis.evidence.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-bold text-slate-500 mb-1">Evidence from your transcript</p>
+                <BulletList items={data.englishAnalysis.evidence} color="#f59e0b" marker="arrow" />
+              </div>
+            )}
+            {data.englishAnalysis.improvements.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-bold text-slate-500 mb-1">To improve</p>
+                <BulletList items={data.englishAnalysis.improvements} color="#fb923c" marker="book" />
+              </div>
+            )}
+            <p className="text-[11.5px] text-slate-400 mt-3">Based on comprehensibility and language usage — never accent similarity.</p>
+          </Section>
+        )}
+
+        {/* ── Cross-question trail (spec §42) ── */}
+        {data.followUpTrail && data.followUpTrail.some(f => f.parentQuestionId) && (
+          <Section icon={Target} title="Cross-questioning trail" color="#818cf8">
+            <div style={{ display: 'grid', gap: 8 }}>
+              {data.followUpTrail.filter(f => f.parentQuestionId).map(f => (
+                <div key={f.questionId} className="rounded-xl border border-border bg-slate-50 p-3.5">
+                  <p className="text-xs font-bold text-indigo-600">Follow-up · {f.depth}{f.reason ? ` · ${f.reason}` : ''}</p>
+                  <p className="text-[13px] text-slate-700 mt-1">{f.questionText}</p>
+                  {f.triggerText && <p className="text-[11.5px] text-slate-400 mt-1">Triggered by: “{f.triggerText}”</p>}
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
         {/* ── Strengths / weaknesses ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
           <Section icon={TrendingUp} title="Strengths" color="#34d399">
@@ -272,6 +356,28 @@ export function AdaptiveReportPage() {
             <BulletList items={report.suggestedLearningPath} color="#fbbf24" marker="book" />
           </Section>
         </div>
+
+        {/* ── Personalized learning recommendations → Career Learning (spec §43) ── */}
+        {data.learningRecommendations && data.learningRecommendations.length > 0 && (
+          <Section icon={BookOpen} title="Recommended learning — close your gaps" color="#2563EB">
+            <div style={{ display: 'grid', gap: 8 }}>
+              {data.learningRecommendations.map((rec, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-slate-50 p-3.5">
+                  <div>
+                    <p className="text-[13.5px] font-bold text-slate-800">{rec.skill}</p>
+                    <p className="text-xs text-slate-500">{rec.reason}</p>
+                  </div>
+                  <button
+                    onClick={() => navigate(`/career-learning${rec.learningPath ? `?topic=${encodeURIComponent(rec.learningPath)}` : ''}`)}
+                    style={{ all: 'unset', cursor: 'pointer', flexShrink: 0, padding: '8px 14px', borderRadius: 10, background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 700 }}
+                  >
+                    Start Learning
+                  </button>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* ── Integrity ── */}
         <Section icon={integrityTerminated ? ShieldAlert : integrityGood ? ShieldCheck : ShieldAlert} title={`Assessment integrity — ${integrity.score}/100`} color={integrityTerminated ? '#DC2626' : integrityGood ? '#16A34A' : '#D97706'}>

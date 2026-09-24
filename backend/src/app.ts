@@ -8,7 +8,11 @@ import compression from 'compression';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
 import resumeRoutes from './routes/resume';
+import resumeBuilderRoutes from './routes/resumeBuilder';
 import interviewRoutes from './interview/routes/interview.routes';
+// Legacy interview surface: media analysis routes (/analyze/video, /analyze/audio)
+// and feedback endpoints that the room page and python-integration tests expect.
+import interviewMediaRoutes from './routes/interview';
 import feedbackRoutes from './routes/feedback';
 import adminRoutes from './routes/admin';
 import codeExecutionRoutes from './routes/codeExecution';
@@ -18,10 +22,13 @@ import schedulingRoutes from './routes/scheduling';
 import healthRoutes from './routes/health';
 import aptitudeAdminRoutes from './routes/aptitudeAdmin.routes';
 import aptitudeStudentRoutes from './routes/aptitudeStudent.routes';
+import adaptiveInterviewRoutes from './routes/adaptiveInterview.routes';
 import ragRoutes from './routes/rag';
 import codingRoutes from './coding/routes/coding.routes';
 import codingAdminRoutes from './coding/routes/coding.admin.routes';
 import integrityRoutes from './integrity/integrity.service';
+import careerRoutes from './career/routes/career.routes';
+import careerAdminRoutes from './career/routes/careerAdmin.routes';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -158,7 +165,12 @@ export function createApp(): Application {
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/user', apiLimiter, authenticateToken, userRoutes);
   app.use('/api/resume', apiLimiter, authenticateToken, requireCandidate, resumeRoutes);
+  // Deterministic ATS + Resume Builder (versions, JD match, PDF data)
+  app.use('/api/resume', apiLimiter, authenticateToken, requireCandidate, resumeBuilderRoutes);
   app.use('/api/interview', authenticateToken, requireCandidate, assessmentLimiter, interviewRoutes);
+  // Restore the legacy media-analysis routes c8e9e64 unmounted (they extend the
+  // same /:id paths with /analyze/* subroutes; mounted AFTER the agent router).
+  app.use('/api/interview', authenticateToken, requireCandidate, assessmentLimiter, interviewMediaRoutes);
   app.use('/api/feedback', apiLimiter, authenticateToken, feedbackRoutes);
   app.use('/api/admin', apiLimiter, authenticateToken, requireAdmin, adminRoutes);
   app.use('/api/code', apiLimiter, codeExecutionRoutes);
@@ -169,7 +181,10 @@ export function createApp(): Application {
   app.use('/api/admin/aptitude', apiLimiter, aptitudeAdminRoutes); // auth+admin check happens inside the router
   app.use('/api/admin/rag', apiLimiter, ragRoutes);
   app.use('/api/aptitude', aptitudeStudentRoutes); // auth and assessment limits are applied inside
-  app.use('/api/adaptive-interview', authenticateToken, requireCandidate, assessmentLimiter, interviewRoutes);
+  // Voice-first adaptive interview (own engine — sessions, cross-questions,
+  // recordings, reports). The generic /api/interview agent engine stays mounted
+  // above for the classic flow; the voice-first client targets these routes.
+  app.use('/api/adaptive-interview', authenticateToken, requireCandidate, assessmentLimiter, adaptiveInterviewRoutes);
 
   // AETHER Coding module (candidate + admin)
   app.use('/api/coding', apiLimiter, authenticateToken, requireCandidate, codingRoutes);
@@ -177,6 +192,10 @@ export function createApp(): Application {
 
   // AETHER shared Assessment Integrity system (Aptitude / Technical / Coding / Interview)
   app.use('/api/integrity', apiLimiter, authenticateToken, requireCandidate, integrityRoutes);
+
+  // AETHER Career Learning + Career Intelligence module
+  app.use('/api/careers', apiLimiter, careerRoutes);
+  app.use('/api/admin/careers', apiLimiter, careerAdminRoutes);
 
   // Error handling middleware (must be last)
   app.use(notFound);

@@ -2,6 +2,7 @@ import express from 'express';
 import { body, query } from 'express-validator';
 import { codingProblemsController } from '../controllers/coding.problems.controller';
 import { codingSubmissionsController } from '../controllers/coding.submissions.controller';
+import { codingTraceController } from '../controllers/coding.trace.controller';
 import { asyncHandler } from '../../middleware/errorHandler';
 
 const router = express.Router();
@@ -75,6 +76,24 @@ router.get(
 router.get(
   '/recommendations',
   asyncHandler((req, res) => codingSubmissionsController.getRecommendations(req, res))
+);
+
+// ── Execution Visualization (post-submission, sample/custom inputs only) ────
+
+router.get(
+  '/trace/capabilities',
+  asyncHandler((req, res) => codingTraceController.capabilities(req, res))
+);
+
+router.get(
+  '/submissions/:id/trace-inputs',
+  asyncHandler((req, res) => codingTraceController.listTraceInputs(req, res))
+);
+
+router.post(
+  '/submissions/:id/trace',
+  [body('inputId').isString().notEmpty()],
+  asyncHandler((req, res) => codingTraceController.traceSubmission(req, res))
 );
 
 export default router;

@@ -3,8 +3,11 @@ export const candidateNavigation = [
   { name: 'Aptitude', path: '/aptitude' },
   { name: 'Technical Assessment', path: '/aptitude?round=technical' },
   { name: 'Coding Practice', path: '/coding' },
-  { name: 'AI Mock Interview', path: '/interview-setup' },
+  { name: 'AI Mock Interview', path: '/ai-interview' },
   { name: 'Resume Analyzer', path: '/resume' },
+  { name: 'Resume Builder', path: '/resume-builder' },
+  { name: 'Career Learning', path: '/career-learning' },
+  { name: 'Career Intelligence', path: '/career-intelligence' },
   { name: 'History', path: '/history' },
   { name: 'Profile', path: '/profile' },
 ];
@@ -16,6 +19,7 @@ export const adminNavigation = [
   { name: 'Test Management', path: '/admin/aptitude/tests' },
   { name: 'Knowledge Sources', path: '/admin/knowledge' },
   { name: 'Coding Problems', path: '/admin/coding' },
+  { name: 'Career & Market', path: '/admin/careers' },
   { name: 'Students', path: '/admin/aptitude/students' },
   { name: 'Profile', path: '/profile' },
 ];

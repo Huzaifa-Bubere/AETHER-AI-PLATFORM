@@ -11,7 +11,11 @@ import localStorageService from '../services/localStorage';
 import {
   startAdaptiveSession, generateFirstQuestion, generateAdaptiveQuestion,
   evaluateAnswer, decideNextAction, generateFinalReport, toClientQuestion,
+  extractJobRequirements,
 } from '../services/adaptiveInterview.service';
+import { analyzeDelivery, analyzeStar } from '../services/speechAnalysis';
+import { recordAskedQuestion } from '../services/questionHistory';
+import { followUpTrail, learningRecommendations } from '../services/interviewReportEnhancer';
 import logger from '../utils/logger';
 
 // ── Webcam recording upload (memory storage → Cloudinary, local fallback) ──
@@ -73,6 +77,11 @@ router.post(
     body('role').optional({ nullable: true }).isString().trim().isLength({ max: 80 }),
     body('difficulty').isIn(['easy', 'medium', 'hard']),
     body('questionCount').optional().isInt({ min: 3, max: 15 }).toInt(),
+    body('experienceLevel').optional({ nullable: true }).isString().trim().isLength({ max: 40 }),
+    body('interviewType').optional().isIn(['technical', 'behavioral', 'hr', 'project', 'mixed']),
+    body('resumeId').optional({ nullable: true }).isMongoId(),
+    body('jobDescription').optional({ nullable: true }).isString().trim().isLength({ max: 8000 }),
+    body('consentRecording').optional().isBoolean(),
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -81,7 +90,17 @@ router.post(
     const { domain, role = '', difficulty, questionCount = 6 } = req.body;
     const session = await startAdaptiveSession({
       userId: req.user!.userId, domain, role, difficulty, plannedQuestions: questionCount,
+      experienceLevel: req.body.experienceLevel,
+      interviewType: req.body.interviewType,
+      resumeId: req.body.resumeId || null,
+      jobDescription: req.body.jobDescription || '',
     });
+
+    // Explicit recording consent (spec §37) — stored timestamp, never implicit.
+    if (req.body.consentRecording === true) {
+      session.consent = { recording: true, consentedAt: new Date(), policyVersion: '2026-09' };
+      await session.save();
+    }
     const firstQuestion = await generateFirstQuestion(session.domain, session.role, session.difficulty, session.plan[0].topic);
     session.plan[0].asked = 1;
     session.questions.push(firstQuestion);
@@ -132,6 +151,7 @@ router.post(
     if (!errors.isEmpty()) return badRequest(res, errors.array().map((e: any) => ({ field: e.param || e.path, message: e.msg })));
 
     const { questionId, answer, durationSeconds = 0 } = req.body;
+    const answerSource = req.body.answerSource === 'voice' ? 'voice' as const : 'text' as const;
     const session = await loadSession(req, res);
     if (!session) return;
     if (session.status !== 'in-progress') {
@@ -147,17 +167,38 @@ router.post(
     // 1. Evaluate the answer (Gemini, heuristic fallback)
     const evaluation = await evaluateAnswer(session, question, answer, durationSeconds);
 
-    // 2. Persist response
+    // 2. Deterministic delivery + STAR analysis (observable metrics only)
+    const delivery = analyzeDelivery(answer, durationSeconds);
+    const star = session.interviewType === 'behavioral' || session.interviewType === 'mixed' || /behavior|team|conflict|leadership|time when/i.test(question.topic)
+      ? analyzeStar(answer)
+      : null;
+
+    // 3. Persist response
     session.responses.push({
       questionId, questionText: question.text, topic: question.topic,
-      answer, durationSeconds: Math.round(durationSeconds),
+      answer, answerSource, durationSeconds: Math.round(durationSeconds),
       scores: evaluation.scores, overallScore: evaluation.overallScore, verdict: evaluation.verdict,
       strengths: evaluation.strengths, improvements: evaluation.improvements,
       matchedKeywords: evaluation.matchedKeywords, missingKeywords: evaluation.missingKeywords,
       aiSummary: evaluation.aiSummary,
       nextFocus: evaluation.nextFocus,
+      delivery: {
+        wordCount: delivery.wordCount,
+        fillerCount: delivery.fillerCount,
+        wordsPerMinute: delivery.wordsPerMinute,
+      },
+      star,
       timestamp: new Date(),
     });
+
+    // Question history for cross-interview non-repetition (spec §23).
+    void recordAskedQuestion({
+      userId: String(session.userId),
+      questionId,
+      text: question.text,
+      topic: question.topic,
+      role: session.role || session.domain,
+    }).catch(() => undefined);
 
     // 3. Update plan bookkeeping
     const planItem = session.plan.find(p => p.topic === question.topic);
@@ -167,8 +208,8 @@ router.post(
         : Math.round((planItem.avgScore * (planItem.asked) + evaluation.overallScore) / (planItem.asked + 1));
     }
 
-    // 4. Adaptive decision
-    const decision = decideNextAction(session, evaluation);
+    // 4. Adaptive decision (now async — runs the FollowUpDecision engine)
+    const decision = await decideNextAction(session, evaluation);
     let nextQuestion: IAdaptiveQuestion | null = null;
     if (decision.action === 'continue') {
       nextQuestion = await generateAdaptiveQuestion(session, decision);
@@ -276,6 +317,11 @@ router.get(
         difficulty: session.difficulty,
         durationSeconds: session.endedAt ? Math.round((session.endedAt.getTime() - session.startedAt.getTime()) / 1000) : 0,
         report: session.report,
+        speakingMetrics: session.speakingMetrics || null,
+        englishAnalysis: session.englishAnalysis || null,
+        followUpTrail: followUpTrail(session),
+        learningRecommendations: learningRecommendations(session),
+        starByQuestion: session.responses.map(r => ({ questionId: r.questionId, star: r.star || null })),
         recording: session.recording?.publicId
           ? {
               available: true,

@@ -19,6 +19,46 @@ export interface IAdaptiveQuestion {
   expectedKeywords: string[];
   basedOn?: string; // questionId whose answer produced this question
   askedAt: Date;
+  /** Cross-question evidence (spec §22) — why this follow-up exists. */
+  followUpEvidence?: {
+    parentQuestionId: string;
+    triggerText: string;
+    reason: string;
+    decidedBy: 'heuristic' | 'ai';
+  } | null;
+}
+
+/** Observable delivery metrics (spec §29–31) — objective, never personality. */
+export interface ISpeakingMetrics {
+  wordsPerMinute: number | null;
+  totalWords: number;
+  fillerCount: number;
+  fillerRatePerMinute: number | null;
+  averageResponseSeconds: number | null;
+  pauseRatioEstimate: number | null;
+  responseCount: number;
+  measuredAt: Date;
+}
+
+/** Deterministic English communication analysis (spec §32–33). */
+export interface IEnglishAnalysis {
+  grammar: number;
+  clarity: number;
+  vocabulary: number;
+  coherence: number;
+  evidence: string[];
+  improvements: string[];
+  measuredFrom: 'transcript';
+  measuredAt: Date;
+}
+
+/** Behavioral STAR structure evidence per response (spec §34). */
+export interface IStarAnalysis {
+  situation: boolean;
+  task: boolean;
+  action: boolean;
+  result: boolean;
+  recommendation: string;
 }
 
 export interface IAdaptiveResponse {
@@ -26,6 +66,7 @@ export interface IAdaptiveResponse {
   questionText: string;
   topic: string;
   answer: string;
+  answerSource?: 'voice' | 'text';
   durationSeconds: number;
   scores: {
     correctness: number;
@@ -42,6 +83,19 @@ export interface IAdaptiveResponse {
   aiSummary: string;
   nextFocus: string | null;
   timestamp: Date;
+  /** word count + filler count computed deterministically on submit */
+  delivery?: {
+    wordCount: number;
+    fillerCount: number;
+    wordsPerMinute: number | null;
+  };
+  star?: IStarAnalysis;
+}
+
+export interface IInterviewConsent {
+  recording: boolean;
+  consentedAt: Date | null;
+  policyVersion: string;
 }
 
 export type ProctorEventType =
@@ -92,10 +146,34 @@ export interface IAdaptiveInterview extends Document {
   userId: mongoose.Types.ObjectId;
   domain: string;
   role: string;
+  experienceLevel?: string;
+  interviewType?: 'technical' | 'behavioral' | 'hr' | 'project' | 'mixed';
   difficulty: Difficulty;
   plannedQuestions: number;
   status: 'in-progress' | 'completed' | 'abandoned';
   plan: IPlanItem[];
+  /** Optional resume anchor (Resume Analyzer output drives questions). */
+  resumeId?: mongoose.Types.ObjectId | null;
+  resumeContext?: {
+    summary?: string;
+    skills: string[];
+    projects: Array<{ name?: string; description?: string; technologies?: string[] }>;
+  } | null;
+  jobDescription?: string;
+  jobRequirements?: string[];
+  /** Explicit recording consent (spec §37). */
+  consent?: IInterviewConsent;
+  /** Aggregate delivery metrics updated after each answer. */
+  speakingMetrics?: ISpeakingMetrics | null;
+  englishAnalysis?: IEnglishAnalysis | null;
+  /** follow-up decision trail for the latest exchange (explainability). */
+  lastFollowUpDecision?: {
+    decision: string;
+    reason: string;
+    triggerText: string;
+    decidedBy: 'heuristic' | 'ai';
+    at: Date;
+  } | null;
   questions: IAdaptiveQuestion[];
   responses: IAdaptiveResponse[];
   proctorEvents: IProctorEvent[];
@@ -136,6 +214,15 @@ const questionSchema = new Schema<IAdaptiveQuestion>(
     expectedKeywords: { type: [String], default: [] },
     basedOn: { type: String, default: null },
     askedAt: { type: Date, required: true },
+    followUpEvidence: {
+      type: {
+        parentQuestionId: { type: String, default: null },
+        triggerText: { type: String, default: '' },
+        reason: { type: String, default: '' },
+        decidedBy: { type: String, enum: ['heuristic', 'ai'], default: 'heuristic' },
+      },
+      default: null,
+    },
   },
   { _id: false },
 );
@@ -162,6 +249,25 @@ const responseSchema = new Schema<IAdaptiveResponse>(
     aiSummary: { type: String, default: '' },
     nextFocus: { type: String, default: null },
     timestamp: { type: Date, required: true },
+    answerSource: { type: String, enum: ['voice', 'text'], default: undefined },
+    delivery: {
+      type: {
+        wordCount: { type: Number, default: 0 },
+        fillerCount: { type: Number, default: 0 },
+        wordsPerMinute: { type: Number, default: null },
+      },
+      default: null,
+    },
+    star: {
+      type: {
+        situation: { type: Boolean, default: false },
+        task: { type: Boolean, default: false },
+        action: { type: Boolean, default: false },
+        result: { type: Boolean, default: false },
+        recommendation: { type: String, default: '' },
+      },
+      default: null,
+    },
   },
   { _id: false },
 );
@@ -213,10 +319,67 @@ const adaptiveInterviewSchema = new Schema<IAdaptiveInterview>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     domain: { type: String, required: true, trim: true },
     role: { type: String, default: '', trim: true },
+    experienceLevel: { type: String, default: '', trim: true },
+    interviewType: { type: String, enum: ['technical', 'behavioral', 'hr', 'project', 'mixed'], default: 'technical' },
     difficulty: { type: String, enum: ['easy', 'medium', 'hard'], required: true },
     plannedQuestions: { type: Number, required: true, min: 3, max: 15 },
     status: { type: String, enum: ['in-progress', 'completed', 'abandoned'], default: 'in-progress', index: true },
     plan: { type: [planItemSchema], default: [] },
+    resumeId: { type: Schema.Types.ObjectId, ref: 'Resume', default: null },
+    resumeContext: {
+      type: {
+        summary: { type: String, default: '' },
+        skills: { type: [String], default: [] },
+        projects: [{ type: Schema.Types.Mixed }],
+      },
+      default: null,
+    },
+    jobDescription: { type: String, default: '' },
+    jobRequirements: { type: [String], default: [] },
+    consent: {
+      type: {
+        recording: { type: Boolean, default: false },
+        consentedAt: { type: Date, default: null },
+        policyVersion: { type: String, default: '2026-09' },
+      },
+      default: null,
+    },
+    speakingMetrics: {
+      type: {
+        wordsPerMinute: { type: Number, default: null },
+        totalWords: { type: Number, default: 0 },
+        fillerCount: { type: Number, default: 0 },
+        fillerRatePerMinute: { type: Number, default: null },
+        averageResponseSeconds: { type: Number, default: null },
+        pauseRatioEstimate: { type: Number, default: null },
+        responseCount: { type: Number, default: 0 },
+        measuredAt: { type: Date, default: Date.now },
+      },
+      default: null,
+    },
+    englishAnalysis: {
+      type: {
+        grammar: { type: Number, default: 0 },
+        clarity: { type: Number, default: 0 },
+        vocabulary: { type: Number, default: 0 },
+        coherence: { type: Number, default: 0 },
+        evidence: { type: [String], default: [] },
+        improvements: { type: [String], default: [] },
+        measuredFrom: { type: String, default: 'transcript' },
+        measuredAt: { type: Date, default: Date.now },
+      },
+      default: null,
+    },
+    lastFollowUpDecision: {
+      type: {
+        decision: { type: String, default: '' },
+        reason: { type: String, default: '' },
+        triggerText: { type: String, default: '' },
+        decidedBy: { type: String, enum: ['heuristic', 'ai'], default: 'heuristic' },
+        at: { type: Date, default: Date.now },
+      },
+      default: null,
+    },
     questions: { type: [questionSchema], default: [] },
     responses: { type: [responseSchema], default: [] },
     proctorEvents: { type: [proctorEventSchema], default: [] },

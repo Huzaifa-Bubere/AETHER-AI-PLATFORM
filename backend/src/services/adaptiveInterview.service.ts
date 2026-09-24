@@ -1,10 +1,15 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import mongoose from 'mongoose';
 import { generationModel } from './ai/provider';
 import AdaptiveInterviewModel from '../models/AdaptiveInterview';
 import {
   IAdaptiveInterview, IAdaptiveQuestion, IPlanItem, IProctorEvent,
   computeIntegrityScore,
 } from '../models/AdaptiveInterview';
+import { decideFollowUp, refineFollowUpWithAI, IFollowUpDecision } from './followUpDecision';
+import { isDuplicateCandidate, recordAskedQuestion, getAskedQuestionTexts } from './questionHistory';
+import { analyzeDelivery, aggregateDelivery, analyzeEnglish, analyzeStar } from './speechAnalysis';
+import Resume from '../models/Resume';
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -27,6 +32,9 @@ export interface AdaptiveDecision {
   difficulty: 'easy' | 'medium' | 'hard';
   depth: 'starter' | 'follow-up' | 'deep-dive' | 'scenario';
   reason: string;
+  /** Cross-questioning angle from the FollowUpDecision engine (spec §21–22). */
+  followUpIntent?: string;
+  reasonSource?: 'heuristic' | 'ai';
 }
 
 // ── Small helpers ────────────────────────────────────────────────────────────
@@ -240,9 +248,8 @@ Return ONLY JSON:
   };
 }
 
-// ── 4. Adaptive decision ─────────────────────────────────────────────────────
-
-export function decideNextAction(interview: IAdaptiveInterview, lastEvaluation: Evaluation): AdaptiveDecision {
+// ── 4. Adaptive decision ──────────────────────────────────────────────
+export async function decideNextAction(interview: IAdaptiveInterview, lastEvaluation: Evaluation): Promise<AdaptiveDecision> {
   const answered = interview.responses.length;
   if (answered >= interview.plannedQuestions) {
     return { action: 'end', topic: null, difficulty: interview.difficulty, depth: 'starter', reason: 'question quota reached' };
@@ -260,65 +267,126 @@ export function decideNextAction(interview: IAdaptiveInterview, lastEvaluation: 
   const score = lastEvaluation.overallScore;
   const followUpsUsed = interview.questions.filter(q => q.basedOn === lastResponse?.questionId).length;
 
-  // Weak answer → probe deeper on the SAME topic with a follow-up (max 2 follow-ups per question).
-  if (score < 55 && lastResponse && followUpsUsed < 2) {
+  // ── FollowUpDecision engine (spec §21–22) ──
+  const fuInput = {
+    questionId: lastResponse?.questionId || '',
+    questionText: lastResponse?.questionText || '',
+    topic: lastTopic,
+    difficulty: interview.difficulty,
+    answer: lastResponse?.answer || '',
+    scores: lastEvaluation.scores,
+    overallScore: score,
+    missingKeywords: lastEvaluation.missingKeywords || [],
+    matchedKeywords: lastEvaluation.matchedKeywords || [],
+    followUpsUsed,
+    maxFollowUpsPerTopic: Number(process.env.INTERVIEW_MAX_FOLLOW_UPS || 2),
+    answered,
+    plannedQuestions: interview.plannedQuestions,
+    remainingPlannedTopics: remainingPlan.length,
+  };
+  let fu: IFollowUpDecision = decideFollowUp(fuInput);
+  if (fu.decision !== 'ANSWER_COMPLETE' && fu.decision !== 'MOVE_NEXT_TOPIC') {
+    fu = await refineFollowUpWithAI(fuInput, fu);
+  }
+
+  // Persist the decision trail on the session for explainability.
+  interview.lastFollowUpDecision = {
+    decision: fu.decision,
+    reason: fu.evidence.reason,
+    triggerText: fu.evidence.triggerText,
+    decidedBy: fu.evidence.decidedBy,
+    at: new Date(),
+  };
+
+  if (fu.shouldFollowUp && lastResponse) {
     return {
-      action: 'continue', topic: lastTopic,
-      difficulty: score < 35 ? 'easy' : 'medium',
+      action: 'continue',
+      topic: lastTopic,
+      difficulty: score < 35 ? 'easy' : interview.difficulty,
       depth: followUpsUsed === 0 ? 'follow-up' : 'deep-dive',
-      reason: `weak answer (${score}/100) — probing "${lastEvaluation.nextFocus || lastTopic}" deeper`,
+      reason: `${fu.decision}: ${fu.evidence.reason} — follow-up #${followUpsUsed + 1}/${fu.maxFollowUpsPerTopic} on "${lastTopic}"`,
+      followUpIntent: fu.followUpIntent,
+      reasonSource: fu.evidence.decidedBy,
     };
   }
-  // Strong answer → escalate difficulty, move to next planned topic.
-  if (score >= 75) {
-    const nextTopic = remainingPlan.find(p => p.topic !== lastTopic)?.topic || planTopic;
-    return {
-      action: 'continue', topic: nextTopic,
-      difficulty: interview.difficulty === 'easy' ? 'medium' : 'hard',
-      depth: 'scenario',
-      reason: `strong answer (${score}/100) — escalating to ${nextTopic}`,
-    };
-  }
-  // Average → same difficulty, next topic.
+
+  // No follow-up → advance topics (strong answers escalate difficulty).
+  const nextTopic = remainingPlan.find(p => p.topic !== lastTopic)?.topic || planTopic;
   return {
-    action: 'continue', topic: planTopic,
-    difficulty: interview.difficulty, depth: 'starter',
-    reason: `average answer (${score}/100) — moving to ${planTopic}`,
+    action: 'continue',
+    topic: nextTopic,
+    difficulty: score >= 75 ? (interview.difficulty === 'easy' ? 'medium' : 'hard') : interview.difficulty,
+    depth: 'starter',
+    reason: `${fu.decision}: moving to ${nextTopic}`,
+    reasonSource: fu.evidence.decidedBy,
   };
 }
 
 export async function generateAdaptiveQuestion(
   interview: IAdaptiveInterview, decision: AdaptiveDecision,
 ): Promise<IAdaptiveQuestion> {
+  const lastResponse = interview.responses[interview.responses.length - 1];
+  const isFollowUp = decision.depth === 'follow-up' || decision.depth === 'deep-dive';
   const recentQa = interview.responses.slice(-3).map((r, i) => `Q${i + 1}: ${r.questionText}\nA${i + 1}: ${r.answer.slice(0, 300)}`).join('\n');
+
+  // Resume + JD awareness (spec §26–27).
+  const resumeBlock = interview.resumeContext
+    ? `Candidate resume evidence:
+Skills: ${(interview.resumeContext.skills || []).slice(0, 12).join(', ') || 'none listed'}
+Projects: ${(interview.resumeContext.projects || []).map(p => `${p.name || 'Project'} (${(p.technologies || []).slice(0, 6).join(', ')})`).join('; ') || 'none listed'}
+You may ask ONE resume-grounded question when the topic naturally connects (e.g. "You listed X — how did you use it in <project>?").`
+    : '';
+  const jdBlock = (interview.jobRequirements || []).length
+    ? `Job requirements to respect: ${interview.jobRequirements.slice(0, 10).join(', ')}.`
+    : '';
+
+  // Non-repetition (spec §23): all previously asked questions in this interview
+  // + the candidate's cross-interview history for this role.
+  const historyTexts = await getAskedQuestionTexts(String(interview.userId), interview.role || '', 100);
+  const askedInSession = interview.questions.map(q => q.text);
+  const previousAll = [...askedInSession, ...historyTexts];
+
   const prompt = `You are a senior technical interviewer conducting a LIVE adaptive interview.
 Domain: ${interview.domain}
 ${interview.role ? `Role: ${interview.role}` : ''}
+${interview.experienceLevel ? `Candidate experience level: ${interview.experienceLevel}` : ''}
 Next topic: ${decision.topic}
 Difficulty: ${decision.difficulty}
-Question style: ${decision.depth} — ${decision.depth === 'follow-up' ? 'a follow-up probing the gap in the candidate\'s previous answer' : decision.depth === 'deep-dive' ? 'an even deeper probe of the same concept' : decision.depth === 'scenario' ? 'a practical scenario/problem question' : 'a fresh starter question on the topic'}
-${decision.depth === 'follow-up' || decision.depth === 'deep-dive' ? `Candidate's previous answer: "${(interview.responses[interview.responses.length - 1]?.answer || '').slice(0, 800)}"` : ''}
+Question style: ${decision.depth} — ${isFollowUp ? 'a follow-up cross-questioning the candidate\'s previous answer' : decision.depth === 'scenario' ? 'a practical scenario/problem question' : 'a fresh starter question on the topic'}
+${isFollowUp && lastResponse ? `Candidate's previous answer: "${(lastResponse.answer || '').slice(0, 800)}"` : ''}
+${resumeBlock}
+${jdBlock}
 ${recentQa ? `DO NOT repeat or closely paraphrase these recent questions:\n${recentQa}` : ''}
+${decision.followUpIntent ? `Cross-questioning angle (from evidence): ${decision.followUpIntent}` : ''}
 
 Rules:
 - One question only, verbally answerable in 1-3 minutes.
+- It must NOT repeat or paraphrase any earlier question in this conversation.
 - Include 4-6 expectedKeywords a strong answer would contain.
 
 Return ONLY JSON:
 {"text":"the question","expectedKeywords":["k1","k2","k3","k4"]}`;
 
-  const text = await callModel(prompt, 20000);
-  const parsed = text ? extractJson<{ text?: string; expectedKeywords?: string[] }>(text) : null;
-  const fallbackText = decision.depth === 'follow-up' || decision.depth === 'deep-dive'
-    ? `You mentioned "${decision.reason.replace(/^weak answer \(\d+\/100\) — probing /, '').replace(/" deeper$/, '')}" earlier — can you elaborate on how exactly that works in ${interview.domain}?`
-    : `Walk me through a practical scenario in ${decision.topic || interview.domain} where you would apply its core concepts.`;
-  const qText = typeof parsed?.text === 'string' && parsed.text.trim().length > 5 ? parsed.text.trim() : fallbackText;
-  const keywords = (Array.isArray(parsed?.expectedKeywords) ? parsed!.expectedKeywords : [])
-    .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
-    .map(k => k.trim().toLowerCase().slice(0, 40))
-    .slice(0, 6);
+  // Ask the model; regenerate up to 2 times when the result duplicates history.
+  let qText = '';
+  let keywords: string[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const text = await callModel(prompt, 20000);
+    const parsed = text ? extractJson<{ text?: string; expectedKeywords?: string[] }>(text) : null;
+    qText = typeof parsed?.text === 'string' && parsed.text.trim().length > 5 ? parsed.text.trim() : '';
+    keywords = (Array.isArray(parsed?.expectedKeywords) ? parsed!.expectedKeywords : [])
+      .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+      .map(k => k.trim().toLowerCase().slice(0, 40))
+      .slice(0, 6);
+    if (qText && !isDuplicateCandidate(qText, previousAll)) break;
+    if (qText && attempt === 1) break; // two regenerations max — proceed with best effort
+  }
 
-  const lastResponse = interview.responses[interview.responses.length - 1];
+  const fallbackText = isFollowUp
+    ? `Earlier you said "${(lastResponse?.answer || '').slice(0, 60)}" — walk me through exactly how that worked under the hood in ${interview.domain}.`
+    : `Walk me through a practical scenario in ${decision.topic || interview.domain} where you would apply its core concepts.`;
+  if (!qText) qText = fallbackText;
+
   return {
     id: `aq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     text: qText,
@@ -326,7 +394,13 @@ Return ONLY JSON:
     difficulty: decision.difficulty,
     depth: decision.depth,
     expectedKeywords: keywords,
-    basedOn: decision.depth === 'follow-up' || decision.depth === 'deep-dive' ? lastResponse?.questionId : undefined,
+    basedOn: isFollowUp ? lastResponse?.questionId : undefined,
+    followUpEvidence: isFollowUp && decision.followUpIntent ? {
+      parentQuestionId: lastResponse?.questionId || '',
+      triggerText: decision.followUpIntent.slice(0, 120),
+      reason: decision.reason.slice(0, 160),
+      decidedBy: decision.reasonSource === 'ai' ? 'ai' : 'heuristic',
+    } : undefined,
     askedAt: new Date(),
   };
 }
@@ -381,6 +455,23 @@ export async function generateFinalReport(
   const integrityScore = computeIntegrityScore(proctorEvents);
   const eventCounts: Record<string, number> = {};
   for (const e of proctorEvents) eventCounts[e.type] = (eventCounts[e.type] || 0) + 1;
+
+  // Deterministic speaking + English analysis persisted on the session (spec §29–34).
+  const deliveryAggregate = aggregateDelivery(interview.responses);
+  interview.speakingMetrics = {
+    wordsPerMinute: deliveryAggregate.wordsPerMinute,
+    totalWords: deliveryAggregate.totalWords,
+    fillerCount: deliveryAggregate.fillerCount,
+    fillerRatePerMinute: deliveryAggregate.fillerRatePerMinute,
+    averageResponseSeconds: deliveryAggregate.averageResponseSeconds,
+    pauseRatioEstimate: deliveryAggregate.pauseRatioEstimate,
+    responseCount: deliveryAggregate.responseCount,
+    measuredAt: new Date(),
+  };
+  const english = analyzeEnglish(interview.responses.map(r => r.answer));
+  if (english) {
+    interview.englishAnalysis = english;
+  }
 
   const topics = computeTopicPerformance(interview);
   const overall = interview.responses.length
@@ -439,18 +530,73 @@ Return ONLY JSON:
 
 export async function startAdaptiveSession(params: {
   userId: string; domain: string; role: string; difficulty: string; plannedQuestions: number;
+  experienceLevel?: string;
+  interviewType?: 'technical' | 'behavioral' | 'hr' | 'project' | 'mixed';
+  resumeId?: string | null;
+  jobDescription?: string;
 }): Promise<IAdaptiveInterview> {
   const plan = await generateDomainPlan(params.domain, params.difficulty, params.plannedQuestions);
+
+  // Resume-aware (spec §26): pull the parsed Resume Analyzer output.
+  let resumeContext: IAdaptiveInterview['resumeContext'] = null;
+  let resumeDocId: mongoose.Types.ObjectId | null = null;
+  try {
+    const resume = params.resumeId
+      ? await Resume.findOne({ _id: params.resumeId, userId: params.userId })
+      : await Resume.getLatestByUser(new mongoose.Types.ObjectId(params.userId));
+    if (resume) {
+      resumeDocId = resume._id as mongoose.Types.ObjectId;
+      const parsedProjects = resume.metadata?.parsedData?.projects || [];
+      resumeContext = {
+        summary: resume.analysis?.summary || '',
+        skills: (Array.isArray(resume.analysis?.skills) ? resume.analysis.skills : []).slice(0, 25),
+        projects: (Array.isArray(parsedProjects) ? parsedProjects : []).slice(0, 5).map((p: any) => ({
+          name: p.title || p.name || 'Project',
+          description: String(p.description || '').slice(0, 400),
+          technologies: Array.isArray(p.technologies) ? p.technologies : [],
+        })),
+      };
+    }
+  } catch {
+    resumeContext = null; // interview continues without resume context
+  }
+
   const session = await AdaptiveInterviewModel.create({
     userId: params.userId,
     domain: params.domain,
     role: params.role,
+    experienceLevel: params.experienceLevel || '',
+    interviewType: params.interviewType || 'technical',
     difficulty: params.difficulty,
     plannedQuestions: params.plannedQuestions,
     plan,
+    resumeId: resumeDocId,
+    resumeContext,
+    jobDescription: params.jobDescription || '',
+    jobRequirements: extractJobRequirements(params.jobDescription || ''),
+    consent: { recording: false, consentedAt: null, policyVersion: '2026-09' },
     status: 'in-progress',
   });
   return session;
+}
+
+/** Deterministic JD extraction (spec §27): skills/tools/responsibilities. */
+export function extractJobRequirements(jd: string): string[] {
+  if (!jd.trim()) return [];
+  const KNOWN = [
+    'Node.js', 'React', 'TypeScript', 'JavaScript', 'Python', 'Java', 'MongoDB', 'PostgreSQL', 'MySQL',
+    'Redis', 'Docker', 'Kubernetes', 'AWS', 'GCP', 'Azure', 'GraphQL', 'REST', 'gRPC', 'Kafka',
+    'Microservices', 'CI/CD', 'Git', 'Linux', 'System Design', 'HTML', 'CSS', 'Tailwind', 'Next.js',
+    'Express', 'Django', 'Spring', 'SQL', 'NoSQL', 'Cassandra', 'Machine Learning', 'TensorFlow', 'PyTorch',
+  ];
+  const found = KNOWN.filter(k => new RegExp(`\\b${k.replace(/[.+*?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(jd));
+  const responsibilities = jd
+    .split(/[\n•·]/)
+    .map(l => l.trim())
+    .filter(l => l.length > 20 && /(responsib|develop|build|design|maintain|lead|collaborat|implement)/i.test(l))
+    .slice(0, 5)
+    .map(l => l.slice(0, 120));
+  return [...found, ...responsibilities];
 }
 
 export function toClientQuestion(q: IAdaptiveQuestion) {

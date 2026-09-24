@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/server.ts",
-    "build": "node --max-old-space-size=512 node_modules/typescript/bin/tsc --project tsconfig.json",
+    "build": "node --max-old-space-size=2048 node_modules/typescript/bin/tsc --project tsconfig.json",
     "start": "node dist/server.js",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
@@ -13,7 +13,9 @@
     "dev:debug": "nodemon --exec ts-node --inspect src/server.ts",
     "test:aptitude": "npm run build && jest --runInBand aptitude",
     "test:aptitude:integration": "npm run build && node scripts/run-aptitude-integration.cjs",
-    "seed:problems": "ts-node src/coding/seed/seedProblems.ts"
+    "seed:problems": "ts-node src/coding/seed/seedProblems.ts",
+    "seed:careers": "ts-node src/career/seed/seedCareers.ts",
+    "seed:courses": "ts-node src/career/seed/seedCourses.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

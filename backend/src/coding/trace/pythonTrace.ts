@@ -232,16 +232,16 @@ if _np is not None and len(_args) != _np and len(_args) == 1 and isinstance(_arg
 
 _result = None
 _truncated = False
-sys.settrace(_tracer)
+_sys.settrace(_tracer)
 try:
     _result = _fn(*_call_args)
 except _Limit:
     _truncated = True
 except Exception as e:
-    sys.settrace(None)
+    _sys.settrace(None)
     _sys.stderr.write("ERROR: " + str(e) + "\\n")
     _sys.exit(1)
-sys.settrace(None)
+_sys.settrace(None)
 
 _temit({"e": "__META__", "truncated": _truncated, "ret": _tser(_result)})
 

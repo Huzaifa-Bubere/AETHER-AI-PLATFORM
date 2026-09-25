@@ -83,7 +83,7 @@ router.post('/ats/explain', authenticateToken, requireCandidate,
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const key = process.env.GEMINI_API_KEY;
       if (key) {
-        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-3.6-flash' });
         const prompt = `You are an ATS coach. Here is a DETERMINISTIC ATS analysis of a resume:
 ${JSON.stringify({ totalScore: ats.totalScore, grade: ats.grade, categories: ats.categories.map(c => ({ label: c.label, score: c.score, weight: c.weight, findings: c.findings })), bulletFindings: ats.bulletFindings.slice(0, 5) })}
 

@@ -14,7 +14,7 @@ class GeminiService:
             return
         
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+        self.model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-3.6-flash"))
         logger.info("Gemini service initialized successfully")
 
     async def health_check(self) -> Dict[str, str]:

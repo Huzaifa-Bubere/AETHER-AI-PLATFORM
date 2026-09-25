@@ -65,7 +65,7 @@ export async function explainLessonConcept(params: ExplainParams): Promise<ITuto
     if (!key_) return fallback;
 
     const model = new GoogleGenerativeAI(key_).getGenerativeModel({
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
     });
 
     const grounding = params.lesson

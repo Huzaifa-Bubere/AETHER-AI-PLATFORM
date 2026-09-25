@@ -56,14 +56,19 @@ export function ProblemWorkspacePage() {
   const handleEditorCursor = (line: number | null) => setSelectedLine(line);
 
   // AST node click → reveal + highlight the source range in Monaco
+  // Guard against window.monaco being undefined in some editor-loader builds.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const editor = editorRef.current;
       if (!editor || !detail?.startLine) return;
       editor.revealLinesInCenter(detail.startLine, detail.endLine || detail.startLine);
+      const RangeCtor = (window as any).monaco?.Range;
+      const range = RangeCtor
+        ? new RangeCtor(detail.startLine, 1, (detail.endLine || detail.startLine) + 1, 1)
+        : { startLineNumber: detail.startLine, endLineNumber: (detail.endLine || detail.startLine) + 1, startColumn: 1, endColumn: 1 };
       decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [{
-        range: new (window as any).monaco.Range(detail.startLine, 1, (detail.endLine || detail.startLine) + 1, 1),
+        range,
         options: { isWholeLine: true, className: 'aether-ast-highlight', inlineClassName: 'aether-ast-highlight-inline' },
       }]);
     };

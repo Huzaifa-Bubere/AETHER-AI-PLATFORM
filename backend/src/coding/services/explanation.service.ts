@@ -54,7 +54,7 @@ class CodingExplanationService {
     if (!client) return fallback;
 
     try {
-      const model = client.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+      const model = client.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-3.6-flash' });
 
       const evidence = {
         problem: { title: problem.title, difficulty: problem.difficulty, category: problem.category },

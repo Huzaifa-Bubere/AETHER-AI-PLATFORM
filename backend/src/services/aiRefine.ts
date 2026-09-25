@@ -16,7 +16,7 @@ export function callModel(prompt: string, timeoutMs = 20000): Promise<string | n
   if (!key) return Promise.resolve(null);
   try {
     const model = new GoogleGenerativeAI(key).getGenerativeModel({
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
     });
     return Promise.race([
       model.generateContent(prompt, { timeout: timeoutMs }).then((r: any) => r.response.text()),

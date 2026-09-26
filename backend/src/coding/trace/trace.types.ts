@@ -85,6 +85,9 @@ export interface ITraceMetadata {
   patterns: ITracePattern[];
   /** final return value serialization when captured */
   returnValue?: string;
+  /** runtime error message when the traced run failed mid-execution (§41) —
+   *  the visualizer keeps prior steps viewable and shows the failure state. */
+  runtimeError?: string;
   /** engine that produced the trace */
   engine: 'python-instrumented' | 'js-instrumented' | 'java-adapter' | 'none';
 }

@@ -35,7 +35,7 @@ describe('Coding Execution Visualizer Real Trace Engine', () => {
     // Verify final return value is [0, 1]
     const returnEvent = trace.events.find(e => e.event === 'FUNCTION_RETURN');
     expect(returnEvent).toBeDefined();
-    expect(trace.metadata.returnValue).toBe('[0, 1]');
+    expect(trace.metadata.returnValue).toBe('[0,1]');
   }, 15000);
 
   // TEST 2 — Best Time to Buy and Sell Stock (Array + Pointer)

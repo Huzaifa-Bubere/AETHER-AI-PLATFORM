@@ -29,6 +29,8 @@ export interface ITraceMetadata {
   runtimeMs: number;
   patterns: Array<{ pattern: string; variables?: string[] }>;
   returnValue?: string;
+  /** runtime error message when the traced run failed mid-execution (§41) */
+  runtimeError?: string;
   engine: string;
 }
 

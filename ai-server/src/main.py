@@ -63,6 +63,7 @@ video_service = LazyService('services.video_analysis', 'VideoAnalysisService')
 speech_service = LazyService('services.speech_recognition', 'SpeechRecognitionService')
 emotion_service = LazyService('services.emotion_detection', 'EmotionDetectionService')
 resume_service = LazyService('services.resume_parser', 'ResumeParserService')
+behavior_service = LazyService('services.behavior_analysis', 'BehaviorAnalyzer')
 
 # Dependency for authentication
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -251,6 +252,36 @@ async def batch_analyze_emotions(
     except Exception as e:
         logger.error(f"Batch emotion analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/video/interview-behavior")
+async def analyze_interview_behavior(
+    video_file: UploadFile = File(...),
+    token: str = Depends(verify_token)
+):
+    """
+    Interview behavior analysis over the full webcam recording.
+
+    Observable signals only: face presence, centeredness, eye-region gaze
+    proxy, motion/posture energy, and a composite confidence index.
+    """
+    try:
+        video_data = await video_file.read()
+        result = await behavior_service.analyze_video(video_data)
+        return {"success": True, "data": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Interview behavior analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/video/behavior-health")
+async def behavior_health(token: str = Depends(verify_token)):
+    """Health check for the behavior analyzer (Haar cascade availability)."""
+    try:
+        return {"success": True, "data": behavior_service.health()}
+    except Exception as e:
+        logger.error(f"Behavior health check error: {e}")
+        return {"success": True, "data": {"status": "unhealthy", "error": str(e)}}
 
 # Resume Processing Endpoints
 @app.post("/api/resume/parse")

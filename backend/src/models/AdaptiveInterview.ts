@@ -98,6 +98,32 @@ export interface IInterviewConsent {
   policyVersion: string;
 }
 
+/** Observable presence/engagement signals from the recording — NOT personality traits. */
+export interface IBehaviorAnalysis {
+  available: boolean;
+  engine: string;
+  framesAnalyzed: number;
+  /** 0-100 aggregates */
+  presenceScore: number;
+  eyeContactScore: number | null;
+  postureScore: number | null;
+  engagementScore: number | null;
+  /** overall confidence index 0-100 derived from the signals above */
+  confidenceIndex: number | null;
+  /** trend across answers when segmentable, else single overall entry */
+  segments: Array<{
+    label: string;
+    startSec: number;
+    endSec: number;
+    presence: number;
+    engagement: number | null;
+    note: string;
+  }>;
+  summary: string;
+  notes: string[];
+  analyzedAt: Date;
+}
+
 export type ProctorEventType =
   | 'tab-switch'
   | 'window-blur'
@@ -192,6 +218,12 @@ export interface IAdaptiveInterview extends Document {
     durationSeconds?: number;
     uploadedAt: Date;
   } | null;
+  /**
+   * Deterministic body-language/confidence analysis of the webcam recording,
+   * computed by the AI server (OpenCV frame sampling). Stored after upload so
+   * the report never depends on re-running expensive video analysis.
+   */
+  behaviorAnalysis?: IBehaviorAnalysis | null;
 }
 
 const planItemSchema = new Schema<IPlanItem>(
@@ -383,6 +415,7 @@ const adaptiveInterviewSchema = new Schema<IAdaptiveInterview>(
     questions: { type: [questionSchema], default: [] },
     responses: { type: [responseSchema], default: [] },
     proctorEvents: { type: [proctorEventSchema], default: [] },
+    behaviorAnalysis: { type: Schema.Types.Mixed, default: null },
     integrityScore: { type: Number, default: 100 },
     terminationReason: { type: String, enum: ['INTEGRITY_WARNING_LIMIT', 'USER_ENDED', 'COMPLETED', null], default: null },
     report: { type: reportSchema, default: null },

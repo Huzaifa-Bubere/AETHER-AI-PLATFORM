@@ -8,7 +8,7 @@ class PythonAIService {
     if (!key) throw Object.assign(new Error('Analysis service is not configured.'), { statusCode: 503 });
     try {
       const response = await axios.post(endpoint, data, { ...options, baseURL, timeout: options.timeout || 30000,
-        maxRedirects: 0, maxContentLength: 10 * 1024 * 1024,
+        maxRedirects: 0, maxContentLength: 60 * 1024 * 1024, maxBodyLength: 60 * 1024 * 1024,
         headers: { ...options.headers, Authorization: `Bearer ${key}` } });
       if (response.data?.success !== true || !response.data.data || response.data.data.error) throw new Error('Analysis failed validation');
       return response.data.data as T;

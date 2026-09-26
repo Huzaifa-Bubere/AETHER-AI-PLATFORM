@@ -14,14 +14,30 @@ import {
   extractJobRequirements,
 } from '../services/adaptiveInterview.service';
 import { analyzeDelivery, analyzeStar } from '../services/speechAnalysis';
+import { runBehaviorAnalysis } from '../services/behaviorAnalysis';
 import { recordAskedQuestion } from '../services/questionHistory';
 import { followUpTrail, learningRecommendations } from '../services/interviewReportEnhancer';
 import logger from '../utils/logger';
 
-// ── Webcam recording upload (memory storage → Cloudinary, local fallback) ──
+// ── Webcam recording upload (disk storage → durable local copy, Cloudinary mirror) ──
 const MAX_RECORDING_BYTES = 100 * 1024 * 1024; // 100MB ≈ 1h at low bitrate; MediaRecorder webm is small
+const recordingStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    // Write into the durable local store FIRST — the recording survives even if
+    // Cloudinary mirroring fails later.
+    localStorageService
+      .ensureRecordingDir()
+      .then(dir => cb(null, dir))
+      .catch(err => cb(err as Error, ''));
+  },
+  filename: (_req, file, cb) => {
+    const ext = (path.extname(file.originalname) || '.webm').toLowerCase();
+    const safeExt = ['.webm', '.mp4', '.mkv', '.ogg', '.m4a'].includes(ext) ? ext : '.webm';
+    cb(null, `recording_incoming_${Date.now()}${Math.random().toString(36).slice(2, 8)}${safeExt}`);
+  },
+});
 const recordingUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: recordingStorage,
   limits: { fileSize: MAX_RECORDING_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -33,6 +49,11 @@ const recordingUpload = multer({
 });
 
 function handleRecordingMulterError(err: any, _req: express.Request, res: express.Response, next: express.NextFunction): void {
+  // Clean up any partially-written temp file on failure.
+  if (err && (err instanceof multer.MulterError || err.message?.includes('recording'))) {
+    const f = (_req as any).file;
+    if (f?.path) { try { require('fs').unlinkSync(f.path); } catch { /* ignore */ } }
+  }
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
       res.status(413).json({ success: false, error: 'Recording too large (max 100MB)' });
@@ -319,6 +340,7 @@ router.get(
         report: session.report,
         speakingMetrics: session.speakingMetrics || null,
         englishAnalysis: session.englishAnalysis || null,
+        behaviorAnalysis: session.behaviorAnalysis || null,
         followUpTrail: followUpTrail(session),
         learningRecommendations: learningRecommendations(session),
         starByQuestion: session.responses.map(r => ({ questionId: r.questionId, star: r.star || null })),
@@ -354,60 +376,91 @@ router.post(
     const session = await loadSession(req, res);
     if (!session) return;
     if (!req.file) return res.status(400).json({ success: false, error: 'Recording file is required' });
-    if (session.recording?.url) {
-      return res.status(409).json({ success: false, error: 'A recording has already been uploaded for this interview' });
+
+    // Idempotent: a re-upload (e.g. browser retried after a timeout) replaces
+    // the previous file instead of failing the whole interview flow.
+    const previous = session.recording?.publicId;
+    if (session.recording?.url || previous) {
+      logger.warn(`Recording re-upload for session ${session._id} — replacing previous entry`);
+      try {
+        if (session.recording?.storageType === 'local' && previous) {
+          localStorageService.deleteFile(previous);
+        }
+      } catch { /* best effort cleanup */ }
     }
 
     const mimeType = req.file.mimetype || 'video/webm';
-    const publicId = `adaptive-interviews/recording_${session._id}_${Date.now()}`;
-    let url: string;
-    let storageType: 'cloudinary' | 'local' = 'local';
+    const tmpPath = (req.file as any).path as string;
 
+    // 1) Durable local copy — primary storage, always succeeds or the request fails.
+    const local = await localStorageService.adoptRecordingFile(tmpPath, {
+      sessionId: String(session._id),
+      userId: String(session.userId),
+      mimeType,
+    });
+    let storageType: 'cloudinary' | 'local' = 'local';
+    let cloudinaryUrl = '';
+
+    // 2) Best-effort Cloudinary mirror for off-site backup (never blocks save).
     if (cloudinaryService.isHealthy()) {
       try {
-        const result = await cloudinaryService.uploadVideo(req.file.buffer, {
+        const buffer = (await import('fs/promises')).readFile(local.filePath);
+        const result = await cloudinaryService.uploadVideo(buffer, {
           folder: 'smart-interview-ai/adaptive-interviews',
-          public_id: publicId,
+          public_id: `adaptive-interviews/recording_${session._id}_${Date.now()}`,
         });
-        url = result.secure_url;
+        cloudinaryUrl = result.secure_url;
         storageType = 'cloudinary';
-        logger.info(`Recording uploaded to Cloudinary: ${result.public_id} (${req.file.size} bytes)`);
+        logger.info(`Recording mirrored to Cloudinary: ${result.public_id} (${req.file.size} bytes)`);
       } catch (err: any) {
-        logger.warn(`Cloudinary recording upload failed, falling back to local: ${err.message}`);
+        logger.warn(`Cloudinary recording mirror failed (local copy kept): ${err.message}`);
       }
     }
 
-    if (!url) {
-      const local = await localStorageService.uploadVideo(req.file.buffer, {
-        filename: `recording_${session._id}.webm`,
-        userId: String(session.userId),
-      });
-      url = local.secure_url;
-      storageType = 'local';
-      logger.info(`Recording saved locally: ${local.public_id} (${req.file.size} bytes)`);
-    }
-
     session.recording = {
-      url: '', // filled below; kept out of documents that stream through signed paths
-      publicId: storageType === 'cloudinary' ? (publicId as string) : (url as string).split('/uploads/')[1] || publicId,
+      url: storageType === 'cloudinary' ? cloudinaryUrl : '',
+      publicId: local.publicId,
       storageType,
       mimeType,
       sizeBytes: req.file.size,
       durationSeconds: Number(req.body.durationSeconds) > 0 ? Math.round(Number(req.body.durationSeconds)) : undefined,
       uploadedAt: new Date(),
     };
-    // Cloudinary URLs are safe to persist for playback; local ones go through the authorized stream route.
-    session.recording.url = storageType === 'cloudinary' ? (url as string) : '';
     session.markModified('recording');
     await session.save();
+
+    // 3) Behavior/confidence analysis runs AFTER the durable save (§: never block).
+    void runBehaviorAnalysis(String(session._id)).catch(err =>
+      logger.warn(`Background behavior analysis failed for ${session._id}: ${err?.message || err}`));
 
     res.status(201).json({
       success: true,
       data: {
         storageType, sizeBytes: req.file.size,
-        playbackUrl: storageType === 'cloudinary' ? url : `/api/adaptive-interview/${session._id}/recording`,
+        playbackUrl: `/api/adaptive-interview/${session._id}/recording`,
+        behaviorAnalysis: session.behaviorAnalysis ?? null,
       },
     });
+  }),
+);
+
+// ── Re-run behavior analysis (used when the first pass failed or AI server was down) ──
+router.post(
+  '/:id/behavior-analysis',
+  asyncHandler(async (req, res) => {
+    const session = await loadSession(req, res);
+    if (!session) return;
+    if (!session.recording?.publicId) {
+      return res.status(400).json({ success: false, error: 'No recording available for this interview' });
+    }
+    try {
+      await runBehaviorAnalysis(String(session._id));
+    } catch (err: any) {
+      logger.warn(`Manual behavior analysis failed for ${session._id}: ${err?.message || err}`);
+      return res.status(503).json({ success: false, error: 'Analysis service is temporarily unavailable. Try again shortly.' });
+    }
+    const fresh = await AdaptiveInterview.findOne({ _id: session._id });
+    res.json({ success: true, data: { behaviorAnalysis: fresh?.behaviorAnalysis ?? null } });
   }),
 );
 

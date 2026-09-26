@@ -76,6 +76,26 @@ export function ProblemWorkspacePage() {
     return () => window.removeEventListener('aether-ast-reveal', handler);
   }, []);
 
+  // Execution Visualizer → Monaco: highlight the exact executing source line.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const editor = editorRef.current;
+      if (!editor || !detail?.line) return;
+      editor.revealLineInCenter(detail.line);
+      const RangeCtor = (window as any).monaco?.Range;
+      const range = RangeCtor
+        ? new RangeCtor(detail.line, 1, detail.line, 1)
+        : { startLineNumber: detail.line, endLineNumber: detail.line, startColumn: 1, endColumn: 1 };
+      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [{
+        range,
+        options: { isWholeLine: true, className: 'aether-trace-line' },
+      }]);
+    };
+    window.addEventListener('aether-visualizer-reveal', handler);
+    return () => window.removeEventListener('aether-visualizer-reveal', handler);
+  }, []);
+
   // ── Shared integrity system ──────────────────────────────────────────────
   // Coding policy: Monaco copy/cut/paste stays fully functional; only leaving
   // the page (tab switch / window blur) is monitored. Warning 5: flush the
@@ -204,7 +224,7 @@ export function ProblemWorkspacePage() {
 
           {/* Tabs */}
           <div className="shrink-0 border-b bg-white px-4 flex items-center gap-1 overflow-x-auto">
-            {['testcases', 'output', 'ast', 'complexity', 'analysis', 'visualize'].map(tab => (
+            {['testcases', 'output', 'ast', 'complexity', 'analysis'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -216,10 +236,21 @@ export function ProblemWorkspacePage() {
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                {tab === 'ast' ? 'AST' : tab === 'analysis' ? 'Analysis' : tab === 'visualize' ? 'Visualize' : tab}
+                {tab === 'ast' ? 'AST' : tab === 'analysis' ? 'Analysis' : tab}
               </button>
             ))}
             <div className="ml-auto flex items-center gap-2 py-1.5">
+              {submitResult && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setVisualizerOpen(true)}
+                  className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                  title="Watch an animated dry run of your submitted code"
+                >
+                  <Layers className="w-4 h-4 mr-1" /> Visualize Execution
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => runCode('sample')} disabled={isRunning}>
                 {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                 Run
@@ -341,26 +372,6 @@ export function ProblemWorkspacePage() {
               <ScorePanel score={submitResult?.scoreBreakdown || null} explanation={submitResult?.explanation || null} />
             )}
 
-            {activeTab === 'visualize' && (
-              submitResult ? (
-                <div className="flex flex-col items-center justify-center gap-4 py-10">
-                  <Layers className="w-10 h-10 text-blue-600" />
-                  <div className="text-center space-y-1">
-                    <h3 className="font-semibold text-slate-800">Execution Visualization</h3>
-                    <p className="text-sm text-slate-500 max-w-md">
-                      Step through a real, instrumented run of your submitted code — variable states, data structures
-                      and the call stack come from actual execution, never from AI. Sample tests and custom input only;
-                      hidden tests stay hidden.
-                    </p>
-                  </div>
-                  <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setVisualizerOpen(true)}>
-                    <Layers className="w-4 h-4 mr-1" /> Visualize Execution
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400">Submit your solution first — visualization runs on the officially submitted code.</p>
-              )
-            )}
           </div>
         </main>
       </div>
@@ -386,6 +397,8 @@ export function ProblemWorkspacePage() {
           monacoLanguage={monacoLanguage}
           astTree={analysis?.ast || null}
           complexity={analysis?.complexity || null}
+          problemTitle={problem.title}
+          problemObjective={problemObjective(problem)}
         />
       )}
 
@@ -400,6 +413,17 @@ export function ProblemWorkspacePage() {
       )}
     </div>
   );
+}
+
+/** Derive a short objective sentence for the visualizer header (§4). */
+function problemObjective(problem: NonNullable<ReturnType<typeof useCodingStore.getState>['problem']>): string {
+  const p = problem;
+  if (p.expectedTimeComplexity) {
+    return `Solve it within expected ${p.expectedTimeComplexity} time${p.expectedSpaceComplexity ? ` and ${p.expectedSpaceComplexity} space` : ''}.`;
+  }
+  const first = p.examples?.[0];
+  if (first) return `Input ${first.input} → Output ${first.output}.`;
+  return p.category ? `${p.category} problem — watch your algorithm run step by step.` : 'Watch your algorithm run step by step.';
 }
 
 /** Problem statement panel shared between desktop sidebar and mobile drawer. */

@@ -143,6 +143,36 @@ class LocalStorageService {
     }
   }
 
+  /** Directory where interview recordings are durably stored (uploads/videos). */
+  async ensureRecordingDir(): Promise<string> {
+    await this.ensureReady();
+    return path.join(this.uploadsDir, 'videos');
+  }
+
+  /**
+   * Adopt a multer temp file (already on disk in uploads/videos) by renaming it
+   * to its final name — no second copy, no memory cost. Returns the storage
+   * identifiers used by the AdaptiveInterview.recording field.
+   */
+  async adoptRecordingFile(
+    tmpPath: string,
+    options: { sessionId: string; userId: string; mimeType: string },
+  ): Promise<{ publicId: string; filePath: string }> {
+    try {
+      await this.ensureReady();
+      const ext = path.extname(tmpPath) || '.webm';
+      const filename = `recording_${options.sessionId}_${Date.now()}${ext}`;
+      const targetPath = path.join(this.uploadsDir, 'videos', filename);
+      try { fs.renameSync(tmpPath, targetPath); }
+      catch { await writeFile(targetPath, await fs.promises.readFile(tmpPath)); try { fs.unlinkSync(tmpPath); } catch { /* ignore */ } }
+      logger.info(`✓ Interview recording stored: videos/${filename}`);
+      return { publicId: `videos/${filename}`, filePath: targetPath };
+    } catch (error: any) {
+      logger.error('Recording adoption error:', error);
+      throw new Error(`Recording storage failed: ${error.message}`);
+    }
+  }
+
   getFilePath(publicId: string): string {
     const resolved = path.resolve(this.uploadsDir, publicId);
     if (!resolved.startsWith(path.resolve(this.uploadsDir) + path.sep)) throw new Error('Invalid storage path.');

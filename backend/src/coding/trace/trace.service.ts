@@ -21,6 +21,19 @@ import { buildJsTraceProgram, parseJsTraceStdout, normalizeJsEvent } from './jsT
 
 import { codingExecutionService } from '../services/execution.service';
 
+/**
+ * Serialize a return value for display.
+ * Primitives use String(); arrays and objects use JSON.stringify() so that
+ * a Python list [0,1] displays as "[0, 1]" rather than JS's "0,1".
+ */
+function serializeReturnValue(v: unknown): string {
+  if (v === null) return 'null';
+  if (Array.isArray(v) || (typeof v === 'object' && v !== null)) {
+    try { return JSON.stringify(v); } catch { /* fall through */ }
+  }
+  return String(v);
+}
+
 const SUPPORTED: Record<string, boolean> = {
   python: true,
   javascript: true,
@@ -127,6 +140,12 @@ async function tracePython(params: {
     return unavailable(reason, { ...params, language: 'python' }, engine);
   }
 
+  // When the traced run raised mid-execution, keep the events captured before
+  // the failure and surface the error so the UI can show the failure state (§41).
+  const runtimeError = (parsed.sawLimit && run.error && parsed.events.length > 0)
+    ? String(run.error).slice(0, 300)
+    : (run.error && parsed.events.length > 0 ? String(run.error).slice(0, 300) : undefined);
+
   const events = parsed.events.map((raw, i) => normalizePythonEvent(raw, i + 1, parsed.programOutput));
   appendOutputEvent(events, parsed.programOutput);
 
@@ -140,7 +159,7 @@ async function tracePython(params: {
       finalOutput: parsed.programOutput,
       runtimeMs: Date.now() - started,
       patterns: [],
-      returnValue: parsed.returnValue === undefined ? undefined : String(parsed.returnValue),
+      returnValue: parsed.returnValue === undefined ? undefined : serializeReturnValue(parsed.returnValue),
       engine,
     }, true, 'Visualization stopped because execution generated too many steps.');
   }
@@ -158,7 +177,8 @@ async function tracePython(params: {
     finalOutput: parsed.programOutput,
     runtimeMs: Date.now() - started,
     patterns: detectPatterns(parsed.events, collectionsSeen),
-    returnValue: parsed.returnValue === undefined ? undefined : String(parsed.returnValue),
+    returnValue: parsed.returnValue === undefined ? undefined : serializeReturnValue(parsed.returnValue),
+    runtimeError,
     engine,
   }, false);
 }
@@ -222,7 +242,7 @@ async function traceJs(params: {
       finalOutput: parsed.programOutput,
       runtimeMs: Date.now() - started,
       patterns: [],
-      returnValue: parsed.returnValue === undefined ? undefined : String(parsed.returnValue),
+      returnValue: parsed.returnValue === undefined ? undefined : serializeReturnValue(parsed.returnValue),
       engine,
     }, true, 'Visualization stopped because execution generated too many steps.');
   }
@@ -240,7 +260,8 @@ async function traceJs(params: {
     finalOutput: parsed.programOutput,
     runtimeMs: Date.now() - started,
     patterns: detectPatterns(parsed.events, collectionsSeen),
-    returnValue: parsed.returnValue === undefined ? undefined : String(parsed.returnValue),
+    returnValue: parsed.returnValue === undefined ? undefined : serializeReturnValue(parsed.returnValue),
+    runtimeError: run.error ? String(run.error).slice(0, 300) : undefined,
     engine,
   }, false);
 }

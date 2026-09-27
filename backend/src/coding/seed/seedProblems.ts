@@ -4,6 +4,7 @@ import CodingProblem from '../models/CodingProblem';
 import { ensureDnsFallback, forcePublicDns } from '../../utils/dnsFallback';
 import { PROBLEMS_PART1, SeedProblem } from './problems.part1';
 import { PROBLEMS_PART2 } from './problems.part2';
+import { buildComplexityGuidance, buildReferenceApproach } from './complexityGuidance';
 
 /**
  * AETHER Coding — problem seeder.
@@ -123,6 +124,10 @@ async function seed(): Promise<void> {
       knownApproaches: p.knownApproaches,
       expectedTimeComplexity: p.expectedTimeComplexity,
       expectedSpaceComplexity: p.expectedSpaceComplexity,
+      // Part A: validated complexity guidance + reference optimized approach,
+      // both derived from curated seed data (never from AI).
+      complexityGuidance: buildComplexityGuidance(p),
+      referenceApproach: buildReferenceApproach(p),
       points: p.points,
       hints: p.hints,
       solutionOutline: p.solutionOutline,

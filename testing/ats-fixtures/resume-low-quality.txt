@@ -1,0 +1,23 @@
+Rahul Verma
+rahul.verma@example.com
+
+SUMMARY
+Developer with experience in web technologies.
+
+SKILLS
+JavaScript, HTML, CSS
+
+EXPERIENCE
+
+Software Developer — Infotech Pvt Ltd
+2022 – 2024
+- Worked on backend.
+- Helped with the website and fixed issues.
+- Was part of a team that did various development tasks.
+
+PROJECTS
+- Made a website.
+- Built an app using technologies.
+
+EDUCATION
+B.E., Some University

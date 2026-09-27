@@ -7,6 +7,7 @@ import {
 import adaptiveInterviewApi, {
   AdaptiveReport, RecordingInfo, TranscriptItem,
   EnglishAnalysis, SpeakingMetrics, FollowUpTrailItem, LearningRecommendation, StarResult,
+  BehaviorAnalysis,
 } from '../../lib/adaptiveInterviewApi';
 import { integrityApi, IntegritySummary, sanitizeIntegritySummary } from '../features/integrity/integrity.types';
 
@@ -77,12 +78,16 @@ export function AdaptiveReportPage() {
     transcript: TranscriptItem[]; recording: RecordingInfo;
     speakingMetrics?: SpeakingMetrics | null;
     englishAnalysis?: EnglishAnalysis | null;
+    behaviorAnalysis?: BehaviorAnalysis | null;
     followUpTrail?: FollowUpTrailItem[];
     learningRecommendations?: LearningRecommendation[];
     starByQuestion?: Array<{ questionId: string; star: StarResult | null }>;
   } | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState(false);
+  const [behavior, setBehavior] = useState<BehaviorAnalysis | null>(null);
+  const [behaviorLoading, setBehaviorLoading] = useState(false);
+  const [behaviorFailed, setBehaviorFailed] = useState(false);
   // Shared integrity event log (backend-authoritative) enriches the report's own summary.
   // NOTE: declared before any early return — conditional hooks crash the page after data loads.
   const [integritySummary, setIntegritySummary] = useState<IntegritySummary | null>(null);
@@ -100,7 +105,12 @@ export function AdaptiveReportPage() {
     const load = async () => {
       try {
         const res = await adaptiveInterviewApi.getReport(sessionId);
-        if (!cancelled) setData(res);
+        if (!cancelled) {
+          setData(res);
+          setBehavior(res.behaviorAnalysis ?? null);
+          // Recording uploaded but analysis missing (AI server was down during upload)
+          if (res.recording?.available && !res.behaviorAnalysis) setBehaviorFailed(true);
+        }
       } catch (e: any) {
         if (!cancelled) {
           const status = e?.response?.status;
@@ -261,6 +271,98 @@ export function AdaptiveReportPage() {
                 <span style={{ fontSize: 12.5, color: '#94a3b8' }}>Loading recording…</span>
               </div>
               )}
+          </Section>
+        )}
+
+        {/* ── Body language & confidence (observable signals from the recording) ── */}
+        {behavior?.available && (
+          <Section icon={Video} title="Body language & confidence" color="#8b5cf6">
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {([
+                  ['Confidence index', behavior.confidenceIndex != null ? `${behavior.confidenceIndex}/100` : '—', '#8b5cf6'],
+                  ['Camera presence', `${behavior.presenceScore}%`, '#2563eb'],
+                  ['Eye-region contact', behavior.eyeContactScore != null ? `${behavior.eyeContactScore}%` : '—', '#0ea5e9'],
+                  ['Frame centeredness', behavior.postureScore != null ? `${behavior.postureScore}%` : '—', '#14b8a6'],
+                  ['Motion engagement', behavior.engagementScore != null ? `${behavior.engagementScore}%` : '—', '#f59e0b'],
+                ] as Array<[string, string, string]>).map(([label, value, c]) => (
+                  <div key={label} className="rounded-xl border border-border bg-slate-50 px-4 py-3" style={{ borderTop: `3px solid ${c}` }}>
+                    <p style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94a3b8', margin: 0 }}>{label}</p>
+                    <p style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', margin: 0 }}>{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Confidence trend across answers */}
+              {behavior.segments.length > 1 && (
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94a3b8', margin: '0 0 8px' }}>
+                    Confidence trend across answers
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 64 }}>
+                    {behavior.segments.map((seg, i) => {
+                      const h = Math.max(8, Math.round(((seg.presence + (seg.engagement ?? seg.presence)) / 2)) * 0.64);
+                      const color = (seg.presence + (seg.engagement ?? seg.presence)) / 2 >= 60 ? '#8b5cf6' : '#f59e0b';
+                      return (
+                        <div key={i} title={`${seg.label} — ${seg.note}`} style={{ flex: 1, maxWidth: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                          <div style={{ width: '100%', height: h, borderRadius: 6, background: color, opacity: 0.85 }} />
+                          <span style={{ fontSize: 9.5, color: '#94a3b8', fontWeight: 600 }}>{i + 1}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, margin: 0 }}>{behavior.summary}</p>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {behavior.notes.map((n, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 99, background: '#8b5cf6', flexShrink: 0, marginTop: 6 }} />
+                    <span style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.55 }}>{n}</span>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>
+                {behavior.framesAnalyzed} frames analyzed · {behavior.engine}. These are observable on-camera signals —
+                they do not measure personality, honesty, or intelligence.
+              </p>
+            </div>
+          </Section>
+        )}
+
+        {/* Recording exists but analysis failed → offer retry */}
+        {!behavior?.available && data.recording?.available && (behaviorFailed || behaviorLoading) && (
+          <Section icon={AlertTriangle} title="Body language analysis" color="#f59e0b">
+            {behaviorLoading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Loader2 style={{ width: 15, height: 15, color: '#8b5cf6', animation: 'spin 1s linear infinite' }} />
+                <span style={{ fontSize: 12.5, color: '#64748b' }}>Analyzing your recording — this can take up to a minute…</span>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                <p style={{ fontSize: 12.5, color: '#64748b', margin: 0 }}>
+                  Your recording was saved, but the body-language pass could not run (the analysis service may have been
+                  briefly unavailable). You can retry it now.
+                </p>
+                <button
+                  onClick={async () => {
+                    if (!sessionId) return;
+                    setBehaviorLoading(true);
+                    setBehaviorFailed(false);
+                    try {
+                      const result = await adaptiveInterviewApi.reanalyzeBehavior(sessionId);
+                      if (result?.available) { setBehavior(result); } else { setBehaviorFailed(true); }
+                    } catch { setBehaviorFailed(true); }
+                    finally { setBehaviorLoading(false); }
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50"
+                  style={{ width: 'fit-content' }}
+                >
+                  <RefreshCw style={{ width: 13, height: 13 }} /> Analyze my recording
+                </button>
+              </div>
+            )}
           </Section>
         )}
 

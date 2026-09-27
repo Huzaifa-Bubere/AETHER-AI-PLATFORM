@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, Circle, Lock, PlayCircle, SkipForward, Loader2,
   BookOpen, ExternalLink, Sparkles, Brain, ClipboardCheck, Target, Calendar,
@@ -9,8 +9,44 @@ import { toast } from 'react-hot-toast';
 import careerService, {
   type RoadmapView, type TopicDetail, type CareerRoleDetail, type NodeState, type WeeklyPlan,
 } from '../services/career';
+import learningTopicsService from '../services/learningTopics';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+
+/* Defensive normalization — a partially-missing API payload must never crash the page. */
+function asArray(v: unknown): any[] {
+  return Array.isArray(v) ? (v as any[]) : [];
+}
+
+function normalizeRoadmap(rm: RoadmapView | null | undefined): RoadmapView | null {
+  if (!rm) return null;
+  return {
+    ...rm,
+    stages: asArray(rm.stages).map(st => ({ ...st, nodeIds: asArray(st.nodeIds) })),
+    nodes: asArray(rm.nodes),
+    progressSummary: rm.progressSummary ?? { total: 0, completed: 0, inProgress: 0, percentage: 0 },
+  };
+}
+
+function normalizeTopic(t: TopicDetail | null | undefined): TopicDetail | null {
+  if (!t) return null;
+  const node = (t.node ?? {}) as TopicDetail['node'];
+  return {
+    ...t,
+    node: {
+      ...node,
+      whatYouWillLearn: asArray(node.whatYouWillLearn),
+      keyConcepts: asArray(node.keyConcepts),
+      interviewQuestions: asArray(node.interviewQuestions),
+      prerequisites: asArray(node.prerequisites),
+      project: node.project ?? undefined,
+      hasQuiz: Boolean(node.hasQuiz),
+    },
+    resources: asArray(t.resources),
+    prerequisites: asArray(t.prerequisites),
+    quizScores: asArray(t.quizScores),
+  };
+}
 
 const STATE_STYLES: Record<NodeState, { chip: string; icon: typeof Lock; label: string }> = {
   COMPLETED: { chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2, label: 'Completed' },
@@ -22,6 +58,7 @@ const STATE_STYLES: Record<NodeState, { chip: string; icon: typeof Lock; label: 
 
 export default function CareerRoadmapPage() {
   const { roleSlug } = useParams<{ roleSlug: string }>();
+  const navigate = useNavigate();
   const [roadmap, setRoadmap] = useState<RoadmapView | null>(null);
   const [role, setRole] = useState<CareerRoleDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,22 +84,45 @@ export default function CareerRoadmapPage() {
     if (!roleSlug) return;
     setLoading(true);
     Promise.all([careerService.getRoadmap(roleSlug), careerService.getRole(roleSlug).catch(() => null)])
-      .then(([rm, r]) => { setRoadmap(rm); setRole(r?.role ?? null); setError(null); })
+      .then(([rm, r]) => { setRoadmap(normalizeRoadmap(rm)); setRole(r?.role ?? null); setError(null); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   };
 
   useEffect(load, [roleSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * Clicking a roadmap node opens the real database-backed lesson (spec §53).
+   * The backend tells us which authored topic covers this node; when nothing has
+   * been authored yet we fall back to the roadmap's own node detail so the
+   * candidate still sees content instead of an empty panel.
+   */
   const openTopic = (nodeId: string) => {
     if (!roleSlug) return;
     setSelectedNode(nodeId);
     setTopicLoading(true);
     setTopic(null); setExplanation(null); setQuizOpen(false); setQuizResult(null);
-    careerService.getTopic(roleSlug, nodeId)
-      .then(setTopic)
+
+    learningTopicsService.resolveRoadmapNode(roleSlug, nodeId)
+      .then(link => {
+        if (link?.topicSlug) {
+          navigate(`/career-learning/topics/${link.topicSlug}?role=${encodeURIComponent(roleSlug)}&node=${encodeURIComponent(nodeId)}`);
+          return;
+        }
+        return careerService.getTopic(roleSlug, nodeId).then(t => setTopic(normalizeTopic(t)));
+      })
       .catch((e: Error) => toast.error(e.message))
       .finally(() => setTopicLoading(false));
+  };
+
+  const openFullLesson = () => {
+    if (!roleSlug || !selectedNode) return;
+    learningTopicsService.resolveRoadmapNode(roleSlug, selectedNode)
+      .then(link => {
+        if (!link?.topicSlug) { toast.error('No full lesson authored for this step yet.'); return; }
+        navigate(`/career-learning/topics/${link.topicSlug}?role=${encodeURIComponent(roleSlug)}&node=${encodeURIComponent(selectedNode)}`);
+      })
+      .catch((e: Error) => toast.error(e.message));
   };
 
   const markState = async (state: NodeState) => {
@@ -81,7 +141,7 @@ export default function CareerRoadmapPage() {
     if (!topic || !role) return;
     setExplaining(true);
     careerService.explainSkill(topic.node.title, role.name)
-      .then(res => setExplanation(res))
+      .then(res => setExplanation({ ...res, interviewConcepts: asArray(res?.interviewConcepts), commonMistakes: asArray(res?.commonMistakes), nextSteps: asArray(res?.nextSteps) }))
       .catch((e: Error) => toast.error(e.message))
       .finally(() => setExplaining(false));
   };
@@ -90,8 +150,9 @@ export default function CareerRoadmapPage() {
     if (!roleSlug || !selectedNode) return;
     try {
       const data = await careerService.getQuiz(roleSlug, selectedNode);
-      setQuizQuestions(data.questions);
-      setQuizAnswers(new Array(data.questions.length).fill(-1));
+      const questions = asArray(data?.questions);
+      setQuizQuestions(questions);
+      setQuizAnswers(new Array(questions.length).fill(-1));
       setQuizResult(null);
       setQuizOpen(true);
     } catch { toast.error('No quiz available for this topic'); }
@@ -108,7 +169,7 @@ export default function CareerRoadmapPage() {
     if (!roleSlug) return;
     setPlanLoading(true);
     careerService.getPlan(roleSlug)
-      .then(p => { setPlan(p); setShowPlan(true); })
+      .then(p => { setPlan(p ? { ...p, plan: asArray(p.plan) } : p); setShowPlan(true); })
       .catch((e: Error) => toast.error(e.message))
       .finally(() => setPlanLoading(false));
   };
@@ -236,6 +297,9 @@ export default function CareerRoadmapPage() {
                 <div>
                   <h2 className="text-xl font-extrabold text-foreground pr-8">{topic.node.title}</h2>
                   {topic.node.whyItMatters && <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{topic.node.whyItMatters}</p>}
+                  <Button size="sm" variant="outline" onClick={openFullLesson} className="mt-3 text-xs">
+                    <BookOpen className="w-3.5 h-3.5 mr-1.5" /> Open full lesson
+                  </Button>
                 </div>
 
                 {topic.prerequisites.length > 0 && (

@@ -1,0 +1,157 @@
+{
+  "_comment": "Seed data for Career Learning manual tests. Shapes match backend/src/career/models/Course.ts. Import via mongo shell, an admin seed script, or as reference for admin-panel entry. Slugs must be unique.",
+  "courses": [
+    {
+      "title": "REST API Development",
+      "slug": "rest-api-development",
+      "description": "Design and build production-grade REST APIs with Node.js and Express: routing, validation, authentication, error handling, testing and versioning.",
+      "roleSlugs": ["backend-developer", "full-stack-developer", "nodejs-developer"],
+      "skillSlugs": ["rest-api-design", "nodejs", "express", "http", "api-validation", "jwt-authentication", "jest"],
+      "difficulty": "intermediate",
+      "estimatedHours": 6,
+      "prerequisites": ["javascript-fundamentals", "http-fundamentals"],
+      "status": "published",
+      "modules": [
+        {
+          "id": "m1",
+          "title": "HTTP Fundamentals",
+          "lessons": [
+            { "id": "m1l1", "title": "HTTP Methods & Semantics", "state": "content" },
+            { "id": "m1l2", "title": "Status Codes That Matter", "state": "content" },
+            { "id": "m1l3", "title": "Headers & Content Negotiation", "state": "content" },
+            { "id": "m1l4", "title": "Caching Basics", "state": "content" }
+          ],
+          "quiz": { "id": "q1", "title": "HTTP Fundamentals Quiz", "questionCount": 6 }
+        },
+        {
+          "id": "m2",
+          "title": "REST Design",
+          "lessons": [
+            { "id": "m2l1", "title": "Resource Modeling & URL Design", "state": "content" },
+            { "id": "m2l2", "title": "Routing Patterns in Express", "state": "content" },
+            { "id": "m2l3", "title": "Request Validation with Joi/Zod", "state": "content" }
+          ],
+          "quiz": { "id": "q2", "title": "REST Design Quiz", "questionCount": 6 }
+        },
+        {
+          "id": "m3",
+          "title": "Auth & Security",
+          "lessons": [
+            { "id": "m3l1", "title": "JWT Authentication End to End", "state": "content" },
+            { "id": "m3l2", "title": "Role-Based Authorization", "state": "content" },
+            { "id": "m3l3", "title": "Common API Vulnerabilities", "state": "content" }
+          ],
+          "quiz": { "id": "q3", "title": "Auth & Security Quiz", "questionCount": 6 }
+        },
+        {
+          "id": "m4",
+          "title": "Testing & Versioning",
+          "lessons": [
+            { "id": "m4l1", "title": "Integration Testing with Jest & Supertest", "state": "content" },
+            { "id": "m4l2", "title": "API Versioning Strategies", "state": "content" }
+          ],
+          "quiz": { "id": "q4", "title": "Testing Quiz", "questionCount": 5 }
+        }
+      ],
+      "project": {
+        "title": "Task Management API",
+        "description": "Build a team task API with CRUD, JWT auth, role-based permissions, validation, MongoDB persistence, error handling and integration tests. Docker optional.",
+        "deliverables": ["CRUD endpoints", "JWT auth + roles", "Validation layer", "Integration tests", "Error middleware"],
+        "evidenceSkills": ["rest-api-design", "jwt-authentication", "api-validation", "jest"]
+      }
+    },
+    {
+      "title": "Database Indexing & Query Performance",
+      "slug": "database-indexing",
+      "description": "Make slow queries fast: indexes in MongoDB and PostgreSQL, execution plans, compound indexes, covering queries and the anti-patterns that break them.",
+      "roleSlugs": ["backend-developer", "data-analyst", "data-engineer"],
+      "skillSlugs": ["mongodb", "postgresql", "database-indexing", "query-optimization"],
+      "difficulty": "intermediate",
+      "estimatedHours": 4,
+      "prerequisites": ["sql-fundamentals"],
+      "status": "published",
+      "modules": [
+        {
+          "id": "m1",
+          "title": "How Indexes Work",
+          "lessons": [
+            { "id": "m1l1", "title": "B-Trees in One Page", "state": "content" },
+            { "id": "m1l2", "title": "Single-Field vs Compound Indexes", "state": "content" },
+            { "id": "m1l3", "title": "Composite Indexes & Column Order", "state": "content" }
+          ],
+          "quiz": { "id": "q1", "title": "Index Fundamentals Quiz", "questionCount": 5 }
+        },
+        {
+          "id": "m2",
+          "title": "Reading Execution Plans",
+          "lessons": [
+            { "id": "m2l1", "title": "explain() in MongoDB", "state": "content" },
+            { "id": "m2l2", "title": "EXPLAIN ANALYZE in PostgreSQL", "state": "content" }
+          ],
+          "quiz": { "id": "q2", "title": "Execution Plans Quiz", "questionCount": 5 }
+        }
+      ],
+      "project": {
+        "title": "Slow Query Clinic",
+        "description": "Take three deliberately slow queries, diagnose them with execution plans, add correct indexes and prove the improvement with timings.",
+        "deliverables": ["Before/after timings", "Index choices with reasons", "Fixed schema"],
+        "evidenceSkills": ["database-indexing", "query-optimization"]
+      }
+    },
+    {
+      "title": "Docker Fundamentals",
+      "slug": "docker-fundamentals",
+      "description": "Containers from zero: images, layers, Dockerfiles, Compose, volumes and safe deployment practices for backend services.",
+      "roleSlugs": ["backend-developer", "devops-engineer", "full-stack-developer"],
+      "skillSlugs": ["docker", "containerization", "docker-compose"],
+      "difficulty": "beginner",
+      "estimatedHours": 3,
+      "prerequisites": [],
+      "status": "published",
+      "modules": [
+        {
+          "id": "m1",
+          "title": "Images & Containers",
+          "lessons": [
+            { "id": "m1l1", "title": "Why Containers?", "state": "content" },
+            { "id": "m1l2", "title": "Writing a Dockerfile for Node.js", "state": "content" },
+            { "id": "m1l3", "title": "Layers & Build Caching", "state": "content" }
+          ],
+          "quiz": { "id": "q1", "title": "Images Quiz", "questionCount": 5 }
+        },
+        {
+          "id": "m2",
+          "title": "Compose & Data",
+          "lessons": [
+            { "id": "m2l1", "title": "docker-compose for App + Mongo", "state": "content" },
+            { "id": "m2l2", "title": "Volumes & Environment Config", "state": "content" }
+          ],
+          "quiz": { "id": "q2", "title": "Compose Quiz", "questionCount": 4 }
+        }
+      ],
+      "project": {
+        "title": "Containerize the Task API",
+        "description": "Write a production-shaped Dockerfile and a Compose file (API + MongoDB) for a Node.js service, with healthchecks and .env handling.",
+        "deliverables": ["Dockerfile", "docker-compose.yml", "Healthcheck passing"],
+        "evidenceSkills": ["docker", "docker-compose"]
+      }
+    }
+  ],
+  "role": {
+    "_comment": "Reference role used across tests — match slug to existing CareerRole seed if present.",
+    "slug": "backend-developer",
+    "title": "Backend Developer",
+    "roadmapStages": [
+      "Programming Fundamentals",
+      "Backend Language (Node.js)",
+      "HTTP + REST",
+      "Databases",
+      "Authentication",
+      "Testing",
+      "Caching",
+      "Docker",
+      "Deployment",
+      "System Design"
+    ]
+  }
+}

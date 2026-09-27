@@ -7,7 +7,30 @@ import type { IResumeData } from '../services/atsEngine';
  * The ATS snapshot is deterministic (recomputed server-side on save).
  */
 
-export type ATS_TEMPLATE = 'ats-classic' | 'modern-professional' | 'minimal' | 'graduate-fresher';
+/**
+ * Template ids shared with the frontend PDF renderer (spec §18–§19).
+ * 'minimal' is a legacy alias kept only so resumes saved before the template
+ * set was expanded keep loading — new saves use 'minimal-professional'.
+ */
+export const ATS_TEMPLATES = [
+  'ats-classic',
+  'graduate-fresher',
+  'minimal-professional',
+  'technical-professional',
+  'modern-professional',
+] as const;
+
+/** Values accepted by the schema (includes the legacy alias). */
+export const ATS_TEMPLATE_VALUES = [...ATS_TEMPLATES, 'minimal'] as const;
+
+export type ATS_TEMPLATE = (typeof ATS_TEMPLATE_VALUES)[number];
+
+/** Map any stored value onto a current template id. */
+export function normalizeTemplate(value: unknown): ATS_TEMPLATE {
+  const v = String(value || '');
+  if (v === 'minimal') return 'minimal-professional';
+  return (ATS_TEMPLATES as readonly string[]).includes(v) ? (v as ATS_TEMPLATE) : 'ats-classic';
+}
 
 export interface IResumeVersion extends Document {
   userId: mongoose.Types.ObjectId;
@@ -15,6 +38,8 @@ export interface IResumeVersion extends Document {
   /** optional anchor to a target career role */
   targetRoleSlug?: string;
   template: ATS_TEMPLATE;
+  /** the default version the builder opens first (spec §26) */
+  isDefault: boolean;
   data: IResumeData;
   /** last deterministic ATS score computed server-side */
   atsScore?: number;
@@ -25,6 +50,7 @@ export interface IResumeVersion extends Document {
 
 const resumeDataSchema = new Schema({
   name: String,
+  title: String,
   email: String,
   phone: String,
   location: String,
@@ -36,6 +62,15 @@ const resumeDataSchema = new Schema({
   skills: [String],
   certifications: [String],
   achievements: [String],
+  languages: [{ name: String, level: String, _id: false }],
+  customSections: [{ title: String, items: [String], _id: false }],
+  sectionOrder: [String],
+  pageSize: { type: String, enum: ['A4', 'LETTER'], default: 'A4' },
+  typography: {
+    type: { fontFamily: String, fontSize: Number, lineHeight: Number, margin: Number, _id: false },
+    default: undefined,
+  },
+  targetJobDescription: String,
 }, { _id: false });
 
 const resumeVersionSchema = new Schema<IResumeVersion>(
@@ -45,9 +80,10 @@ const resumeVersionSchema = new Schema<IResumeVersion>(
     targetRoleSlug: { type: String, default: '', trim: true },
     template: {
       type: String,
-      enum: ['ats-classic', 'modern-professional', 'minimal', 'graduate-fresher'],
+      enum: ATS_TEMPLATE_VALUES,
       default: 'ats-classic',
     },
+    isDefault: { type: Boolean, default: false, index: true },
     data: { type: resumeDataSchema, required: true },
     atsScore: { type: Number, min: 0, max: 100 },
     atsSnapshot: {

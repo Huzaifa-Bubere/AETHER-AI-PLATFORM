@@ -6,6 +6,7 @@ import Interview from '../models/Interview';
 import Resume from '../models/Resume';
 import logger from '../utils/logger';
 import os from 'os';
+import { billingOverview, recentPayments } from '../services/billingAnalytics.service';
 
 const router = express.Router();
 
@@ -623,6 +624,76 @@ router.get('/export/interviews', asyncHandler(async (req: Request, res: Response
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename=interviews.csv');
   res.send(csv);
+}));
+
+// ── Admin billing dashboard (spec §66-§69) ───────────────────────────────────
+
+/** GET /api/admin/billing — real aggregation over Subscription/Payment/UsageLedger. */
+router.get('/billing', asyncHandler(async (_req: Request, res: Response) => {
+  const [overview, payments] = await Promise.all([
+    billingOverview(),
+    recentPayments(20),
+  ]);
+  res.json({ success: true, data: { ...overview, recentPayments: payments } });
+}));
+
+/** GET /api/admin/billing/subscriptions — subscription rows with user info, filterable. */
+router.get('/billing/subscriptions', asyncHandler(async (req: Request, res: Response) => {
+  const { planId, status, page = '1', limit = '20' } = req.query as Record<string, string>;
+  const Subscription = mongoose.model('Subscription');
+  const filter: Record<string, unknown> = {};
+  if (planId && ['free', 'pro', 'campus'].includes(planId)) filter.planId = planId;
+  if (status) filter.status = status.toUpperCase();
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+
+  const [rows, total] = await Promise.all([
+    (Subscription as any).find(filter)
+      .sort({ updatedAt: -1 })
+      .skip((pageNum - 1) * pageSize)
+      .limit(pageSize)
+      .populate('userId', 'email profile.firstName profile.lastName')
+      .select('planId status billingInterval currentPeriodEnd cancelAtPeriodEnd accessEndsAt createdAt updatedAt')
+      .lean(),
+    (Subscription as any).countDocuments(filter),
+  ]);
+
+  res.json({
+    success: true,
+    data: rows.map((s: any) => ({
+      id: s._id,
+      user: s.userId ? { email: s.userId.email, name: `${s.userId.profile?.firstName || ''} ${s.userId.profile?.lastName || ''}`.trim() || s.userId.email } : null,
+      planId: s.planId,
+      status: s.status,
+      billingInterval: s.billingInterval || null,
+      currentPeriodEnd: s.currentPeriodEnd || null,
+      cancelAtPeriodEnd: !!s.cancelAtPeriodEnd,
+      accessEndsAt: s.accessEndsAt || null,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+    })),
+    pagination: { page: pageNum, limit: pageSize, total, pages: Math.ceil(total / pageSize) },
+  });
+}));
+
+/** GET /api/admin/billing/export — CSV of subscriptions (spec §69 institutional reports). */
+router.get('/billing/export', asyncHandler(async (_req: Request, res: Response) => {
+  const Subscription = mongoose.model('Subscription');
+  const rows = await (Subscription as any).find()
+    .sort({ updatedAt: -1 })
+    .populate('userId', 'email')
+    .select('planId status billingInterval currentPeriodEnd cancelAtPeriodEnd createdAt updatedAt')
+    .lean();
+
+  const csvHeader = 'User Email,Plan,Status,Billing Interval,Current Period End,Cancel At Period End,Created At,Updated At\n';
+  const csvRows = rows.map((s: any) =>
+    `${(s.userId as any)?.email || 'Unknown'},${s.planId},${s.status},${s.billingInterval || ''},${s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toISOString() : ''},${!!s.cancelAtPeriodEnd},${new Date(s.createdAt).toISOString()},${new Date(s.updatedAt).toISOString()}`
+  ).join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=subscriptions.csv');
+  res.send(csvHeader + csvRows);
 }));
 
 export default router;

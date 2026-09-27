@@ -7,6 +7,8 @@ import { memo, useMemo, useEffect, useState } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { apiService } from '../services/api';
 import careerService, { type ReadinessData } from '../services/career';
+import { DashboardAnalyticsHero } from './DashboardAnalyticsHero';
+import ContinueLearningCard from '../features/learning/ContinueLearningCard';
 
 /** First trending-up skill in the readiness data's demand info, or null. */
 function careerSnapshotTrending(data: ReadinessData): string | null {
@@ -218,10 +220,13 @@ export const DashboardPage = memo(function DashboardPage() {
     <div className="min-h-screen py-20 px-4 bg-gray-50">
       <div className="max-w-7xl mx-auto space-y-8">
 
+        {/* Analytics-backed hero: readiness, next action, metric cards with provenance */}
+        <DashboardAnalyticsHero firstName={user?.profile?.firstName} hasCareerGoal={!!career} />
+
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-4xl font-bold text-foreground mb-2">Welcome back, {userName}!</h1>
+            <h1 className="text-2xl font-bold text-foreground mb-2">Welcome back, {userName}!</h1>
             <p className="text-muted-foreground">Ready to practice your next interview?</p>
           </div>
           <Link to="/interview-setup">
@@ -286,6 +291,9 @@ export const DashboardPage = memo(function DashboardPage() {
             </div>
           </Card>
         )}
+
+        {/* Career Learning — resumable lessons and evidence-based recommendations */}
+        <ContinueLearningCard />
 
         <div className="grid lg:grid-cols-3 gap-8">
           {/* ── Left Column ── */}

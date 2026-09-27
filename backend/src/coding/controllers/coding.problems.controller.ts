@@ -71,10 +71,15 @@ class CodingProblemsController {
     try {
       const { slug } = req.params;
       const problem = await CodingProblem.findOne({ slug, isPublished: true, archived: { $ne: true } })
-        .select('-hiddenTests -solutionOutline')
+        .select('-hiddenTests -solutionOutline -referenceApproach')
         .lean();
       if (!problem) {
         return res.status(404).json({ success: false, message: 'Problem not found' });
+      }
+      // The validated optimization hint is part of the post-submission feedback,
+      // not the pre-submission problem statement.
+      if (problem.complexityGuidance) {
+        (problem.complexityGuidance as any).optimizationHint = undefined;
       }
       return res.json({ success: true, data: problem });
     } catch (err: any) {

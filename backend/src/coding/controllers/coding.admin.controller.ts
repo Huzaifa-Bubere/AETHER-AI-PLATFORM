@@ -16,7 +16,7 @@ class CodingAdminController {
       if (search) query.$text = { $search: String(search) };
 
       const problems = await CodingProblem.find(query)
-        .select('title slug difficulty category tags points isPublished sampleTests hiddenTests updatedAt')
+        .select('title slug difficulty category tags points isPublished sampleTests hiddenTests complexityGuidance updatedAt')
         .sort({ updatedAt: -1 })
         .lean();
 
@@ -84,6 +84,9 @@ class CodingAdminController {
       'title', 'slug', 'description', 'difficulty', 'category', 'tags', 'companies',
       'examples', 'constraints', 'starterCode', 'sampleTests', 'hiddenTests',
       'functionNames', 'knownApproaches', 'expectedTimeComplexity', 'expectedSpaceComplexity',
+      // Part A: validated complexity guidance and the reference optimized
+      // approach are admin/seed-owned — never AI-generated.
+      'complexityGuidance', 'referenceApproach',
       'points', 'hints', 'solutionOutline', 'isPublished',
     ];
     for (const f of fields) {

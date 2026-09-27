@@ -404,7 +404,7 @@ router.post(
     // 2) Best-effort Cloudinary mirror for off-site backup (never blocks save).
     if (cloudinaryService.isHealthy()) {
       try {
-        const buffer = (await import('fs/promises')).readFile(local.filePath);
+        const buffer = await (await import('fs/promises')).readFile(local.filePath);
         const result = await cloudinaryService.uploadVideo(buffer, {
           folder: 'smart-interview-ai/adaptive-interviews',
           public_id: `adaptive-interviews/recording_${session._id}_${Date.now()}`,

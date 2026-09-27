@@ -25,6 +25,32 @@ export interface ICodingProblem extends Document {
   }>;
   expectedTimeComplexity: string;
   expectedSpaceComplexity: string;
+  /**
+   * Validated complexity guidance (AETHER Part A).
+   * Only `verified: true` guidance can justify a RED optimization warning.
+   * Supplied by seed/admin data — never decided by Gemini.
+   */
+  complexityGuidance?: {
+    expectedTime: string;
+    expectedSpace: string;
+    acceptedTimeClasses: string[];
+    explanation: string;
+    optimizationHint?: string;
+    source: string;
+    verified: boolean;
+  } | null;
+  /**
+   * Reference optimized solution, shown only behind "Show Optimized Approach".
+   * Never overwrites the candidate's submission.
+   */
+  referenceApproach?: {
+    title: string;
+    approachId: string;
+    explanation: string;
+    timeComplexity: string;
+    spaceComplexity: string;
+    code: Record<string, string>;
+  } | null;
   points: number;
   hints: string[];
   solutionOutline?: string;
@@ -76,6 +102,29 @@ const codingProblemSchema = new Schema<ICodingProblem>(
     ],
     expectedTimeComplexity: { type: String, default: 'O(n)' },
     expectedSpaceComplexity: { type: String, default: 'O(1)' },
+    complexityGuidance: {
+      type: {
+        expectedTime: { type: String, default: '' },
+        expectedSpace: { type: String, default: '' },
+        acceptedTimeClasses: { type: [String], default: [] },
+        explanation: { type: String, default: '' },
+        optimizationHint: { type: String, default: '' },
+        source: { type: String, default: 'CURATED' },
+        verified: { type: Boolean, default: false },
+      },
+      default: null,
+    },
+    referenceApproach: {
+      type: {
+        title: { type: String, default: '' },
+        approachId: { type: String, default: '' },
+        explanation: { type: String, default: '' },
+        timeComplexity: { type: String, default: '' },
+        spaceComplexity: { type: String, default: '' },
+        code: { type: Map, of: String, default: {} },
+      },
+      default: null,
+    },
     points: { type: Number, default: 10 },
     hints: [{ type: String }],
     solutionOutline: { type: String, select: false }, // never sent to candidates

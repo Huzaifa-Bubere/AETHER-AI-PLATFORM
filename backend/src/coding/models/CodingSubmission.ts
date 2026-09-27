@@ -26,6 +26,24 @@ export interface ICodingSubmission extends Document {
   astAnalysis: unknown | null;
   scoreBreakdown: unknown | null;
   overallScore: number | null;
+  /**
+   * Deterministic post-submission complexity comparison (AETHER Part A).
+   * Stored so coding analytics can count efficient vs optimizable solutions
+   * from real evidence — never from generated numbers.
+   */
+  complexityCheck: {
+    candidateComplexity: string;
+    candidateSpaceComplexity: string;
+    expectedComplexity: string;
+    expectedSpaceComplexity: string;
+    acceptedTimeClasses: string[];
+    level: string;
+    optimizationAvailable: boolean;
+    analyzerConfidence: number;
+    confidenceBand: string;
+    threshold: number;
+    evidence: string[];
+  } | null;
   explanation: unknown | null;
   submittedAt: Date;
 }
@@ -60,6 +78,22 @@ const codingSubmissionSchema = new Schema<ICodingSubmission>(
     astAnalysis: { type: Schema.Types.Mixed, default: null },
     scoreBreakdown: { type: Schema.Types.Mixed, default: null },
     overallScore: { type: Number, default: null },
+    complexityCheck: {
+      type: {
+        candidateComplexity: { type: String, default: '' },
+        candidateSpaceComplexity: { type: String, default: '' },
+        expectedComplexity: { type: String, default: '' },
+        expectedSpaceComplexity: { type: String, default: '' },
+        acceptedTimeClasses: { type: [String], default: [] },
+        level: { type: String, default: 'UNKNOWN' },
+        optimizationAvailable: { type: Boolean, default: false },
+        analyzerConfidence: { type: Number, default: 0 },
+        confidenceBand: { type: String, default: 'LOW' },
+        threshold: { type: Number, default: 0 },
+        evidence: { type: [String], default: [] },
+      },
+      default: null,
+    },
     explanation: { type: Schema.Types.Mixed, default: null },
     submittedAt: { type: Date, default: Date.now, index: true },
   },
@@ -70,5 +104,7 @@ const codingSubmissionSchema = new Schema<ICodingSubmission>(
 codingSubmissionSchema.index({ user: 1, submittedAt: -1 });
 // One submission per user/problem/language for progress lookups
 codingSubmissionSchema.index({ user: 1, problem: 1, language: 1 });
+// Coding complexity analytics: efficient vs optimizable per user
+codingSubmissionSchema.index({ user: 1, 'complexityCheck.level': 1, submittedAt: -1 });
 
 export default mongoose.model<ICodingSubmission>('CodingSubmission', codingSubmissionSchema);

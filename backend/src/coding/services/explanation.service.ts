@@ -5,8 +5,10 @@ import {
   IAstAnalysis,
   IScoreBreakdown,
   IGeminiExplanation,
+  IOptimizationExplanation,
   IKnownApproach,
 } from '../types/coding.types';
+import { IComplexityComparison } from '../complexity/complexity';
 
 /**
  * AETHER Coding — explainable feedback layer.
@@ -35,7 +37,7 @@ class CodingExplanationService {
   }
 
   async explain(params: {
-    problem: { title: string; difficulty: string; category: string };
+    problem: { title: string; difficulty: string; category: string; description?: string };
     execution: Pick<IExecutionResult, 'status' | 'passedTests' | 'totalTests' | 'runtimeMs' | 'memoryKb'>;
     ast: IAstAnalysis;
     score: IScoreBreakdown;
@@ -44,11 +46,13 @@ class CodingExplanationService {
       expectedTime: string;
       expectedSpace: string;
     };
+    /** Deterministic comparison result — the ONLY authority on complexity. */
+    optimization?: IComplexityComparison | null;
   }): Promise<IGeminiExplanation> {
-    const { problem, execution, ast, score, expected } = params;
+    const { problem, execution, ast, score, expected, optimization } = params;
 
     // Deterministic fallback (also used when Gemini is unavailable)
-    const fallback = this.buildFallback(problem, execution, ast, score, expected);
+    const fallback = this.buildFallback(problem, execution, ast, score, expected, optimization);
 
     const client = this.getClient();
     if (!client) return fallback;
@@ -85,6 +89,20 @@ class CodingExplanationService {
           expectedTime: expected.expectedTime,
           expectedSpace: expected.expectedSpace,
         },
+        // Deterministic optimization verdict — restate it, never recompute it.
+        optimization: optimization
+          ? {
+              level: optimization.level,
+              candidateEstimatedTime: optimization.candidateTime,
+              candidateEstimatedSpace: optimization.candidateSpace,
+              expectedTime: optimization.expectedTime,
+              expectedSpace: optimization.expectedSpace,
+              acceptedTimeClasses: optimization.acceptedTimeClasses,
+              analyzerConfidence: optimization.confidence,
+              reason: optimization.reason,
+              validatedOptimizationHint: optimization.optimizationHint,
+            }
+          : null,
       };
 
       const prompt = `You are an expert coding mentor for the AETHER placement platform.
@@ -100,6 +118,10 @@ STRICT RULES:
   suboptimal vs a known optimal approach), describe it conceptually and compare complexities.
   Otherwise omit the suggestedImprovement field entirely.
 - If AST analysis is unavailable, say correctness feedback only and skip structural commentary.
+- Correctness and efficiency are SEPARATE. Never say a passing solution is "incorrect" because of
+  complexity, and never change or contradict the provided optimization verdict/level.
+- If optimization.validatedOptimizationHint exists you may elaborate on it; do not invent a
+  different optimal complexity than optimization.expectedTime.
 
 EVIDENCE:
 ${JSON.stringify(evidence, null, 2)}
@@ -143,7 +165,8 @@ Respond with ONLY valid JSON in this exact shape:
     execution: Pick<IExecutionResult, 'status' | 'passedTests' | 'totalTests' | 'runtimeMs' | 'memoryKb'>,
     ast: IAstAnalysis,
     score: IScoreBreakdown,
-    expected: { preferredApproaches: IKnownApproach[]; expectedTime: string; expectedSpace: string }
+    expected: { preferredApproaches: IKnownApproach[]; expectedTime: string; expectedSpace: string },
+    optimization?: IComplexityComparison | null
   ): IGeminiExplanation {
     const strengths: string[] = [];
     const improvements: string[] = [];
@@ -174,7 +197,15 @@ Respond with ONLY valid JSON in this exact shape:
       }
     }
 
-    const suggested = ast.parseSuccess &&
+    const suggested = ast.parseSuccess && optimization &&
+      optimization.optimizationAvailable &&
+      expected.preferredApproaches.some(a => a.optimal && a.approachId !== ast.approach.detectedApproach)
+      ? {
+          title: `Consider the ${expected.preferredApproaches.find(a => a.optimal)?.name}`,
+          description: expected.preferredApproaches.find(a => a.optimal)?.outline || '',
+          complexityComparison: `${optimization.candidateTime} → ${optimization.expectedTime}`,
+        }
+      : ast.parseSuccess &&
       ast.approach.detectedApproach !== 'UNKNOWN' &&
       expected.preferredApproaches.some(a => a.optimal && a.approachId !== ast.approach.detectedApproach)
       ? {
@@ -191,6 +222,167 @@ Respond with ONLY valid JSON in this exact shape:
       strengths: strengths.length > 0 ? strengths.slice(0, 4) : ['Submission recorded and evaluated.'],
       improvements: improvements.length > 0 ? improvements.slice(0, 4) : ['Keep practicing to improve your score.'],
       suggestedImprovement: suggested,
+      generatedBy: 'fallback',
+    };
+  }
+
+  // ── Optimization explanation (Part A, spec §9) ───────────────────────────
+
+  /**
+   * Explain the optimization opportunity. Gemini receives candidate code, AST
+   * evidence, the estimated complexity, the canonical expected complexity, the
+   * problem statement and the validated optimization hint. It explains why the
+   * current approach is slower — it never re-classifies complexity.
+   */
+  async explainOptimization(params: {
+    problem: { title: string; description?: string; difficulty: string; category: string };
+    language: string;
+    sourceCode: string;
+    ast: IAstAnalysis;
+    optimization: IComplexityComparison;
+    referenceApproach?: {
+      title: string;
+      approachId: string;
+      explanation: string;
+      timeComplexity: string;
+      spaceComplexity: string;
+      code?: Record<string, string>;
+    } | null;
+    optimizedCodeSnippet?: string | null;
+  }): Promise<IOptimizationExplanation> {
+    const { problem, ast, optimization, referenceApproach, optimizedCodeSnippet } = params;
+    const fallback = this.buildOptimizationFallback(ast, optimization, referenceApproach, optimizedCodeSnippet);
+
+    const client = this.getClient();
+    if (!client) return fallback;
+
+    try {
+      const model = client.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-3.6-flash' });
+
+      const evidence = {
+        problem: { title: problem.title, statement: problem.description, difficulty: problem.difficulty, category: problem.category },
+        candidate: { language: params.language, sourceCode: params.sourceCode },
+        astEvidence: {
+          parser: ast.parser,
+          loops: ast.metrics.loops,
+          nestedLoopDepth: ast.metrics.nestedLoopDepth,
+          maxNestingDepth: ast.metrics.maxNestingDepth,
+          recursion: ast.metrics.recursionDetected,
+          dataStructures: ast.dataStructures,
+          detectedApproach: ast.approach.detectedApproach,
+          approachEvidence: ast.approach.evidence,
+          complexityEvidence: ast.complexity.evidence,
+        },
+        deterministicComplexity: {
+          candidateEstimatedTime: optimization.candidateTime,
+          candidateEstimatedSpace: optimization.candidateSpace,
+          expectedTime: optimization.expectedTime,
+          expectedSpace: optimization.expectedSpace,
+          acceptedTimeClasses: optimization.acceptedTimeClasses,
+          level: optimization.level,
+          analyzerConfidence: optimization.confidence,
+          reason: optimization.reason,
+        },
+        validatedOptimizationHint: optimization.optimizationHint,
+        referenceApproach: referenceApproach
+          ? {
+              title: referenceApproach.title,
+              explanation: referenceApproach.explanation,
+              timeComplexity: referenceApproach.timeComplexity,
+              spaceComplexity: referenceApproach.spaceComplexity,
+            }
+          : null,
+      };
+
+      const prompt = `You are an expert coding mentor on the AETHER placement platform.
+A candidate submitted a solution. The COMPLEXITY VERDICT BELOW IS DETERMINISTIC AND FINAL —
+restate it, never recompute, upgrade or downgrade it.
+
+STRICT RULES:
+- Use ONLY the evidence provided. Never invent complexity values, structures or metrics.
+- Never claim the solution is incorrect because of complexity; correctness and efficiency are separate.
+- Explain WHY the current approach is slower in terms of the AST evidence provided.
+- Explain WHERE the complexity comes from (the specific structure: nested loop, recursion, sort, …).
+- Name WHAT algorithmic concept would improve it (the validated hint or reference approach).
+- Explain HOW the improved approach works, step by step, conceptually.
+- Only quote improved code when a reference approach was supplied.
+- Keep each field 1-3 sentences. Plain, encouraging, educational English.
+
+EVIDENCE:
+${JSON.stringify(evidence, null, 2)}
+
+Respond with ONLY valid JSON:
+{
+  "summary": string,
+  "whySlower": string,
+  "whereComplexityComesFrom": string,
+  "conceptToImprove": string,
+  "improvedApproach": string,
+  "keyTakeaway": string
+}`;
+
+      const result = await model.generateContent(prompt);
+      const cleaned = result.response.text().replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      return {
+        summary: String(parsed.summary || fallback.summary),
+        whySlower: String(parsed.whySlower || fallback.whySlower),
+        whereComplexityComesFrom: String(parsed.whereComplexityComesFrom || fallback.whereComplexityComesFrom),
+        conceptToImprove: String(parsed.conceptToImprove || fallback.conceptToImprove),
+        improvedApproach: String(parsed.improvedApproach || fallback.improvedApproach),
+        keyTakeaway: String(parsed.keyTakeaway || fallback.keyTakeaway),
+        // Code is never AI-generated: it comes only from validated problem metadata.
+        optionalImprovedCode: optimizedCodeSnippet || null,
+        generatedBy: 'gemini',
+      };
+    } catch (err: any) {
+      logger.warn(`Optimization explanation failed (using fallback): ${err?.message}`);
+      return fallback;
+    }
+  }
+
+  /**
+   * Fully deterministic optimization explanation — always available, so the
+   * lesson remains readable when Gemini quota/API fails (spec §56).
+   */
+  private buildOptimizationFallback(
+    ast: IAstAnalysis,
+    optimization: IComplexityComparison,
+    referenceApproach?: { title: string; explanation: string; timeComplexity: string; spaceComplexity: string } | null,
+    optimizedCodeSnippet?: string | null
+  ): IOptimizationExplanation {
+    const m = ast.metrics;
+    const loopEvidence = m.nestedLoopDepth >= 2
+      ? `${m.nestedLoopDepth} nested loop levels were detected`
+      : m.recursionDetected
+        ? 'a recursive call chain was detected without memoization'
+        : m.loops > 1
+          ? `${m.loops} separate loops were detected`
+          : 'a single loop was detected';
+
+    const where = m.nestedLoopDepth >= 2
+      ? `The cost comes from the nested loops: the outer loop runs n times and the inner loop re-scans the remaining input, so the work multiplies to roughly ${optimization.candidateTime}.`
+      : m.recursionDetected
+        ? `The cost comes from recursion without memoization: each call re-explores overlapping sub-problems, which multiplies the work.`
+        : `The cost comes from the traversal structure (${loopEvidence}), giving an estimated ${optimization.candidateTime}.`;
+
+    const concept = optimization.optimizationHint
+      || referenceApproach?.explanation
+      || `A ${optimization.expectedTime} approach is sufficient for this problem.`;
+
+    const improved = referenceApproach
+      ? `${referenceApproach.title}: ${referenceApproach.explanation} This runs in ${referenceApproach.timeComplexity} time and ${referenceApproach.spaceComplexity} space.`
+      : `Restructure the solution so the work is not multiplied — typically by tracking the running state you need in a single pass (${optimization.expectedTime} expected).`;
+
+    return {
+      summary: `Your estimated time complexity is ${optimization.candidateTime}, while this problem can be solved in ${optimization.expectedTime}. ${optimization.message}`,
+      whySlower: `Your solution does more work than necessary per element: ${loopEvidence}, and the input is re-examined instead of summarised in one pass.`,
+      whereComplexityComesFrom: where,
+      conceptToImprove: concept,
+      improvedApproach: improved,
+      keyTakeaway: `Complexity is independent of correctness — this solution can be correct and still improved from ${optimization.candidateTime} to ${optimization.expectedTime}.`,
+      optionalImprovedCode: optimizedCodeSnippet || null,
       generatedBy: 'fallback',
     };
   }

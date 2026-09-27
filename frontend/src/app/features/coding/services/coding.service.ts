@@ -2,6 +2,7 @@ import { apiService } from '../../../services/api';
 import type {
   CodingProblem, IExecutionResult, ISubmitResult, ISubmissionSummary, ISubmissionDetail,
   ICodingProgress, IRecommendations, IAstAnalysis, CodingLanguage,
+  IComplexityComparison, IOptimizationExplanation, IReferenceApproach, ICodingComplexityAnalytics,
 } from '../types';
 
 /**
@@ -52,6 +53,29 @@ class CodingService {
 
   async getRecommendations(): Promise<APIResponseShape<IRecommendations>> {
     return apiService.get('/coding/recommendations');
+  }
+
+  // ── Post-submission optimization feedback (Part A) ─────────────────────────
+
+  /**
+   * "Explain with AETHER AI" — the backend narrates the already-computed
+   * complexity verdict. It can never reclassify complexity.
+   */
+  async explainOptimization(submissionId: string): Promise<APIResponseShape<{
+    optimization: IComplexityComparison;
+    explanation: IOptimizationExplanation;
+  }>> {
+    return apiService.post(`/coding/submissions/${submissionId}/explain`, {}, { timeout: 60000 });
+  }
+
+  /** "Show Optimized Approach" — reference editorial solution (candidate's own submission is untouched). */
+  async getReferenceApproach(submissionId: string): Promise<APIResponseShape<IReferenceApproach>> {
+    return apiService.get(`/coding/submissions/${submissionId}/reference-approach`);
+  }
+
+  /** Real-data complexity analytics computed from stored submissions. */
+  async getComplexityAnalytics(): Promise<APIResponseShape<ICodingComplexityAnalytics>> {
+    return apiService.get('/coding/analytics/complexity');
   }
 }
 

@@ -256,25 +256,10 @@ function calculateInterviewMetrics(interview: any) {
         4,
     );
 
-    // Set default video/audio metrics
-    metrics.videoMetrics.eyeContactPercentage = Math.min(
-      100,
-      Math.max(60, 70 + Math.random() * 20),
-    );
-    metrics.videoMetrics.confidenceLevel = Math.min(
-      100,
-      Math.max(60, metrics.overallScore - 10 + Math.random() * 15),
-    );
-    metrics.videoMetrics.postureScore = Math.min(
-      100,
-      Math.max(65, 75 + Math.random() * 15),
-    );
-
-    metrics.audioMetrics.speechRate = Math.round(120 + Math.random() * 60); // 120-180 WPM
-    metrics.audioMetrics.clarityScore = Math.min(
-      100,
-      Math.max(70, metrics.overallScore - 5 + Math.random() * 10),
-    );
+    // Video/audio metrics (spec §80: NO synthetic values). This legacy path has
+    // no media evidence, so the metrics stay at their initialized 0 and the UI
+    // shows "not measured" — real measurements come from the adaptive
+    // interview pipeline (behaviorAnalysis + speakingMetrics).
   } else {
     // Default scores if no responses
     metrics.overallScore = 50;

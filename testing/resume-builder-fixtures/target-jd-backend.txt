@@ -1,0 +1,14 @@
+Backend Developer — Logistics Platform
+
+We are building scalable containerized backend services. You will design
+REST APIs, work with MongoDB and PostgreSQL, and deploy on AWS.
+
+Required: Node.js, Express, REST API design, MongoDB, Docker, Git, JWT
+authentication, integration testing.
+
+Preferred: AWS, Redis caching, TypeScript, Kubernetes, message queues.
+
+Responsibilities:
+- Build and maintain containerized backend microservices.
+- Design database schemas and optimize slow queries.
+- Write integration tests for critical flows.

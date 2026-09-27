@@ -1,0 +1,240 @@
+{
+ "available": true,
+ "duration_seconds": 45.0,
+ "frames_sampled": 45,
+ "sampling_interval_seconds": 1.0,
+ "presence_percentage": 93.3,
+ "eye_contact_percentage": 66.7,
+ "centeredness_percentage": 78.0,
+ "engagement_percentage": 100.0,
+ "confidence_index": 86.7,
+ "timeline": [
+  {
+   "t": 0.0,
+   "face": true,
+   "motion": 0.0
+  },
+  {
+   "t": 1.0,
+   "face": true,
+   "motion": 4.43859
+  },
+  {
+   "t": 2.0,
+   "face": true,
+   "motion": 2.24922
+  },
+  {
+   "t": 3.0,
+   "face": true,
+   "motion": 2.63151
+  },
+  {
+   "t": 4.0,
+   "face": true,
+   "motion": 4.24458
+  },
+  {
+   "t": 5.0,
+   "face": true,
+   "motion": 3.63318
+  },
+  {
+   "t": 6.0,
+   "face": true,
+   "motion": 4.03604
+  },
+  {
+   "t": 7.0,
+   "face": true,
+   "motion": 2.85578
+  },
+  {
+   "t": 8.0,
+   "face": true,
+   "motion": 3.6437
+  },
+  {
+   "t": 9.0,
+   "face": true,
+   "motion": 4.46656
+  },
+  {
+   "t": 10.0,
+   "face": true,
+   "motion": 4.66776
+  },
+  {
+   "t": 11.0,
+   "face": true,
+   "motion": 4.41427
+  },
+  {
+   "t": 12.0,
+   "face": true,
+   "motion": 3.28161
+  },
+  {
+   "t": 13.0,
+   "face": true,
+   "motion": 3.63792
+  },
+  {
+   "t": 14.0,
+   "face": true,
+   "motion": 26.80927
+  },
+  {
+   "t": 15.0,
+   "face": false,
+   "motion": 20.59792
+  },
+  {
+   "t": 16.0,
+   "face": false,
+   "motion": 3.3112
+  },
+  {
+   "t": 17.0,
+   "face": false,
+   "motion": 0.69323
+  },
+  {
+   "t": 18.0,
+   "face": true,
+   "motion": 19.40182
+  },
+  {
+   "t": 19.0,
+   "face": true,
+   "motion": 2.24521
+  },
+  {
+   "t": 20.0,
+   "face": true,
+   "motion": 3.56307
+  },
+  {
+   "t": 21.0,
+   "face": true,
+   "motion": 2.41052
+  },
+  {
+   "t": 22.0,
+   "face": true,
+   "motion": 4.39167
+  },
+  {
+   "t": 23.0,
+   "face": true,
+   "motion": 2.86432
+  },
+  {
+   "t": 24.0,
+   "face": true,
+   "motion": 4.97036
+  },
+  {
+   "t": 25.0,
+   "face": true,
+   "motion": 3.43104
+  },
+  {
+   "t": 26.0,
+   "face": true,
+   "motion": 4.16297
+  },
+  {
+   "t": 27.0,
+   "face": true,
+   "motion": 3.88917
+  },
+  {
+   "t": 28.0,
+   "face": true,
+   "motion": 5.11792
+  },
+  {
+   "t": 29.0,
+   "face": true,
+   "motion": 4.06255
+  },
+  {
+   "t": 30.0,
+   "face": true,
+   "motion": 2.78599
+  },
+  {
+   "t": 31.0,
+   "face": true,
+   "motion": 2.25432
+  },
+  {
+   "t": 32.0,
+   "face": true,
+   "motion": 5.27823
+  },
+  {
+   "t": 33.0,
+   "face": true,
+   "motion": 1.80406
+  },
+  {
+   "t": 34.0,
+   "face": true,
+   "motion": 2.45828
+  },
+  {
+   "t": 35.0,
+   "face": true,
+   "motion": 3.41604
+  },
+  {
+   "t": 36.0,
+   "face": true,
+   "motion": 4.55698
+  },
+  {
+   "t": 37.0,
+   "face": true,
+   "motion": 2.53224
+  },
+  {
+   "t": 38.0,
+   "face": true,
+   "motion": 3.76885
+  },
+  {
+   "t": 39.0,
+   "face": true,
+   "motion": 2.15156
+  },
+  {
+   "t": 40.0,
+   "face": true,
+   "motion": 4.18469
+  },
+  {
+   "t": 41.0,
+   "face": true,
+   "motion": 3.37583
+  },
+  {
+   "t": 42.0,
+   "face": true,
+   "motion": 4.19615
+  },
+  {
+   "t": 43.0,
+   "face": true,
+   "motion": 2.80141
+  },
+  {
+   "t": 44.0,
+   "face": true,
+   "motion": 3.29505
+  }
+ ],
+ "engine": "opencv-haar-frame-sampling",
+ "processing_ms": 927
+}

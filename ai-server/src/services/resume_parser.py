@@ -289,13 +289,28 @@ class ResumeParserService:
             if not edu_section:
                 return []
             
-            # Look for degree patterns
-            degree_pattern = r'(Bachelor[^,\n]*|Master[^,\n]*|B\.Tech[^,\n]*|M\.Tech[^,\n]*)'
+            # Look for degree patterns.
+            # Covers Indian and international qualifications (B.E., B.Tech, BCA,
+            # MCA, B.Com, Diploma, HSC/SSC …) that the previous pattern missed.
+            degree_pattern = (
+                r'(Bachelor[^,\n|]*|Master[^,\n|]*|Doctorate[^,\n|]*|PhD[^,\n|]*|'
+                r'B\.?\s?E\.?(?:\s*\([^)]*\))?[^,\n|]*|M\.?\s?E\.?[^,\n|]*|'
+                r'B\.?\s?Tech[^,\n|]*|M\.?\s?Tech[^,\n|]*|'
+                r'B\.?\s?Sc[^,\n|]*|M\.?\s?Sc[^,\n|]*|'
+                r'B\.?\s?Com[^,\n|]*|M\.?\s?Com[^,\n|]*|'
+                r'BCA[^,\n|]*|MCA[^,\n|]*|BBA[^,\n|]*|MBA[^,\n|]*|'
+                r'B\.?\s?A\.?\s?[^,\n|]*|M\.?\s?A\.\s[^,\n|]*|'
+                r'Diploma[^,\n|]*|'
+                r'(?:Higher\s+)?Secondary[^,\n|]*|HSC[^,\n|]*|SSC[^,\n|]*|12th[^,\n|]*|10th[^,\n|]*)'
+            )
             degrees = re.findall(degree_pattern, edu_section, re.IGNORECASE)
             
             for degree in degrees:
+                degree_text = degree.strip().strip('-–—·|')
+                if not degree_text:
+                    continue
                 edu_info = {
-                    "degree": degree.strip(),
+                    "degree": degree_text,
                     "institution": "",
                     "year": "",
                     "gpa": ""
@@ -310,11 +325,24 @@ class ResumeParserService:
                     if years:
                         edu_info["year"] = years[-1]  # Take the latest year
                     
-                    # Extract GPA
-                    gpa_pattern = r'GPA:?\s*(\d+\.?\d*)'
+                    # Extract GPA / CGPA
+                    gpa_pattern = r'(?:C?GPA|Percentage|Score):?\s*(\d+\.?\d*)'
                     gpa_match = re.search(gpa_pattern, degree_line, re.IGNORECASE)
                     if gpa_match:
                         edu_info["gpa"] = gpa_match.group(1)
+
+                    # Extract institution from the same line when it names a
+                    # university/college/institute/school.
+                    for chunk in re.split(r'[|—–]|\s{2,}', degree_line):
+                        chunk_clean = chunk.strip()
+                        if not chunk_clean or chunk_clean == degree_text:
+                            continue
+                        if re.search(r'(university|college|institute|school|academy|polytechnic|iit|nit|iiit)\b',
+                                     chunk_clean, re.IGNORECASE):
+                            # Drop trailing year/score fragments from the institution.
+                            institution = re.sub(r'\b(?:19|20)\d{2}\b.*$', '', chunk_clean).strip(' ,·-–—')
+                            edu_info["institution"] = institution or chunk_clean
+                            break
                 
                 education.append(edu_info)
             

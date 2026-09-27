@@ -44,6 +44,10 @@ export default defineConfig({
           ],
           'chart-vendor': ['chart.js', 'react-chartjs-2', 'recharts'],
           'editor-vendor': ['@monaco-editor/react'],
+          // NOTE: @react-pdf/renderer is intentionally NOT listed here. It is
+          // only imported by the lazily-loaded /resume-builder route, so Vite
+          // keeps it in that route's own chunk; forcing a separate vendor chunk
+          // produced a circular chunk (pdf-vendor <-> chart-vendor) warning.
           'utils': ['axios', 'zustand', 'date-fns', 'clsx', 'tailwind-merge'],
         },
       },

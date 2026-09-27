@@ -52,6 +52,16 @@ export interface CodingProblem {
   knownApproaches?: IKnownApproach[];
   expectedTimeComplexity?: string;
   expectedSpaceComplexity?: string;
+  /** Validated guidance only (verified feeds RED warnings). */
+  complexityGuidance?: {
+    expectedTime: string;
+    expectedSpace: string;
+    acceptedTimeClasses: string[];
+    explanation: string;
+    optimizationHint?: string;
+    source: string;
+    verified: boolean;
+  } | null;
   points: number;
   hints?: string[];
   status?: { solved: boolean; attempted: boolean };
@@ -165,6 +175,96 @@ export interface IGeminiExplanation {
   generatedBy: 'gemini' | 'fallback';
 }
 
+// ── Post-submission complexity optimization feedback (Part A) ────────────────
+
+/** Warning levels — GREEN (OPTIMAL), AMBER (POSSIBLY_IMPROVABLE), RED (CLEAR…). */
+export type OptimizationLevel =
+  | 'OPTIMAL'
+  | 'POSSIBLY_IMPROVABLE'
+  | 'CLEAR_OPTIMIZATION_OPPORTUNITY'
+  | 'UNKNOWN';
+
+export type AnalyzerConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export interface IComplexityComparison {
+  candidateTime: string;
+  candidateSpace: string;
+  expectedTime: string;
+  expectedSpace: string;
+  acceptedTimeClasses: string[];
+  candidateTimeRank: number | null;
+  expectedTimeRank: number | null;
+  confidence: AnalyzerConfidence;
+  analyzerConfidence: number;
+  level: OptimizationLevel;
+  optimizationAvailable: boolean;
+  warn: boolean;
+  headline: string;
+  message: string;
+  reason: string;
+  optimizationHint: string | null;
+  optimizationExplanation: string;
+  evidence: string[];
+  threshold: number;
+}
+
+/** Code-free summary returned with the submission (code needs an explicit click). */
+export interface IReferenceApproachSummary {
+  available: boolean;
+  title: string;
+  approachId: string;
+  explanation: string;
+  timeComplexity: string;
+  spaceComplexity: string;
+  languages: string[];
+  hasCode: boolean;
+}
+
+/** Full reference solution, served only behind "Show Optimized Approach". */
+export interface IReferenceApproach extends Omit<IReferenceApproachSummary, 'languages' | 'hasCode'> {
+  label: string;
+  optimizationHint: string | null;
+  code: Record<string, string>;
+  languages: string[];
+  note: string;
+}
+
+/** "Explain with AETHER AI" — narration of a deterministic verdict. */
+export interface IOptimizationExplanation {
+  summary: string;
+  whySlower: string;
+  whereComplexityComesFrom: string;
+  conceptToImprove: string;
+  improvedApproach: string;
+  optionalImprovedCode?: string | null;
+  keyTakeaway: string;
+  generatedBy: 'gemini' | 'fallback';
+}
+
+export interface ICodingComplexityAnalytics {
+  tracked: number;
+  efficient: number;
+  optimizable: number;
+  clearOpportunities: number;
+  unknownExcluded: number;
+  optimizationTracked: number;
+  efficientPercent: number | null;
+  optimizablePercent: number | null;
+  byLevel: Record<string, number>;
+  recent: Array<{
+    submissionId: string;
+    problem: { title: string; slug: string; category: string; difficulty: string } | null;
+    language: string;
+    level: OptimizationLevel;
+    candidateComplexity: string;
+    expectedComplexity: string;
+    analyzerConfidence: number;
+    confidenceBand: AnalyzerConfidence;
+    submittedAt: string;
+  }>;
+  emptyState: string | null;
+}
+
 export interface ISubmitResult {
   submissionId: string;
   status: ExecutionStatus;
@@ -179,6 +279,9 @@ export interface ISubmitResult {
   astAnalysis: IAstAnalysis | null;
   scoreBreakdown: IScoreBreakdown | null;
   explanation: IGeminiExplanation | null;
+  // Part A — deterministic complexity comparison & reference approach summary
+  optimization?: IComplexityComparison | null;
+  referenceApproach?: IReferenceApproachSummary | null;
   problem: { title: string; slug: string; difficulty: string; category: string };
 }
 
@@ -217,6 +320,14 @@ export interface ICodingProgress {
   averageCodingScore: number;
   languageUsage: Array<{ language: string; count: number }>;
   recentActivity: Array<{ date: string; submissions: number }>;
+  complexityStats?: {
+    tracked: number;
+    efficient: number;
+    optimizable: number;
+    clearOpportunities: number;
+    unknown: number;
+    byTopic: Array<{ topic: string; tracked: number; efficient: number; optimizable: number; unknown: number }>;
+  };
 }
 
 export interface IRecommendations {

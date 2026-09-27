@@ -267,6 +267,29 @@ export interface IGeminiExplanation {
   generatedBy: 'gemini' | 'fallback';
 }
 
+// ── Optimization explanation (Part A, spec §9) ────────────────────────────
+
+/**
+ * Gemini narrates these fields, but every fact they rest on is produced by the
+ * deterministic complexity engine. Gemini must never restate a different
+ * classification than `IComplexityComparison`.
+ */
+export interface IOptimizationExplanation {
+  summary: string;
+  /** WHY the current approach is slower. */
+  whySlower: string;
+  /** WHERE the complexity comes from (code-structure evidence). */
+  whereComplexityComesFrom: string;
+  /** WHAT concept can improve it. */
+  conceptToImprove: string;
+  /** HOW the improved approach works. */
+  improvedApproach: string;
+  /** OPTIONAL reference snippet (only from validated problem metadata). */
+  optionalImprovedCode?: string | null;
+  keyTakeaway: string;
+  generatedBy: 'gemini' | 'fallback';
+}
+
 // ── API payloads ─────────────────────────────────────────────────────────────
 
 export interface AuthedRequest extends Request {

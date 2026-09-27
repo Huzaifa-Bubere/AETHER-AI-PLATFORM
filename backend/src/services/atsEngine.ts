@@ -18,20 +18,31 @@
 
 export interface IResumeData {
   name?: string;
+  /** professional title / headline, e.g. "Backend Developer" */
+  title?: string;
   email?: string;
   phone?: string;
   location?: string;
   links?: string[];
   summary?: string;
-  education: Array<{ degree?: string; institution?: string; year?: string | number }>;
+  education: Array<{ degree?: string; institution?: string; location?: string; year?: string | number; score?: string }>;
   experience: Array<{
-    title?: string; company?: string; duration?: string;
+    title?: string; company?: string; location?: string; duration?: string;
+    startDate?: string; endDate?: string;
     bullets?: string[]; description?: string;
   }>;
-  projects: Array<{ name?: string; description?: string; technologies?: string[]; bullets?: string[] }>;
+  projects: Array<{ name?: string; description?: string; technologies?: string[]; bullets?: string[]; link?: string }>;
   skills: string[];
   certifications?: string[];
   achievements?: string[];
+  languages?: Array<{ name?: string; level?: string }>;
+  /** candidate-defined sections (e.g. Volunteering) rendered after the standard ones */
+  customSections?: Array<{ title?: string; items?: string[] }>;
+  /** explicit order of standard section keys; unlisted sections fall back to template order */
+  sectionOrder?: string[];
+  pageSize?: 'A4' | 'LETTER';
+  typography?: { fontFamily?: string; fontSize?: number; lineHeight?: number; margin?: number };
+  targetJobDescription?: string;
 }
 
 export interface IAtsCategory {
@@ -289,13 +300,15 @@ function collectBullets(d: IResumeData): string[] {
 
 function resumeText(d: IResumeData): string {
   const parts = [
-    d.name, d.summary,
+    d.name, d.title, d.summary,
     ...(d.skills || []),
     ...((d.experience || []).flatMap(e => [e.title, e.company, ...(e.bullets || []), e.description])),
     ...((d.projects || []).flatMap(p => [p.name, p.description, ...(p.technologies || []), ...(p.bullets || [])])),
     ...((d.education || []).map(e => `${e.degree} ${e.institution}`)),
     ...(d.certifications || []),
     ...(d.achievements || []),
+    ...((d.languages || []).map(l => `${l.name} ${l.level || ''}`)),
+    ...((d.customSections || []).flatMap(s => [s.title, ...(s.items || [])])),
   ];
   return parts.filter(Boolean).join(' ');
 }

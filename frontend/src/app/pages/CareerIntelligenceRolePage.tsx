@@ -11,6 +11,11 @@ import careerService, {
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 
+/* Defensive normalization — a partially-missing API payload must never crash the page. */
+function asArray(v: unknown): any[] {
+  return Array.isArray(v) ? (v as any[]) : [];
+}
+
 const TREND_ICON: Record<string, { icon: typeof TrendingUp; cls: string; label: string }> = {
   TRENDING_UP: { icon: TrendingUp, cls: 'text-emerald-600', label: 'Trending up' },
   TRENDING_DOWN: { icon: TrendingDown, cls: 'text-rose-600', label: 'Trending down' },
@@ -48,7 +53,17 @@ export default function CareerIntelligenceRolePage() {
       careerService.getReadiness(roleSlug).catch(() => null),
     ])
       .then(([r, m, rd]) => {
-        setRole(r.role); setSnapshot(m?.snapshot ?? null); setReadiness(rd); setError(null);
+        const roleData = r?.role;
+        if (roleData) roleData.skills = asArray(roleData.skills);
+        if (m?.snapshot) {
+          m.snapshot.topSkills = asArray(m.snapshot.topSkills);
+          m.snapshot.skillPairs = asArray(m.snapshot.skillPairs);
+        }
+        if (rd) {
+          rd.matched = asArray(rd.matched);
+          rd.gaps = asArray(rd.gaps).map(g => ({ ...g, reasons: asArray(g.reasons) }));
+        }
+        setRole(roleData ?? null); setSnapshot(m?.snapshot ?? null); setReadiness(rd); setError(null);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -145,7 +160,7 @@ export default function CareerIntelligenceRolePage() {
           <Card className="p-4 rounded-2xl">
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Essential skills</p>
             <p className="text-2xl font-extrabold text-foreground mt-1">
-              {readiness ? `${readiness.essentialMatched}/${readiness.essentialTotal + readiness.essentialMatched}` : `${role.skills.filter(s => s.priority === 'ESSENTIAL').length}`}
+              {readiness ? `${readiness.essentialMatched}/${readiness.essentialTotal}` : `${role.skills.filter(s => s.priority === 'ESSENTIAL').length}`}
             </p>
             <p className="text-[10px] text-muted-foreground">verified / required</p>
           </Card>

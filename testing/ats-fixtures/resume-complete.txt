@@ -1,0 +1,59 @@
+HUZAIFA BUBERE
+Backend Developer
+Mumbai, India | +91 98765 43210 | huzaifa.bubere@example.com
+LinkedIn: linkedin.com/in/huzaifabubere | GitHub: github.com/huzaifabubere
+
+SUMMARY
+Backend developer with 2 years of experience building REST APIs and
+microservices using Node.js, Express and MongoDB. Comfortable with
+authentication, testing and Docker-based deployment.
+
+TECHNICAL SKILLS
+Languages: JavaScript, TypeScript, Python, SQL
+Backend: Node.js, Express, REST APIs, JWT Authentication
+Databases: MongoDB, PostgreSQL, Redis
+DevOps & Tools: Docker, Git, GitHub Actions, Postman, Nginx
+Testing: Jest, Supertest
+
+WORK EXPERIENCE
+
+Backend Developer — Zenlytic Solutions, Mumbai
+Jun 2024 – Present
+- Built 12 REST endpoints for order management using Node.js and Express,
+  serving 8,000 monthly active users.
+- Reduced p95 API latency from 420ms to 160ms by adding Redis caching and
+  MongoDB compound indexes.
+- Wrote Jest and Supertest integration tests covering 78% of service code.
+- Containerized services with Docker Compose and automated builds with
+  GitHub Actions.
+
+Junior Node.js Developer — Craftify Web, Pune
+Jul 2023 – May 2024
+- Developed authentication and authorization middleware using JWT and
+  role-based access control.
+- Migrated 15 legacy REST endpoints to a validated Express router structure,
+  cutting duplicated validation code by 60%.
+- Fixed 40+ production bugs and maintained API documentation in Postman.
+
+PROJECTS
+
+Task Management API — github.com/huzaifabubere/task-api
+- REST API for teams with CRUD, JWT auth, role-based permissions and input
+  validation using Joi; MongoDB with Mongoose; 70% test coverage with Jest.
+- Deployed with Docker on a Render free instance; handled 5,000 requests in
+  load testing with 0 errors.
+
+Realtime Polling App
+- Socket.io-based live voting with Node.js and MongoDB; results update for
+  all clients within 200ms of vote submission.
+
+EDUCATION
+Bachelor of Engineering (Computer), Mumbai University — 2019 – 2023
+CGPA: 8.2/10
+
+CERTIFICATIONS
+- MongoDB Associate Developer (2025)
+- AWS Cloud Practitioner (2024)
+
+ACHIEVEMENTS
+- Finalist, Smart India Hackathon 2022 (backend track)

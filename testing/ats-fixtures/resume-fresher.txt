@@ -1,0 +1,28 @@
+Priya Sharma
+priya.sharma@example.com | +91 90123 45678
+github.com/priyasharma
+
+SUMMARY
+Final-year computer science student looking for a backend or full-stack
+internship. Comfortable with JavaScript, React and Node.js basics.
+
+SKILLS
+JavaScript, React, Node.js, Express, MongoDB, HTML, CSS, Git, Figma
+
+PROJECTS
+
+College Event Portal
+- Built with the MERN stack for the college tech fest; 300 students
+  registered through it during the event week.
+- Added login with JWT and simple role-based admin panel.
+
+Expense Splitter Web App
+- React frontend with Node.js/Express API and MongoDB storage.
+- Groups can add expenses and the app computes who owes whom.
+
+EDUCATION
+B.E. Computer Science, Pune University — expected 2026
+CGPA: 8.6/10
+
+CERTIFICATIONS
+- freeCodeCamp JavaScript Algorithms and Data Structures (2024)

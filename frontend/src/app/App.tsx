@@ -20,6 +20,7 @@ const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(m => ({ 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage').then(m => ({ default: m.SubscriptionPage })));
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })));
 const PaymentSuccessPage = lazy(() => import('./pages/PaymentSuccessPage').then(m => ({ default: m.PaymentSuccessPage })));
 const ResumeAnalyzerPage = lazy(() => import('./pages/ResumeAnalyzerPage').then(m => ({ default: m.ResumeAnalyzerPage })));
 const ResumeBuilderPage = lazy(() => import('./pages/ResumeBuilderPage'));
@@ -52,10 +53,13 @@ const AdaptiveReportPage = lazy(() => import('./pages/AdaptiveReportPage'));
 // AETHER Career Learning + Career Intelligence
 const CareerLearningPage = lazy(() => import('./pages/CareerLearningPage'));
 const CareerRoadmapPage = lazy(() => import('./pages/CareerRoadmapPage'));
+const LearningTopicPage = lazy(() => import('./pages/LearningTopicPage'));
 const CourseDetailPage = lazy(() => import('./pages/CourseDetailPage'));
 const CareerIntelligencePage = lazy(() => import('./pages/CareerIntelligencePage'));
 const CareerIntelligenceRolePage = lazy(() => import('./pages/CareerIntelligenceRolePage'));
 const AdminCareerPage = lazy(() => import('./pages/admin/CareerAdminPage'));
+const LearningContentAdminPage = lazy(() => import('./pages/admin/LearningContentAdminPage'));
+const BillingAdminPage = lazy(() => import('./pages/admin/BillingAdminPage').then(m => ({ default: m.BillingAdminPage })));
 const AptitudeQuestionManager = lazy(() => import('../pages/admin/aptitude/QuestionManager'));
 const AptitudeTestManager = lazy(() => import('../pages/admin/aptitude/TestManager'));
 const AptitudeStudentManager = lazy(() => import('../pages/admin/aptitude/StudentManager'));
@@ -185,6 +189,12 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        <Route path="/analytics" element={
+          <Suspense fallback={<PageLoader />}>
+            <AnalyticsPage />
+          </Suspense>
+        }>
+        </Route>
         <Route path="/subscription" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -313,6 +323,14 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        {/* Database-backed lesson page — what a roadmap topic click opens (spec §53) */}
+        <Route path="/career-learning/topics/:topicSlug" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <LearningTopicPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="/career-learning/:roleSlug" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -411,6 +429,20 @@ function AppContent() {
           <AdminRoute>
             <Suspense fallback={<PageLoader />}>
               <AdminCareerPage />
+            </Suspense>
+          </AdminRoute>
+        } />
+        <Route path="/admin/learning-content" element={
+          <AdminRoute>
+            <Suspense fallback={<PageLoader />}>
+              <LearningContentAdminPage />
+            </Suspense>
+          </AdminRoute>
+        } />
+        <Route path="/admin/billing" element={
+          <AdminRoute>
+            <Suspense fallback={<PageLoader />}>
+              <BillingAdminPage />
             </Suspense>
           </AdminRoute>
         } />

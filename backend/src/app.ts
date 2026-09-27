@@ -17,6 +17,8 @@ import feedbackRoutes from './routes/feedback';
 import adminRoutes from './routes/admin';
 import codeExecutionRoutes from './routes/codeExecution';
 import paymentRoutes from './routes/payment';
+import subscriptionRoutes from './routes/subscription';
+import analyticsRoutes from './routes/analytics';
 import practiceRoutes from './routes/practice';
 import schedulingRoutes from './routes/scheduling';
 import healthRoutes from './routes/health';
@@ -175,6 +177,8 @@ export function createApp(): Application {
   app.use('/api/admin', apiLimiter, authenticateToken, requireAdmin, adminRoutes);
   app.use('/api/code', apiLimiter, codeExecutionRoutes);
   app.use('/api/payment', apiLimiter, paymentRoutes);
+  app.use('/api/subscription', apiLimiter, subscriptionRoutes);
+  app.use('/api/analytics', apiLimiter, analyticsRoutes);
   app.use('/api/practice', apiLimiter, authenticateToken, requireCandidate, practiceRoutes);
   app.use('/api/scheduling', apiLimiter, authenticateToken, requireCandidate, schedulingRoutes);
   app.use('/api/health', healthRoutes); // no auth — public health check

@@ -1,0 +1,31 @@
+JOB TITLE: Backend Developer (Node.js)
+
+ABOUT THE ROLE
+We are building scalable containerized backend services for a logistics
+platform. You will design REST APIs, work with MongoDB and PostgreSQL, and
+deploy services on AWS.
+
+REQUIRED SKILLS
+- 2+ years with Node.js and Express
+- REST API design and versioning
+- MongoDB or PostgreSQL (schema design, indexing)
+- Docker and containerized deployments
+- Git-based workflow
+- Authentication (JWT / OAuth2)
+
+PREFERRED SKILLS
+- AWS (EC2, S3, Lambda) or similar cloud infrastructure
+- Redis caching
+- Message queues (SQS / RabbitMQ)
+- TypeScript
+- Testing with Jest or Mocha
+- Kubernetes
+
+RESPONSIBILITIES
+- Build and maintain containerized backend microservices.
+- Design database schemas and optimize slow queries.
+- Write integration tests for critical flows.
+- Participate in code reviews and on-call rotations.
+
+MINIMUM QUALIFICATIONS
+Bachelor's degree in Computer Science or equivalent practical experience.

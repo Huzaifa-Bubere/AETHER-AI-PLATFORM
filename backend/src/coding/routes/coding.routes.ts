@@ -68,6 +68,27 @@ router.get(
   asyncHandler((req, res) => codingSubmissionsController.getSubmissionDetail(req, res))
 );
 
+// ── Post-submission optimization feedback (Part A) ─────────────────────────
+
+// "Explain with AETHER AI" — narrates the deterministic complexity verdict.
+router.post(
+  '/submissions/:id/explain',
+  asyncHandler((req, res) => codingSubmissionsController.explainOptimization(req, res))
+);
+
+// "Show Optimized Approach" — reference editorial solution (never overwrites
+// the candidate's submission).
+router.get(
+  '/submissions/:id/reference-approach',
+  asyncHandler((req, res) => codingSubmissionsController.getReferenceApproach(req, res))
+);
+
+// Real-data complexity analytics (efficient vs optimizable submissions).
+router.get(
+  '/analytics/complexity',
+  asyncHandler((req, res) => codingSubmissionsController.getComplexityAnalytics(req, res))
+);
+
 router.get(
   '/progress/me',
   asyncHandler((req, res) => codingSubmissionsController.getMyProgress(req, res))

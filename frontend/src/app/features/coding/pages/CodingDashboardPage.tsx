@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Code2, Flame, Target, TrendingUp, Trophy, Activity,
-  BarChart3, ArrowRight, Sparkles,
+  BarChart3, ArrowRight, Sparkles, Gauge,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, CartesianGrid,
@@ -11,7 +11,7 @@ import {
 import { Card } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { codingService } from '../services/coding.service';
-import type { ICodingProgress, ISubmissionSummary, IRecommendations } from '../types';
+import type { ICodingProgress, ISubmissionSummary, IRecommendations, ICodingComplexityAnalytics } from '../types';
 
 /**
  * AETHER Coding — main dashboard at /coding.
@@ -23,18 +23,21 @@ export function CodingDashboardPage() {
   const [progress, setProgress] = useState<ICodingProgress | null>(null);
   const [recent, setRecent] = useState<ISubmissionSummary[]>([]);
   const [recommendations, setRecommendations] = useState<IRecommendations | null>(null);
+  const [complexity, setComplexity] = useState<ICodingComplexityAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     void (async () => {
-      const [p, s, r] = await Promise.all([
+      const [p, s, r, c] = await Promise.all([
         codingService.getMyProgress(),
         codingService.getMySubmissions(1, 8),
         codingService.getRecommendations(),
+        codingService.getComplexityAnalytics().catch(() => ({ success: false } as any)),
       ]);
       if (p.success && p.data) setProgress(p.data);
       if (s.success && s.data) setRecent(s.data.submissions);
       if (r.success && r.data) setRecommendations(r.data);
+      if (c.success && c.data) setComplexity(c.data);
       setLoading(false);
     })();
   }, []);
@@ -114,6 +117,62 @@ export function CodingDashboardPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </Card>
+
+          {/* Optimization feedback (Part A, spec §11) — real stored comparisons. */}
+          <Card className="p-5">
+            <h2 className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+              <Gauge className="w-4 h-4 text-rose-500" /> Solution Efficiency
+            </h2>
+            <p className="text-xs text-slate-400 mb-3">
+              Measured from your stored submissions' estimated complexity, not generated values.
+            </p>
+            {!complexity || complexity.tracked === 0 ? (
+              <p className="text-sm text-slate-400">
+                {complexity?.emptyState || 'No complexity-tracked submissions yet.'}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                    <p className="text-xs text-emerald-700 font-semibold">Efficient Solutions</p>
+                    <p className="text-xl font-bold text-emerald-800">{complexity.efficient} / {complexity.tracked}</p>
+                    <p className="text-[11px] text-emerald-700">{complexity.efficientPercent}% matched the expected complexity</p>
+                  </div>
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+                    <p className="text-xs text-rose-700 font-semibold">Optimizable Solutions</p>
+                    <p className="text-xl font-bold text-rose-800">{complexity.optimizable} / {complexity.tracked}</p>
+                    <p className="text-[11px] text-rose-700">{complexity.optimizablePercent}% could be improved</p>
+                  </div>
+                </div>
+                {complexity.clearOpportunities > 0 && (
+                  <p className="text-xs text-slate-600">
+                    <strong>{complexity.clearOpportunities}</strong> submission(s) had a clear optimization opportunity where the code
+                    passed the tests but ran in a worse complexity class than required.
+                  </p>
+                )}
+                {complexity.recent.length > 0 && (
+                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                    {complexity.recent.slice(0, 4).map(r => (
+                      <div key={r.submissionId} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600 truncate mr-2">{r.problem?.title || 'Problem'} <span className="text-slate-400">({r.language})</span></span>
+                        <span className="font-mono shrink-0">
+                          <span className={r.level === 'OPTIMAL' ? 'text-emerald-600' : r.level === 'UNKNOWN' ? 'text-slate-400' : 'text-rose-600'}>
+                            {r.candidateComplexity}
+                          </span>
+                          <span className="text-slate-400"> / {r.expectedComplexity}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {complexity.unknownExcluded > 0 && (
+                  <p className="text-[11px] text-slate-400">
+                    {complexity.unknownExcluded} submission(s) could not be classified and are excluded from these counts.
+                  </p>
+                )}
               </div>
             )}
           </Card>

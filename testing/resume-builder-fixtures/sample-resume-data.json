@@ -1,0 +1,83 @@
+{
+  "_comment": "Paste via Resume Builder → Import JSON (or use as API payload body.data). Shape mirrors backend/src/models/ResumeVersion.ts data schema.",
+  "name": "Huzaifa Bubere",
+  "email": "huzaifa.bubere@example.com",
+  "phone": "+91 98765 43210",
+  "location": "Mumbai, India",
+  "links": [
+    "linkedin.com/in/huzaifabubere",
+    "github.com/huzaifabubere"
+  ],
+  "summary": "Backend developer with 2 years of experience building REST APIs and microservices using Node.js, Express and MongoDB.",
+  "education": [
+    {
+      "institute": "Mumbai University",
+      "degree": "B.E. Computer Engineering",
+      "field": "Computer Engineering",
+      "start": "2019",
+      "end": "2023",
+      "grade": "CGPA 8.2/10",
+      "location": "Mumbai"
+    }
+  ],
+  "experience": [
+    {
+      "company": "Zenlytic Solutions",
+      "role": "Backend Developer",
+      "location": "Mumbai",
+      "startDate": "2024-06",
+      "endDate": "",
+      "current": true,
+      "bullets": [
+        "Built 12 REST endpoints for order management using Node.js and Express, serving 8,000 monthly active users.",
+        "Reduced p95 API latency from 420ms to 160ms by adding Redis caching and MongoDB compound indexes.",
+        "Wrote Jest and Supertest integration tests covering 78% of service code.",
+        "Containerized services with Docker Compose and automated builds with GitHub Actions."
+      ]
+    },
+    {
+      "company": "Craftify Web",
+      "role": "Junior Node.js Developer",
+      "location": "Pune",
+      "startDate": "2023-07",
+      "endDate": "2024-05",
+      "current": false,
+      "bullets": [
+        "Developed JWT authentication and role-based authorization middleware.",
+        "Migrated 15 legacy REST endpoints to validated Express routers, cutting duplicated validation code by 60%."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Task Management API",
+      "description": "Team task REST API with CRUD, JWT auth, role-based permissions and Joi validation.",
+      "technologies": ["Node.js", "Express", "MongoDB", "Jest", "Docker"],
+      "url": "github.com/huzaifabubere/task-api",
+      "bullets": [
+        "Handled 5,000 requests in load testing with 0 errors.",
+        "Achieved 70% test coverage with Jest and Supertest."
+      ]
+    },
+    {
+      "name": "Realtime Polling App",
+      "description": "Socket.io live voting application with sub-200ms result propagation.",
+      "technologies": ["Node.js", "Socket.io", "MongoDB"],
+      "bullets": ["Results update for all clients within 200ms of vote submission."]
+    }
+  ],
+  "skills": [
+    "JavaScript", "TypeScript", "Python", "SQL",
+    "Node.js", "Express", "REST APIs", "JWT Authentication",
+    "MongoDB", "PostgreSQL", "Redis",
+    "Docker", "Git", "GitHub Actions", "Postman", "Nginx",
+    "Jest", "Supertest"
+  ],
+  "certifications": [
+    "MongoDB Associate Developer (2025)",
+    "AWS Cloud Practitioner (2024)"
+  ],
+  "achievements": [
+    "Finalist, Smart India Hackathon 2022 (backend track)"
+  ]
+}

@@ -106,7 +106,10 @@ export default function CareerAdminPage() {
             <ArrowLeft className="w-3.5 h-3.5" /> Admin
           </Link>
           <h1 className="text-3xl font-extrabold tracking-tight">Career & Market Data</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage career roles, import job datasets, and generate market snapshots.</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Manage career roles, import job datasets, and generate market snapshots.{' '}
+            <Link to="/admin/learning-content" className="text-primary hover:underline">Manage learning lesson content →</Link>
+          </p>
         </div>
 
         {/* Market import */}

@@ -9,6 +9,12 @@ import { Skill } from '../models/Skill';
 import { getOrBuildSkillProfile, confidenceMap, declareSkills, rebuildSkillProfile } from '../services/skillProfile.service';
 import { computeReadiness, buildWeeklyPlan, GAP_THRESHOLD, type SkillDemand } from '../services/readiness.service';
 import { careerAI } from '../services/careerAI.service';
+import { LearningTopic } from '../models/LearningTopic';
+import {
+  getTopicPage, listTopicNav, setTopicState, toggleBookmark, saveNotes,
+  gradeTopicQuiz, continueLearning, recommendTopics, topicGroundingText, TOPIC_STATES,
+  resolveTopicForRoadmapNode,
+} from '../services/topicContent.service';
 import logger from '../../utils/logger';
 import { asyncHandler } from '../../middleware/errorHandler';
 
@@ -57,6 +63,141 @@ router.get('/', authenticateToken, requireCandidate, asyncHandler(async (req: Re
   });
   const categories = [...new Set(roles.map(r => r.category))].sort();
   res.json({ success: true, data: { roles: data, categories, goal: goal ? { roleSlug: goal.roleSlug, hoursPerWeek: goal.hoursPerWeek, experienceLevel: goal.experienceLevel, targetTimelineWeeks: goal.targetTimelineWeeks } : null } });
+}));
+
+// ── Learning topics (spec §28–§59) ───────────────────────────────────────────
+// NOTE: these MUST be declared before the `/:slug` role route below, otherwise
+// Express would treat "topics" as a career-role slug.
+
+/**
+ * GET /api/careers/topics — course navigation for the learning UI.
+ * Powers the left-hand column so it survives a page refresh.
+ */
+router.get('/topics', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const topics = await listTopicNav((req as any).user.userId, {
+    group: req.query.group ? String(req.query.group) : undefined,
+    roleSlug: req.query.role ? String(req.query.role).toLowerCase() : undefined,
+  });
+  const groups = [...new Set(topics.map(t => t.group))];
+  res.json({ success: true, data: { topics, groups } });
+}));
+
+/**
+ * GET /api/careers/topics/:slug — the COMPLETE topic page payload.
+ * Overview, objectives, structured content, examples, mistakes, interview tips,
+ * practice, quiz, resources, stored video metadata, prerequisites, next/related.
+ */
+router.get('/topics/:slug', authenticateToken, requireCandidate, [param('slug').isString()], asyncHandler(async (req: Request, res: Response) => {
+  const page = await getTopicPage((req as any).user.userId, req.params.slug);
+  if (!page) {
+    res.status(404).json({ success: false, message: 'Learning topic not found or not published' });
+    return;
+  }
+  res.json({ success: true, data: page });
+}));
+
+/** PUT /api/careers/topics/:slug/progress — NOT_STARTED | IN_PROGRESS | COMPLETED | REVIEW_NEEDED */
+router.put('/topics/:slug/progress', authenticateToken, requireCandidate, [
+  param('slug').isString(),
+  body('state').isIn(TOPIC_STATES as unknown as string[]),
+], asyncHandler(async (req: Request, res: Response) => {
+  const result = await setTopicState((req as any).user.userId, req.params.slug, req.body.state);
+  res.json({ success: true, data: result });
+}));
+
+/** POST /api/careers/topics/:slug/bookmark — toggle or set explicitly. */
+router.post('/topics/:slug/bookmark', authenticateToken, requireCandidate, [
+  param('slug').isString(),
+  body('bookmarked').optional().isBoolean(),
+], asyncHandler(async (req: Request, res: Response) => {
+  const result = await toggleBookmark((req as any).user.userId, req.params.slug, req.body.bookmarked);
+  res.json({ success: true, data: result });
+}));
+
+/** PUT /api/careers/topics/:slug/notes — persisted learner notes (+ last block position). */
+router.put('/topics/:slug/notes', authenticateToken, requireCandidate, [
+  param('slug').isString(),
+  body('notes').isString().isLength({ max: 20000 }),
+  body('lastBlockIndex').optional().isInt({ min: 0 }),
+], asyncHandler(async (req: Request, res: Response) => {
+  const result = await saveNotes(
+    (req as any).user.userId,
+    req.params.slug,
+    req.body.notes,
+    req.body.lastBlockIndex
+  );
+  res.json({ success: true, data: result });
+}));
+
+/** GET /api/careers/topics/:slug/quiz — questions without the answers. */
+router.get('/topics/:slug/quiz', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const topic = await LearningTopic.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' })
+    .select('slug title quiz').lean();
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Learning topic not found' });
+    return;
+  }
+  res.json({
+    success: true,
+    data: {
+      questions: (topic.quiz || []).map((q: any) => ({
+        id: q.id, question: q.question, options: q.options, difficulty: q.difficulty, topicTag: q.topicTag,
+      })),
+    },
+  });
+}));
+
+/** POST /api/careers/topics/:slug/quiz — server-side grading + recommendations (§58). */
+router.post('/topics/:slug/quiz', authenticateToken, requireCandidate, [
+  param('slug').isString(),
+  body('answers').isArray(),
+], asyncHandler(async (req: Request, res: Response) => {
+  const result = await gradeTopicQuiz((req as any).user.userId, req.params.slug, req.body.answers);
+  if (!result) {
+    res.status(404).json({ success: false, message: 'Learning topic not found' });
+    return;
+  }
+  res.json({ success: true, data: result });
+}));
+
+/**
+ * POST /api/careers/topics/:slug/ask — supplementary AI tutor (§55–§56).
+ * Grounded strictly in the stored topic content; the lesson stays readable when
+ * Gemini is unavailable.
+ */
+router.post('/topics/:slug/ask', authenticateToken, requireCandidate, [
+  param('slug').isString(),
+  body('question').isString().trim().isLength({ min: 3, max: 500 }),
+], asyncHandler(async (req: Request, res: Response) => {
+  const topic = await LearningTopic.findOne({ slug: req.params.slug.toLowerCase(), status: 'published' }).lean();
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Learning topic not found' });
+    return;
+  }
+  const answer = await explainLessonConcept({
+    question: String(req.body.question),
+    course: { title: topic.title, slug: topic.slug },
+    lesson: {
+      title: topic.title,
+      content: topicGroundingText(topic as any),
+      codeExamples: (topic.examples || []).slice(0, 4).map((e: any) => ({
+        language: e.language, code: e.code, caption: e.title,
+      })),
+    },
+  });
+  res.json({ success: true, data: answer });
+}));
+
+/** GET /api/careers/me/continue-learning — dashboard resumable lessons (§51). */
+router.get('/me/continue-learning', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const data = await continueLearning((req as any).user.userId);
+  res.json({ success: true, data });
+}));
+
+/** GET /api/careers/me/topic-recommendations — evidence-based next topics (§59). */
+router.get('/me/topic-recommendations', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const data = await recommendTopics((req as any).user.userId);
+  res.json({ success: true, data });
 }));
 
 /** GET /api/careers/:slug — full role detail (incl. skills, stages, projects, resources). */
@@ -116,6 +257,17 @@ router.get('/:slug/roadmap', authenticateToken, requireCandidate, asyncHandler(a
 }));
 
 /** GET /api/careers/:slug/nodes/:nodeId — full topic detail for the drawer. */
+/**
+ * GET /api/careers/:slug/nodes/:nodeId/lesson — which database lesson covers this
+ * roadmap node? (spec §52–§53) The roadmap uses this to open the full lesson
+ * page; when nothing is authored yet it returns `topicSlug: null` so the roadmap
+ * falls back to its own node detail instead of an empty lesson.
+ */
+router.get('/:slug/nodes/:nodeId/lesson', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const link = await resolveTopicForRoadmapNode(req.params.slug, req.params.nodeId);
+  res.json({ success: true, data: link ?? { topicSlug: null } });
+}));
+
 router.get('/:slug/nodes/:nodeId', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
   const role = await CareerRole.findOne({ slug: req.params.slug.toLowerCase() });
   if (!role) {

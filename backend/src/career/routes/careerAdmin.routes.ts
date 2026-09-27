@@ -7,6 +7,9 @@ import { Skill } from '../models/Skill';
 import { RoleTrendSnapshot, MarketDataSource, SkillDictionaryEntry, MarketJob } from '../models/market';
 import { marketIntelligenceService, parseCsv, type RawJobInput } from '../services/marketIntelligence.service';
 import { normalizeSkillName } from '../services/skillExtraction';
+import { LearningTopic } from '../models/LearningTopic';
+import { LearningVideo } from '../models/LearningVideo';
+import { refreshAllTopicVideos, validateStoredVideos, VIDEO_SELECTION_VERSION, isYoutubeConfigured } from '../services/youtube.service';
 import logger from '../../utils/logger';
 
 const router = Router();
@@ -66,6 +69,204 @@ router.put('/:id/enable', asyncHandler(async (req: Request, res: Response) => {
     return;
   }
   res.json({ success: true, data: { slug: role.slug, isActive: role.isActive } });
+}));
+
+// ── Learning topic content management (spec §39) ─────────────────────────────
+
+/** GET /api/admin/careers/topics — all topics with publish state + content size. */
+router.get('/topics', asyncHandler(async (req: Request, res: Response) => {
+  const status = req.query.status ? String(req.query.status) : undefined;
+  const query: any = {};
+  if (status && status !== 'all') query.status = status;
+  const topics = await LearningTopic.find(query)
+    .select('slug title group level estimatedMinutes status contentVersion source order updatedAt sections examples quiz prerequisites nextTopicSlugs')
+    .sort({ group: 1, order: 1 })
+    .lean();
+
+  const data = topics.map(t => ({
+    _id: (t as any)._id,
+    slug: t.slug,
+    title: t.title,
+    group: t.group,
+    level: t.level,
+    estimatedMinutes: t.estimatedMinutes,
+    status: t.status,
+    contentVersion: t.contentVersion,
+    source: t.source,
+    order: t.order,
+    updatedAt: (t as any).updatedAt,
+    counts: {
+      blocks: (t.sections || []).length,
+      examples: (t.examples || []).length,
+      quiz: (t.quiz || []).length,
+      prerequisites: (t.prerequisites || []).length,
+      nextTopics: (t.nextTopicSlugs || []).length,
+    },
+  }));
+
+  res.json({
+    success: true,
+    data: {
+      topics: data,
+      videoRefreshConfigured: isYoutubeConfigured(),
+      videoSelectionVersion: VIDEO_SELECTION_VERSION,
+      extensionOrder: ['sections', 'examples', 'commonMistakes', 'interviewTips', 'practice', 'quiz', 'resources'],
+    },
+  });
+}));
+
+/** GET /api/admin/careers/topics/:id — full topic document for editing. */
+router.get('/topics/:id', asyncHandler(async (req: Request, res: Response) => {
+  const topic = await LearningTopic.findById(req.params.id).lean();
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Topic not found' });
+    return;
+  }
+  const videos = await LearningVideo.find({ topicSlug: topic.slug }).sort({ rankingScore: -1 }).limit(8).lean();
+  res.json({ success: true, data: { topic, videos } });
+}));
+
+/** POST /api/admin/careers/topics — create a topic. */
+router.post('/topics', [
+  body('slug').isString().isLength({ min: 2, max: 80 }).matches(/^[a-z0-9-]+$/),
+  body('title').isString().isLength({ min: 2, max: 120 }),
+  body('shortDescription').isString().isLength({ min: 10, max: 300 }),
+  body('description').isString().isLength({ min: 20 }),
+], asyncHandler(async (req: Request, res: Response) => {
+  const existing = await LearningTopic.findOne({ slug: String(req.body.slug).toLowerCase() });
+  if (existing) {
+    res.status(409).json({ success: false, message: 'A topic with this slug already exists' });
+    return;
+  }
+  const topic = await LearningTopic.create({
+    ...req.body,
+    slug: String(req.body.slug).toLowerCase(),
+    status: req.body.status || 'draft',
+    source: 'ORIGINAL',
+  });
+  logger.info('career.topic.created', { slug: topic.slug, by: (req as any).user.userId });
+  res.status(201).json({ success: true, data: topic });
+}));
+
+/**
+ * PUT /api/admin/careers/topics/:id — edit lesson content.
+ * Changing content never requires a frontend change: the page renders whatever
+ * blocks are stored (spec §71).
+ */
+router.put('/topics/:id', asyncHandler(async (req: Request, res: Response) => {
+  const editable = [
+    'title', 'shortDescription', 'description', 'whyItMatters', 'interviewRelevance',
+    'skillSlugs', 'roleSlugs', 'roadmapNodeIds', 'courseSlugs', 'moduleId', 'stageId',
+    'group', 'order', 'level', 'estimatedMinutes', 'prerequisites', 'optionalPrerequisites',
+    'learningObjectives', 'sections', 'examples', 'commonMistakes', 'interviewTips',
+    'practice', 'quiz', 'resources', 'nextTopicSlugs', 'relatedTopicSlugs', 'reviewedBy',
+  ];
+  const patch: any = {};
+  for (const f of editable) if (req.body[f] !== undefined) patch[f] = req.body[f];
+
+  const topic = await LearningTopic.findById(req.params.id);
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Topic not found' });
+    return;
+  }
+  Object.assign(topic, patch);
+  topic.contentVersion = (topic.contentVersion || 0) + 1;
+  await topic.save();
+  logger.info('career.topic.updated', { slug: topic.slug, version: topic.contentVersion, by: (req as any).user.userId });
+  res.json({ success: true, data: topic });
+}));
+
+/** POST /api/admin/careers/topics/:id/publish — publish (content completeness gated). */
+router.post('/topics/:id/publish', asyncHandler(async (req: Request, res: Response) => {
+  const topic = await LearningTopic.findById(req.params.id);
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Topic not found' });
+    return;
+  }
+  // A published topic must contain real educational content (spec §31).
+  const missing: string[] = [];
+  if ((topic.sections || []).length < 3) missing.push('at least 3 content sections');
+  if ((topic.examples || []).length < 1) missing.push('at least 1 worked example');
+  if ((topic.learningObjectives || []).length < 2) missing.push('at least 2 learning objectives');
+  if ((topic.quiz || []).length < 3) missing.push('at least 3 quiz questions');
+  if (missing.length > 0) {
+    res.status(400).json({
+      success: false,
+      message: `Cannot publish: topic is missing ${missing.join(', ')}. Add the content first — a topic page must never be an empty shell.`,
+      missing,
+    });
+    return;
+  }
+  topic.status = 'published';
+  topic.publishedAt = new Date();
+  await topic.save();
+  res.json({ success: true, data: { slug: topic.slug, status: topic.status } });
+}));
+
+/** POST /api/admin/careers/topics/:id/unpublish */
+router.post('/topics/:id/unpublish', asyncHandler(async (req: Request, res: Response) => {
+  const topic = await LearningTopic.findByIdAndUpdate(req.params.id, { status: 'draft' }, { new: true });
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Topic not found' });
+    return;
+  }
+  res.json({ success: true, data: { slug: topic.slug, status: topic.status } });
+}));
+
+/** POST /api/admin/careers/topics/:id/archive */
+router.post('/topics/:id/archive', asyncHandler(async (req: Request, res: Response) => {
+  const topic = await LearningTopic.findByIdAndUpdate(req.params.id, { status: 'archived' }, { new: true });
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Topic not found' });
+    return;
+  }
+  res.json({ success: true, data: { slug: topic.slug, status: topic.status } });
+}));
+
+// ── YouTube video refresh (spec §45–§47) ─────────────────────────────────────
+
+/** POST /api/admin/careers/videos/refresh — rank and store real video metadata. */
+router.post('/videos/refresh', [
+  body('slug').optional().isString(),
+  body('onlyStale').optional().isBoolean(),
+  body('limit').optional().isInt({ min: 1, max: 200 }),
+], asyncHandler(async (req: Request, res: Response) => {
+  const result = await refreshAllTopicVideos({
+    slug: req.body.slug ? String(req.body.slug).toLowerCase() : undefined,
+    onlyStale: !!req.body.onlyStale,
+    limit: req.body.limit,
+  });
+  logger.info('career.videos.refreshed', {
+    by: (req as any).user.userId,
+    topicsProcessed: result.topicsProcessed,
+    videosStored: result.videosStored,
+    quotaExceeded: result.quotaExceeded,
+  });
+  res.json({ success: true, data: result });
+}));
+
+/** POST /api/admin/careers/videos/validate — deactivate dead/private videos (§47). */
+router.post('/videos/validate', asyncHandler(async (req: Request, res: Response) => {
+  const result = await validateStoredVideos();
+  res.json({ success: true, data: result });
+}));
+
+/** GET /api/admin/careers/videos — stored video inventory (transparency). */
+router.get('/videos', asyncHandler(async (req: Request, res: Response) => {
+  const topicSlug = req.query.topic ? String(req.query.topic).toLowerCase() : undefined;
+  const query: any = topicSlug ? { topicSlug } : {};
+  const videos = await LearningVideo.find(query).sort({ topicSlug: 1, rankingScore: -1 }).limit(300).lean();
+  res.json({
+    success: true,
+    data: {
+      videos,
+      configured: isYoutubeConfigured(),
+      selectionVersion: VIDEO_SELECTION_VERSION,
+      message: isYoutubeConfigured()
+        ? null
+        : 'YOUTUBE_API_KEY is not configured. No video metadata is fabricated — refresh stays disabled until a key is added.',
+    },
+  });
 }));
 
 // ── Skills taxonomy ──────────────────────────────────────────────────────────

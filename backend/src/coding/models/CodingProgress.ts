@@ -22,6 +22,25 @@ export interface ICodingProgress extends Document {
   averageCodingScore: number;
   languageUsage: Array<{ language: string; count: number }>;
   recentActivity: Array<{ date: Date; submissions: number }>;
+  /**
+   * Complexity-optimization analytics (AETHER Part A, spec §11).
+   * Every value is a count of real stored submissions that carried a
+   * deterministic complexity comparison — no estimates, no randomness.
+   */
+  complexityStats: {
+    tracked: number;
+    efficient: number;
+    optimizable: number;
+    clearOpportunities: number;
+    unknown: number;
+    byTopic: Array<{
+      topic: string;
+      tracked: number;
+      efficient: number;
+      optimizable: number;
+      unknown: number;
+    }>;
+  };
 }
 
 const codingProgressSchema = new Schema<ICodingProgress>(
@@ -66,6 +85,26 @@ const codingProgressSchema = new Schema<ICodingProgress>(
     averageCodingScore: { type: Number, default: 0 },
     languageUsage: [{ language: String, count: { type: Number, default: 0 }, _id: false }],
     recentActivity: [{ date: Date, submissions: Number, _id: false }],
+    complexityStats: {
+      type: {
+        tracked: { type: Number, default: 0 },
+        efficient: { type: Number, default: 0 },
+        optimizable: { type: Number, default: 0 },
+        clearOpportunities: { type: Number, default: 0 },
+        unknown: { type: Number, default: 0 },
+        byTopic: [
+          {
+            topic: String,
+            tracked: { type: Number, default: 0 },
+            efficient: { type: Number, default: 0 },
+            optimizable: { type: Number, default: 0 },
+            unknown: { type: Number, default: 0 },
+            _id: false,
+          },
+        ],
+      },
+      default: () => ({ tracked: 0, efficient: 0, optimizable: 0, clearOpportunities: 0, unknown: 0, byTopic: [] }),
+    },
   },
   { timestamps: true }
 );

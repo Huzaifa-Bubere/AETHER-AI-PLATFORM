@@ -1,0 +1,26 @@
+JOB TITLE: Frontend Developer (React)
+
+ABOUT THE ROLE
+Craft accessible, responsive user interfaces in React with a design-team
+partnership. You will own component libraries and state management.
+
+REQUIRED SKILLS
+- 2+ years React and TypeScript
+- State management (Redux Toolkit or Zustand)
+- CSS frameworks (Tailwind)
+- Accessibility (WCAG 2.1)
+- REST integration
+
+PREFERRED SKILLS
+- Next.js
+- Storybook
+- Playwright / Cypress testing
+- Figma handoff experience
+
+RESPONSIBILITIES
+- Build reusable React components with TypeScript.
+- Ensure pages pass Lighthouse accessibility audits.
+- Collaborate with designers in Figma.
+
+MINIMUM QUALIFICATIONS
+Bachelor's degree or equivalent experience.

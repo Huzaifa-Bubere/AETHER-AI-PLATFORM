@@ -7,6 +7,11 @@ import { analyzeSource } from '../ast/AstAnalyzer';
 import { computeScore } from '../scoring/scoring.service';
 import { codingExplanationService } from '../services/explanation.service';
 import { isCodingLanguage, IAstAnalysis, IExecutionResult } from '../types/coding.types';
+import {
+  compareComplexity,
+  resolveComplexityMetadata,
+  IComplexityComparison,
+} from '../complexity/complexity';
 import logger from '../../utils/logger';
 
 /**
@@ -101,6 +106,24 @@ class CodingSubmissionsController {
           })
         : null;
 
+      // 3b. Deterministic complexity comparison (Part A, spec §2–§8).
+      // Correctness and efficiency are separate: this never affects `status`.
+      const complexityMeta = resolveComplexityMetadata(problem as any);
+      const optimization: IComplexityComparison = compareComplexity({
+        candidateTime: ast?.parseSuccess ? ast.complexity.estimatedTime : null,
+        candidateSpace: ast?.parseSuccess ? ast.complexity.estimatedSpace : null,
+        expectedTime: complexityMeta.expectedTime,
+        expectedSpace: complexityMeta.expectedSpace,
+        acceptedTimeClasses: complexityMeta.acceptedTimeClasses,
+        analyzerConfidence: ast?.parseSuccess ? ast.complexity.confidence : 0,
+        metadataVerified: complexityMeta.verified,
+        analysisAvailable: !!ast?.parseSuccess,
+        correctnessAccepted: exec.status === 'Accepted',
+        evidence: ast?.complexity.evidence || [],
+        optimizationHint: complexityMeta.optimizationHint,
+        optimizationExplanation: complexityMeta.explanation,
+      });
+
       // 4. Persist submission
       const submission = await CodingSubmission.create({
         user: userId,
@@ -119,6 +142,19 @@ class CodingSubmissionsController {
         astAnalysis: ast,
         scoreBreakdown: score,
         overallScore: score?.overall ?? null,
+        complexityCheck: {
+          candidateComplexity: optimization.candidateTime,
+          candidateSpaceComplexity: optimization.candidateSpace,
+          expectedComplexity: optimization.expectedTime,
+          expectedSpaceComplexity: optimization.expectedSpace,
+          acceptedTimeClasses: optimization.acceptedTimeClasses,
+          level: optimization.level,
+          optimizationAvailable: optimization.optimizationAvailable,
+          analyzerConfidence: optimization.analyzerConfidence,
+          confidenceBand: optimization.confidence,
+          threshold: optimization.threshold,
+          evidence: optimization.evidence,
+        },
         explanation: null,
         submittedAt: new Date(),
       });
@@ -143,9 +179,10 @@ class CodingSubmissionsController {
           score: score || zeroScore(),
           expected: {
             preferredApproaches: (problem.knownApproaches || []) as any,
-            expectedTime: problem.expectedTimeComplexity,
-            expectedSpace: problem.expectedSpaceComplexity,
+            expectedTime: complexityMeta.expectedTime || problem.expectedTimeComplexity,
+            expectedSpace: complexityMeta.expectedSpace || problem.expectedSpaceComplexity,
           },
+          optimization,
         });
         await CodingSubmission.updateOne({ _id: submission._id }, { $set: { explanation } });
       } catch (explainErr) {
@@ -154,7 +191,7 @@ class CodingSubmissionsController {
 
       // 6. Update progress + platform analytics
       try {
-        await updateProgress(userId, problem as any, exec, language, score?.overall ?? null);
+        await updateProgress(userId, problem as any, exec, language, score?.overall ?? null, optimization);
       } catch (progErr) {
         logger.warn('Progress update failed after submission:', progErr);
       }
@@ -173,6 +210,10 @@ class CodingSubmissionsController {
           astAnalysis: ast,
           scoreBreakdown: score,
           explanation,
+          optimization,
+          // Summary only — the reference CODE is served behind an explicit click
+          // so an editorial solution is never leaked before a submission.
+          referenceApproach: referenceApproachSummary(problem as any),
           elapsedMs: Date.now() - startedAt,
           problem: {
             title: problem.title,
@@ -245,6 +286,239 @@ class CodingSubmissionsController {
     }
   }
 
+  // ── Optimization feedback (Part A) ──────────────────────────────────────────
+
+  /**
+   * POST /api/coding/submissions/:id/explain
+   * "Explain with AETHER AI" — narrates the ALREADY COMPUTED complexity verdict.
+   * Gemini may only explain; it can never reclassify complexity. If Gemini is
+   * unavailable the deterministic explanation is returned instead.
+   */
+  async explainOptimization(req: Request, res: Response) {
+    try {
+      const userId = (req as any).user?.userId;
+      const { id } = req.params;
+      if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+        return res.status(400).json({ success: false, message: 'Invalid submission id' });
+      }
+
+      const submission = await CodingSubmission.findOne({ _id: id, user: userId })
+        .populate('problem')
+        .lean();
+      if (!submission) {
+        return res.status(404).json({ success: false, message: 'Submission not found' });
+      }
+
+      const problem: any = submission.problem;
+      const stored = (submission as any).complexityCheck;
+
+      // Rebuild the deterministic verdict. Prefer the stored comparison so the
+      // explanation always matches what the candidate was shown.
+      const ast = (submission as any).astAnalysis as IAstAnalysis | null;
+      const meta = resolveComplexityMetadata(problem || {});
+      const optimization: IComplexityComparison = stored
+        ? {
+            candidateTime: stored.candidateComplexity || 'Unknown',
+            candidateSpace: stored.candidateSpaceComplexity || 'Unknown',
+            expectedTime: stored.expectedComplexity || 'Unknown',
+            expectedSpace: stored.expectedSpaceComplexity || 'Unknown',
+            acceptedTimeClasses: stored.acceptedTimeClasses || [],
+            candidateTimeRank: null,
+            expectedTimeRank: null,
+            confidence: stored.confidenceBand || 'LOW',
+            analyzerConfidence: stored.analyzerConfidence || 0,
+            level: stored.level || 'UNKNOWN',
+            optimizationAvailable: !!stored.optimizationAvailable,
+            warn: stored.level === 'POSSIBLY_IMPROVABLE' || stored.level === 'CLEAR_OPTIMIZATION_OPPORTUNITY',
+            headline: '',
+            message: '',
+            reason: '',
+            optimizationHint: meta.optimizationHint,
+            optimizationExplanation: meta.explanation,
+            evidence: stored.evidence || [],
+            threshold: stored.threshold || 0,
+          }
+        : compareComplexity({
+            candidateTime: ast?.complexity?.estimatedTime,
+            candidateSpace: ast?.complexity?.estimatedSpace,
+            expectedTime: meta.expectedTime,
+            expectedSpace: meta.expectedSpace,
+            acceptedTimeClasses: meta.acceptedTimeClasses,
+            analyzerConfidence: ast?.complexity?.confidence ?? 0,
+            metadataVerified: meta.verified,
+            analysisAvailable: !!ast?.parseSuccess,
+            correctnessAccepted: submission.status === 'Accepted',
+            evidence: ast?.complexity?.evidence || [],
+            optimizationHint: meta.optimizationHint,
+            optimizationExplanation: meta.explanation,
+          });
+
+      // Re-derive the human-readable wording when only the stored record existed.
+      if (stored && !optimization.message) {
+        const recomputed = compareComplexity({
+          candidateTime: optimization.candidateTime,
+          candidateSpace: optimization.candidateSpace,
+          expectedTime: optimization.expectedTime,
+          expectedSpace: optimization.expectedSpace,
+          acceptedTimeClasses: optimization.acceptedTimeClasses,
+          analyzerConfidence: optimization.analyzerConfidence,
+          metadataVerified: meta.verified,
+          analysisAvailable: true,
+          correctnessAccepted: submission.status === 'Accepted',
+          evidence: optimization.evidence,
+          optimizationHint: meta.optimizationHint,
+          optimizationExplanation: meta.explanation,
+        });
+        optimization.message = recomputed.message;
+        optimization.reason = recomputed.reason;
+        optimization.headline = recomputed.headline;
+        optimization.warn = recomputed.warn;
+      }
+
+      const code = referenceCode(problem);
+      const snippet = code[submission.language] || code.python || code.javascript || null;
+
+      const explanation = await codingExplanationService.explainOptimization({
+        problem: {
+          title: problem?.title || 'this problem',
+          description: problem?.description,
+          difficulty: problem?.difficulty || '',
+          category: problem?.category || '',
+        },
+        language: submission.language,
+        sourceCode: submission.sourceCode,
+        ast: ast || unavailableAst(),
+        optimization,
+        referenceApproach: problem?.referenceApproach
+          ? {
+              title: problem.referenceApproach.title || '',
+              approachId: problem.referenceApproach.approachId || '',
+              explanation: problem.referenceApproach.explanation || '',
+              timeComplexity: problem.referenceApproach.timeComplexity || '',
+              spaceComplexity: problem.referenceApproach.spaceComplexity || '',
+            }
+          : null,
+        optimizedCodeSnippet: snippet,
+      });
+
+      return res.json({ success: true, data: { optimization, explanation } });
+    } catch (err: any) {
+      logger.error('explainOptimization error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to explain optimization' });
+    }
+  }
+
+  /**
+   * GET /api/coding/submissions/:id/reference-approach
+   * Serves the REFERENCE OPTIMIZED APPROACH on explicit request only, and only
+   * to a candidate who already has a submission for this problem. The candidate's
+   * own submission is never modified.
+   */
+  async getReferenceApproach(req: Request, res: Response) {
+    try {
+      const userId = (req as any).user?.userId;
+      const { id } = req.params;
+      if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+        return res.status(400).json({ success: false, message: 'Invalid submission id' });
+      }
+
+      const submission = await CodingSubmission.findOne({ _id: id, user: userId })
+        .populate('problem')
+        .lean();
+      if (!submission) {
+        return res.status(404).json({ success: false, message: 'Submission not found' });
+      }
+      const problem: any = submission.problem;
+      const meta = resolveComplexityMetadata(problem || {});
+      const code = referenceCode(problem);
+      const ref = problem?.referenceApproach;
+
+      return res.json({
+        success: true,
+        data: {
+          available: !!ref,
+          label: 'REFERENCE OPTIMIZED APPROACH',
+          title: ref?.title || meta.acceptedTimeClasses[0] || 'Optimized approach',
+          approachId: ref?.approachId || '',
+          explanation: ref?.explanation || meta.explanation || '',
+          optimizationHint: meta.optimizationHint,
+          timeComplexity: ref?.timeComplexity || meta.expectedTime,
+          spaceComplexity: ref?.spaceComplexity || meta.expectedSpace,
+          code,
+          languages: Object.keys(code),
+          /** Reference only — the candidate's submission is never overwritten. */
+          note: 'This is a reference solution from the problem editorial. Your own submission is unchanged.',
+        },
+      });
+    } catch (err: any) {
+      logger.error('getReferenceApproach error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to load reference approach' });
+    }
+  }
+
+  /**
+   * GET /api/coding/analytics/complexity
+   * Complexity-optimization analytics computed ONLY from stored submissions
+   * (spec §11 / §60–§62). No estimated or generated values.
+   */
+  async getComplexityAnalytics(req: Request, res: Response) {
+    try {
+      const userId = (req as any).user?.userId;
+      const userObjectId = new (require('mongoose').Types.ObjectId)(String(userId));
+
+      const [grouped, withExpectation, recent] = await Promise.all([
+        CodingSubmission.aggregate([
+          { $match: { user: userObjectId, 'complexityCheck.level': { $nin: [null, 'UNKNOWN'] } } },
+          { $group: { _id: '$complexityCheck.level', count: { $sum: 1 } } },
+        ]),
+        CodingSubmission.countDocuments({ user: userObjectId, 'complexityCheck.optimizationAvailable': true }),
+        CodingSubmission.find({ user: userObjectId, 'complexityCheck.level': { $ne: null } })
+          .select('problem language complexityCheck submittedAt')
+          .populate('problem', 'title slug category difficulty')
+          .sort({ submittedAt: -1 })
+          .limit(10)
+          .lean(),
+      ]);
+
+      const counts: Record<string, number> = { OPTIMAL: 0, POSSIBLY_IMPROVABLE: 0, CLEAR_OPTIMIZATION_OPPORTUNITY: 0 };
+      for (const g of grouped as any[]) counts[g._id] = g.count;
+
+      const tracked = counts.OPTIMAL + counts.POSSIBLY_IMPROVABLE + counts.CLEAR_OPTIMIZATION_OPPORTUNITY;
+      const optimizable = counts.POSSIBLY_IMPROVABLE + counts.CLEAR_OPTIMIZATION_OPPORTUNITY;
+
+      return res.json({
+        success: true,
+        data: {
+          tracked,
+          efficient: counts.OPTIMAL,
+          optimizable,
+          clearOpportunities: counts.CLEAR_OPTIMIZATION_OPPORTUNITY,
+          unknownExcluded: await CodingSubmission.countDocuments({ user: userObjectId, 'complexityCheck.level': 'UNKNOWN' }),
+          optimizationTracked: withExpectation,
+          // Percentage is derived from real counts; null (not 0) when no data.
+          efficientPercent: tracked > 0 ? Math.round((counts.OPTIMAL / tracked) * 100) : null,
+          optimizablePercent: tracked > 0 ? Math.round((optimizable / tracked) * 100) : null,
+          byLevel: counts,
+          recent: (recent as any[]).map(s => ({
+            submissionId: String(s._id),
+            problem: s.problem || null,
+            language: s.language,
+            level: s.complexityCheck?.level || 'UNKNOWN',
+            candidateComplexity: s.complexityCheck?.candidateComplexity || 'Unknown',
+            expectedComplexity: s.complexityCheck?.expectedComplexity || 'Unknown',
+            analyzerConfidence: s.complexityCheck?.analyzerConfidence ?? 0,
+            confidenceBand: s.complexityCheck?.confidenceBand || 'LOW',
+            submittedAt: s.submittedAt,
+          })),
+          emptyState: tracked === 0 ? 'No complexity-tracked submissions yet.' : null,
+        },
+      });
+    } catch (err: any) {
+      logger.error('getComplexityAnalytics error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to load complexity analytics' });
+    }
+  }
+
   // ── Progress & recommendations ──────────────────────────────────────────────
 
   async getMyProgress(req: Request, res: Response) {
@@ -260,6 +534,7 @@ class CodingSubmissionsController {
             solvedProblems: [], attemptedProblems: [], topicStats: [], difficultyStats: [],
             streak: { current: 0, longest: 0 }, totalSubmissions: 0, acceptedSubmissions: 0,
             averageCodingScore: 0, languageUsage: [], recentActivity: [],
+            complexityStats: { tracked: 0, efficient: 0, optimizable: 0, clearOpportunities: 0, unknown: 0, byTopic: [] },
           },
         });
       }
@@ -344,6 +619,35 @@ class CodingSubmissionsController {
   }
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Public (code-free) summary of the editorial reference solution. */
+function referenceApproachSummary(problem: any): any {
+  const ref = problem?.referenceApproach;
+  if (!ref) return null;
+  const code: Record<string, string> = ref.code instanceof Map
+    ? Object.fromEntries(ref.code.entries())
+    : (ref.code || {});
+  return {
+    available: true,
+    title: ref.title || '',
+    approachId: ref.approachId || '',
+    explanation: ref.explanation || '',
+    timeComplexity: ref.timeComplexity || '',
+    spaceComplexity: ref.spaceComplexity || '',
+    languages: Object.keys(code),
+    hasCode: Object.keys(code).length > 0,
+  };
+}
+
+/** Read a Map/plain-object code field safely after a Mongoose lean(). */
+function referenceCode(problem: any): Record<string, string> {
+  const ref = problem?.referenceApproach;
+  if (!ref) return {};
+  if (ref.code instanceof Map) return Object.fromEntries(ref.code.entries());
+  return (ref.code || {}) as Record<string, string>;
+}
+
 // ── Progress update helper ───────────────────────────────────────────────────
 
 async function updateProgress(
@@ -351,7 +655,8 @@ async function updateProgress(
   problem: any,
   exec: IExecutionResult,
   language: string,
-  score: number | null
+  score: number | null,
+  optimization?: IComplexityComparison
 ): Promise<void> {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -449,6 +754,38 @@ async function updateProgress(
   }
   if (progress.recentActivity.length > 28) {
     progress.recentActivity = progress.recentActivity.slice(-28);
+  }
+
+  // ── Complexity-optimization analytics (Part A, spec §11) ─────────────────
+  // Counted from the deterministic comparison stored on this submission.
+  if (optimization) {
+    if (!progress.complexityStats) {
+      progress.complexityStats = { tracked: 0, efficient: 0, optimizable: 0, clearOpportunities: 0, unknown: 0, byTopic: [] } as any;
+    }
+    const stats = progress.complexityStats as any;
+    if (optimization.level !== 'UNKNOWN') {
+      stats.tracked += 1;
+      if (optimization.level === 'OPTIMAL') stats.efficient += 1;
+      else if (optimization.level === 'POSSIBLY_IMPROVABLE') stats.optimizable += 1;
+      else if (optimization.level === 'CLEAR_OPTIMIZATION_OPPORTUNITY') {
+        stats.optimizable += 1;
+        stats.clearOpportunities += 1;
+      }
+    } else {
+      stats.unknown += 1;
+    }
+
+    let topicEntry = stats.byTopic.find((t: any) => t.topic === problem.category);
+    if (!topicEntry) {
+      stats.byTopic.push({ topic: problem.category, tracked: 0, efficient: 0, optimizable: 0, unknown: 0 });
+      topicEntry = stats.byTopic[stats.byTopic.length - 1];
+    }
+    if (optimization.level === 'UNKNOWN') topicEntry.unknown += 1;
+    else {
+      topicEntry.tracked += 1;
+      if (optimization.level === 'OPTIMAL') topicEntry.efficient += 1;
+      else topicEntry.optimizable += 1;
+    }
   }
 
   await progress.save();

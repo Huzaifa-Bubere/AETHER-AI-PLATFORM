@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import { ResumeVersion, ATS_TEMPLATE } from '../models/ResumeVersion';
+import { ResumeVersion, ATS_TEMPLATE, ATS_TEMPLATES, normalizeTemplate } from '../models/ResumeVersion';
 import { authenticateToken, requireCandidate } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
 import { computeAtsScore, matchJobDescription, IResumeData } from '../services/atsEngine';
 import Resume from '../models/Resume';
 import logger from '../utils/logger';
+import { getCurrentPlan, getRemainingUsage, consumeUsage, assertAiCredits } from '../services/entitlement.service';
+import { UsageLedger } from '../models/UsageLedger';
 
 /**
  * AETHER Resume — deterministic ATS + builder routes (spec §54–64).
@@ -21,12 +23,19 @@ function badRequest(res: Response, details: unknown) {
 
 function requireResumeData(body: any): IResumeData | null {
   if (!body || typeof body !== 'object') return null;
+  const typography = body.typography && typeof body.typography === 'object' ? {
+    fontFamily: body.typography.fontFamily ? String(body.typography.fontFamily) : undefined,
+    fontSize: Number.isFinite(Number(body.typography.fontSize)) ? Number(body.typography.fontSize) : undefined,
+    lineHeight: Number.isFinite(Number(body.typography.lineHeight)) ? Number(body.typography.lineHeight) : undefined,
+    margin: Number.isFinite(Number(body.typography.margin)) ? Number(body.typography.margin) : undefined,
+  } : undefined;
   return {
     name: body.name || '',
+    title: body.title || '',
     email: body.email || '',
     phone: body.phone || '',
     location: body.location || '',
-    links: Array.isArray(body.links) ? body.links : [],
+    links: Array.isArray(body.links) ? body.links.filter(Boolean) : [],
     summary: body.summary || '',
     education: Array.isArray(body.education) ? body.education : [],
     experience: Array.isArray(body.experience) ? body.experience : [],
@@ -34,6 +43,12 @@ function requireResumeData(body: any): IResumeData | null {
     skills: Array.isArray(body.skills) ? body.skills : [],
     certifications: Array.isArray(body.certifications) ? body.certifications : [],
     achievements: Array.isArray(body.achievements) ? body.achievements : [],
+    languages: Array.isArray(body.languages) ? body.languages : [],
+    customSections: Array.isArray(body.customSections) ? body.customSections : [],
+    sectionOrder: Array.isArray(body.sectionOrder) ? body.sectionOrder : [],
+    pageSize: body.pageSize === 'LETTER' ? 'LETTER' : 'A4',
+    typography,
+    targetJobDescription: body.targetJobDescription || '',
   };
 }
 
@@ -65,6 +80,16 @@ router.post('/ats/analyze', authenticateToken, requireCandidate,
 router.post('/ats/explain', authenticateToken, requireCandidate,
   [body('data').isObject().notEmpty()],
   asyncHandler(async (req: Request, res: Response) => {
+    // AI credit quota (spec §48): the deterministic explanation always works —
+    // credits gate only the AI narration path below.
+    try {
+      await assertAiCredits(String(req.user!.userId), 'ats.aiExplanation', (req.user as any).plan);
+    } catch (err: any) {
+      if (err?.code === 'AI_CREDITS_EXHAUSTED') {
+        return res.status(402).json({ success: false, error: 'UPGRADE_REQUIRED', message: err.message, feature: 'resume.aiWriting' }) as any;
+      }
+      throw err;
+    }
     const data = requireResumeData(req.body.data);
     if (!data) return badRequest(res, 'Resume data required') as any;
     const ats = computeAtsScore(data, {
@@ -96,6 +121,8 @@ Return ONLY JSON: {"explanation":"...","improvementSuggestions":["..."]}`;
         if (m) {
           const parsed = JSON.parse(m[0]);
           if (parsed?.explanation) {
+            // Bill the AI credit only on a successful narration.
+            await consumeUsage(String(req.user!.userId), 'aiCredits', 1, 'ats.aiExplanation');
             return res.json({ success: true, data: { ats, aiExplanation: parsed, deterministic } });
           }
         }
@@ -134,19 +161,42 @@ router.post('/versions', authenticateToken, requireCandidate,
     const data = requireResumeData(req.body.data);
     if (!data) return badRequest(res, 'Resume data required') as any;
 
-    const template: ATS_TEMPLATE = ['ats-classic', 'modern-professional', 'minimal', 'graduate-fresher']
-      .includes(req.body.template) ? req.body.template : 'ats-classic';
+    // Entitlement: Free = 1 active resume version. Downgrade rule (§63):
+    // existing versions stay viewable; only NEW creation is limited.
+    const plan = await getCurrentPlan(String(req.user!.userId), (req.user as any).plan);
+    if (plan.limits.resumeVersions !== null) {
+      const existing = await ResumeVersion.countDocuments({ userId: req.user!.userId });
+      if (existing >= (plan.limits.resumeVersions as number)) {
+        return res.status(402).json({
+          success: false,
+          error: 'UPGRADE_REQUIRED',
+          message: `The ${plan.planId} plan allows ${plan.limits.resumeVersions} active resume version(s). Upgrade to AETHER Pro for unlimited versions — your existing resumes are safe.`,
+          feature: 'resume.unlimitedVersions',
+        }) as any;
+      }
+    }
+
+    // Premium templates are Pro-only; Free silently keeps ATS Classic.
+    let template: ATS_TEMPLATE = normalizeTemplate(req.body.template);
+    if (!plan.entitlements.includes('resume.allTemplates')) {
+      template = 'ats-classic';
+    }
     const ats = computeAtsScore(data, { targetRole: req.body.targetRoleSlug });
+
+    // The first version a candidate creates becomes their default (spec §26).
+    const isFirst = (await ResumeVersion.countDocuments({ userId: req.user!.userId })) === 0;
 
     const version = await ResumeVersion.create({
       userId: req.user!.userId,
       name: String(req.body.name || 'My Resume').slice(0, 80),
       targetRoleSlug: String(req.body.targetRoleSlug || ''),
       template,
+      isDefault: req.body.isDefault === true || isFirst,
       data,
       atsScore: ats.totalScore,
       atsSnapshot: { score: ats.totalScore, grade: ats.grade, computedAt: new Date() },
     });
+    await consumeUsage(String(req.user!.userId), 'resumeVersions', 1, 'resume.version.create', { versionId: String(version._id) });
     res.status(201).json({ success: true, data: { version } });
     return;
   })
@@ -163,24 +213,52 @@ router.put('/versions/:id', authenticateToken, requireCandidate,
 
     version.data = data;
     if (typeof req.body.name === 'string' && req.body.name.trim()) version.name = req.body.name.trim().slice(0, 80);
-    if (typeof req.body.template === 'string' && ['ats-classic', 'modern-professional', 'minimal', 'graduate-fresher'].includes(req.body.template)) {
+    if (typeof req.body.template === 'string' && (ATS_TEMPLATES as readonly string[]).includes(req.body.template)) {
       version.template = req.body.template as ATS_TEMPLATE;
     }
     if (typeof req.body.targetRoleSlug === 'string') version.targetRoleSlug = req.body.targetRoleSlug;
+    if (req.body.isDefault === true) version.isDefault = true;
 
     const ats = computeAtsScore(data, { targetRole: version.targetRoleSlug });
     version.atsScore = ats.totalScore;
     version.atsSnapshot = { score: ats.totalScore, grade: ats.grade, computedAt: new Date() };
     await version.save();
+    if (version.isDefault) {
+      await ResumeVersion.updateMany(
+        { userId: req.user!.userId, _id: { $ne: version._id } },
+        { $set: { isDefault: false } },
+      );
+    }
     res.json({ success: true, data: { version, ats } });
     return;
   })
 );
 
+/**
+ * POST /api/resume/versions/:id/default — make this the version the builder opens.
+ * Existing versions are never deleted; only which one is the default changes.
+ */
+router.post('/versions/:id/default', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
+  const version = await ResumeVersion.findOne({ _id: req.params.id, userId: req.user!.userId });
+  if (!version) { res.status(404).json({ success: false, error: 'Resume version not found' }); return; }
+  await ResumeVersion.updateMany({ userId: req.user!.userId }, { $set: { isDefault: false } });
+  version.isDefault = true;
+  await version.save();
+  res.json({ success: true, data: { versionId: String(version._id), isDefault: true } });
+  return;
+}));
+
 /** DELETE /api/resume/versions/:id */
 router.delete('/versions/:id', authenticateToken, requireCandidate, asyncHandler(async (req: Request, res: Response) => {
   const result = await ResumeVersion.deleteOne({ _id: req.params.id, userId: req.user!.userId });
   if (result.deletedCount === 0) { res.status(404).json({ success: false, error: 'Resume version not found' }); return; }
+  // If the default was deleted, promote the most recently updated survivor so
+  // the builder always has something to open.
+  const remainingDefault = await ResumeVersion.findOne({ userId: req.user!.userId, isDefault: true });
+  if (!remainingDefault) {
+    const next = await ResumeVersion.findOne({ userId: req.user!.userId }).sort({ updatedAt: -1 });
+    if (next) { next.isDefault = true; await next.save(); }
+  }
   res.json({ success: true });
   return;
 }));

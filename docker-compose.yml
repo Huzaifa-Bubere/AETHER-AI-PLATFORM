@@ -33,9 +33,12 @@ services:
       - REDIS_URL=redis://redis:6379
       - PYTHON_AI_SERVER_URL=http://ai-server:8000
       - PYTHON_AI_SERVER_API_KEY=${PYTHON_AI_SERVER_API_KEY}
-    # volumes:
-    #   - ./backend:/app
-    #   - /app/node_modules
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
+      - ALLOW_UNSAFE_LOCAL_CODE_EXECUTION=${ALLOW_UNSAFE_LOCAL_CODE_EXECUTION:-true}
+    # Persist locally-stored interview recordings and logs across container restarts
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_logs:/app/logs
     depends_on:
       - mongodb
       - redis
@@ -54,6 +57,7 @@ services:
       - ENVIRONMENT=development
       - PORT=8000
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
       - PYTHON_AI_SERVER_API_KEY=${PYTHON_AI_SERVER_API_KEY}
       - REDIS_URL=redis://redis:6379
     volumes:
@@ -109,6 +113,8 @@ volumes:
   mongodb-data:
   redis-data:
   ai-models:
+  backend_uploads:
+  backend_logs:
 
 networks:
   smart-interview-network:

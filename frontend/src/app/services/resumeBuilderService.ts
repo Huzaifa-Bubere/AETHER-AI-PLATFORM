@@ -1,19 +1,13 @@
 import { apiService } from './api';
+import type { ResumeDocument as IResumeData } from '../features/resume/types';
 
 /**
  * AETHER Resume Builder client (spec §54–64).
+ *
+ * `IResumeData` is the builder document model — see features/resume/types.ts.
  */
+export type { IResumeData };
 
-export interface IResumeData {
-  name: string; email: string; phone: string; location: string; links: string[];
-  summary: string;
-  education: Array<{ degree?: string; institution?: string; year?: string | number }>;
-  experience: Array<{ title?: string; company?: string; duration?: string; bullets?: string[]; description?: string }>;
-  projects: Array<{ name?: string; description?: string; technologies?: string[]; bullets?: string[] }>;
-  skills: string[];
-  certifications?: string[];
-  achievements?: string[];
-}
 
 export interface IAtsCategory {
   key: string; label: string; weight: number; score: number; weightedPoints: number; findings: string[];
@@ -33,6 +27,7 @@ export interface IJdMatch {
 }
 export interface IVersionSummary {
   _id: string; name: string; template: string; targetRoleSlug?: string;
+  isDefault?: boolean;
   data: IResumeData; atsScore?: number | null;
   atsSnapshot?: { score: number; grade: string; computedAt: string } | null;
   updatedAt: string;
@@ -59,14 +54,18 @@ class ResumeBuilderService {
     return unwrap<{ version: IVersionSummary }>(res).version;
   }
 
-  async createVersion(payload: { name: string; data: IResumeData; template: string; targetRoleSlug?: string }): Promise<IVersionSummary> {
+  async createVersion(payload: { name: string; data: IResumeData; template: string; targetRoleSlug?: string; isDefault?: boolean }): Promise<IVersionSummary> {
     const res = await apiService.post('/resume/versions', payload);
     return unwrap<{ version: IVersionSummary }>(res).version;
   }
 
-  async updateVersion(id: string, payload: { name?: string; data: IResumeData; template?: string; targetRoleSlug?: string }): Promise<IVersionSummary & { ats?: IAtsResult }> {
+  async updateVersion(id: string, payload: { name?: string; data: IResumeData; template?: string; targetRoleSlug?: string; isDefault?: boolean }): Promise<IVersionSummary & { ats?: IAtsResult }> {
     const res = await apiService.put(`/resume/versions/${id}`, payload);
     return unwrap<{ version: IVersionSummary; ats: IAtsResult }>(res) as any;
+  }
+
+  async setDefaultVersion(id: string): Promise<void> {
+    await apiService.post(`/resume/versions/${id}/default`, {});
   }
 
   async deleteVersion(id: string): Promise<void> {

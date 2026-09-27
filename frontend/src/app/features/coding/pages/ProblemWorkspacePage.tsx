@@ -10,6 +10,7 @@ import { Card } from '../../../components/ui/card';
 import { useCodingStore } from '../stores/codingStore';
 import { AstTreeView } from '../components/AstTreeView';
 import { ComplexityPanel, AstMetricsPanel, ScorePanel } from '../components/AnalysisPanels';
+import { OptimizationFeedback } from '../components/OptimizationFeedback';
 import { ExecutionVisualizer } from '../components/ExecutionVisualizer';
 import { CODING_LANGUAGES, type ITestOutcome } from '../types';
 import { useIntegrityMonitor } from '../../integrity/useIntegrityMonitor';
@@ -240,6 +241,28 @@ export function ProblemWorkspacePage() {
               </button>
             ))}
             <div className="ml-auto flex items-center gap-2 py-1.5">
+              {/* Part A — persistent optimization indicator after submission. */}
+              {submitResult?.optimization && (
+                <button
+                  onClick={() => setActiveTab('analysis')}
+                  title={submitResult.optimization.message}
+                  className={`text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors ${
+                    submitResult.optimization.level === 'OPTIMAL'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : submitResult.optimization.level === 'POSSIBLY_IMPROVABLE'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : submitResult.optimization.level === 'CLEAR_OPTIMIZATION_OPPORTUNITY'
+                          ? 'bg-rose-50 text-rose-700 border-rose-200'
+                          : 'bg-slate-50 text-slate-600 border-slate-200'
+                  }`}
+                >
+                  {submitResult.optimization.level === 'OPTIMAL'
+                    ? 'Efficient'
+                    : submitResult.optimization.level === 'UNKNOWN'
+                      ? 'Complexity uncertain'
+                      : '⚠ Optimizable'} · {submitResult.optimization.candidateTime}
+                </button>
+              )}
               {submitResult && (
                 <Button
                   variant="outline"
@@ -359,17 +382,41 @@ export function ProblemWorkspacePage() {
 
             {activeTab === 'complexity' && (
               analysis ? (
-                <ComplexityPanel
-                  analysis={analysis}
-                  expectedTime={problem.expectedTimeComplexity}
-                  expectedSpace={problem.expectedSpaceComplexity}
-                  knownApproaches={problem.knownApproaches}
-                />
+                <div className="space-y-4">
+                  {submitResult?.optimization && (
+                    <OptimizationFeedback
+                      optimization={submitResult.optimization}
+                      submissionId={submitResult.submissionId}
+                      status={submitResult.status}
+                      score={submitResult.scoreBreakdown?.overall ?? null}
+                      referenceApproachAvailable={!!(submitResult.referenceApproach?.available || submitResult.optimization.optimizationAvailable)}
+                      compact
+                    />
+                  )}
+                  <ComplexityPanel
+                    analysis={analysis}
+                    expectedTime={problem.expectedTimeComplexity}
+                    expectedSpace={problem.expectedSpaceComplexity}
+                    knownApproaches={problem.knownApproaches}
+                  />
+                </div>
               ) : <p className="text-sm text-slate-400">Run or submit to estimate complexity.</p>
             )}
 
             {activeTab === 'analysis' && (
-              <ScorePanel score={submitResult?.scoreBreakdown || null} explanation={submitResult?.explanation || null} />
+              <div className="space-y-4">
+                {/* Part A — correctness and efficiency are separate results. */}
+                {submitResult?.optimization && (
+                  <OptimizationFeedback
+                    optimization={submitResult.optimization}
+                    submissionId={submitResult.submissionId}
+                    status={submitResult.status}
+                    score={submitResult.scoreBreakdown?.overall ?? null}
+                    referenceApproachAvailable={!!(submitResult.referenceApproach?.available || submitResult.optimization.optimizationAvailable)}
+                  />
+                )}
+                <ScorePanel score={submitResult?.scoreBreakdown || null} explanation={submitResult?.explanation || null} />
+              </div>
             )}
 
           </div>

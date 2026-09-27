@@ -69,6 +69,7 @@ class BehaviorAnalyzer:
     def __init__(self) -> None:
         self.face_cascade, self.eye_cascade = _load_cascades()
         self._prev_small: Optional[np.ndarray] = None
+        self._prev_box: Optional[Tuple[int, int, int, int]] = None
 
     def health(self) -> Dict[str, Any]:
         face, _ = _load_cascades()
@@ -112,10 +113,22 @@ class BehaviorAnalyzer:
             if not samples:
                 return self._fail("No frames could be sampled from this recording")
 
+            # Temporal smoothing: a MAJORITY filter (window ±2 samples) removes
+            # single-frame detector flicker. A window is only filled when >half
+            # its samples see a face, so real absences (>=3 samples) survive.
+            raw_flags = [s["face_detected"] for s in samples]
+            smoothed: List[bool] = []
+            for i in range(len(raw_flags)):
+                lo, hi = max(0, i - 2), min(len(raw_flags), i + 3)
+                window = raw_flags[lo:hi]
+                smoothed.append(sum(window) > len(window) / 2)
+            for s, f in zip(samples, smoothed):
+                s["face_detected"] = f
+
             presence_hits = sum(1 for s in samples if s["face_detected"])
             eye_hits = [s["eye_proxy"] for s in samples if s["face_detected"]]
             eye_contact = round(100.0 * sum(eye_hits) / len(eye_hits), 1) if eye_hits else None
-            centered = round(float(np.mean([s["centeredness"] for s in samples if s["face_detected"]])), 1) \
+            centered = round(100.0 * float(np.mean([s["centeredness"] for s in samples if s["face_detected"]])), 1) \
                 if any(s["face_detected"] for s in samples) else 0.0
             motion = round(float(np.mean([s["motion_energy"] for s in samples])), 4)
 
@@ -152,32 +165,66 @@ class BehaviorAnalyzer:
             except OSError:
                 pass
 
+    def _detect_face(self, gray: np.ndarray, face_cascade) -> Optional[Tuple[int, int, int, int]]:
+        """Detect the face, preferring a search around the previous position
+        (ROI tracking stabilizes detection against single-frame flicker)."""
+        h, w = gray.shape[:2]
+        # ROI search around previous box first (60% expansion).
+        if self._prev_box is not None:
+            px, py, pw, ph = self._prev_box
+            mx, my = int(pw * 0.6), int(ph * 0.6)
+            x0, y0 = max(0, px - mx), max(0, py - my)
+            x1, y1 = min(w, px + pw + mx), min(h, py + ph + my)
+            roi = gray[y0:y1, x0:x1]
+            if roi.size:
+                faces = face_cascade.detectMultiScale(roi, scaleFactor=1.05, minNeighbors=4,
+                                                      minSize=(int(pw * 0.5), int(ph * 0.5)))
+                face = _largest_face(faces)
+                if face is not None:
+                    fx, fy, fw, fh = face
+                    box = (fx + x0, fy + y0, fw, fh)
+                    self._prev_box = box
+                    return box
+        # Full-frame search.
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
+                                              minSize=(int(h * 0.12), int(h * 0.12)))
+        face = _largest_face(faces)
+        if face is not None:
+            self._prev_box = face
+            return face
+        self._prev_box = None
+        return None
+
     def _sample_frame(self, frame_bgr: np.ndarray, t: float, face_cascade, eye_cascade) -> Dict[str, Any]:
-        small = cv2.resize(frame_bgr, (320, 240))
-        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        # Detect at (near-)native resolution — haar needs facial texture detail.
+        # Motion is measured on a small 160x120 grid for cheap differencing.
+        fh, fw = frame_bgr.shape[:2]
+        scale = min(1.0, 720.0 / fw)
+        det = cv2.resize(frame_bgr, (int(fw * scale), int(fh * scale))) if scale < 1.0 else frame_bgr
+        gray = cv2.cvtColor(det, cv2.COLOR_BGR2GRAY)
 
         # Motion energy vs previous sample (mean absolute pixel difference).
+        small = cv2.resize(frame_bgr, (160, 120))
+        gray_small = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         motion = 0.0
         if self._prev_small is not None:
-            diff = cv2.absdiff(gray, self._prev_small)
+            diff = cv2.absdiff(gray_small, self._prev_small)
             motion = float(np.mean(diff))
-        self._prev_small = gray
+        self._prev_small = gray_small
 
         face_detected = False
         centeredness = 0.0
         eye_proxy = False
         if face_cascade is not None and not face_cascade.empty():
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5,
-                                                  minSize=(48, 48))
-            face = _largest_face(faces)
+            face = self._detect_face(gray, face_cascade)
             if face is not None:
                 face_detected = True
                 x, y, w, h = face
-                cx = (x + w / 2) / small.shape[1]
-                cy = (y + h / 2) / small.shape[0]
+                cx = (x + w / 2) / det.shape[1]
+                cy = (y + h / 2) / det.shape[0]
                 # 1.0 = perfectly centered, 0.0 = at/beyond frame edge.
                 centeredness = max(0.0, 1.0 - (abs(cx - 0.5) + abs(cy - 0.5)) * 2.0)
-                eye_proxy = _eye_contact_proxy(small, face, eye_cascade)
+                eye_proxy = _eye_contact_proxy(det, face, eye_cascade)
 
         return {
             "t": t,

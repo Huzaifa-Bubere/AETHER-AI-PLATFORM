@@ -30,6 +30,24 @@ export interface SpeakingMetrics {
   pauseRatioEstimate: number | null; responseCount: number;
 }
 export interface StarResult { situation: boolean; task: boolean; action: boolean; result: boolean; recommendation: string }
+export interface BehaviorSegment {
+  label: string; startSec: number; endSec: number;
+  presence: number; engagement: number | null; note: string;
+}
+export interface BehaviorAnalysis {
+  available: boolean;
+  engine: string;
+  framesAnalyzed: number;
+  presenceScore: number;
+  eyeContactScore: number | null;
+  postureScore: number | null;
+  engagementScore: number | null;
+  confidenceIndex: number | null;
+  segments: BehaviorSegment[];
+  summary: string;
+  notes: string[];
+  analyzedAt: string;
+}
 export interface AnswerFeedback {
   scores: { correctness: number; depth: number; communication: number; confidence: number };
   overallScore: number;
@@ -110,10 +128,18 @@ export const adaptiveInterviewApi = {
       durationSeconds: number; report: AdaptiveReport; transcript: TranscriptItem[]; recording: RecordingInfo;
       speakingMetrics?: SpeakingMetrics | null;
       englishAnalysis?: EnglishAnalysis | null;
+      behaviorAnalysis?: BehaviorAnalysis | null;
       followUpTrail?: FollowUpTrailItem[];
       learningRecommendations?: LearningRecommendation[];
       starByQuestion?: Array<{ questionId: string; star: StarResult | null }>;
     };
+  },
+
+  // Re-run the body-language/confidence analysis (e.g. it failed during upload).
+  async reanalyzeBehavior(sessionId: string): Promise<BehaviorAnalysis | null> {
+    const res = await client.post(`/api/adaptive-interview/${sessionId}/behavior-analysis`, {}, { timeout: 180000 });
+    const data = unwrap(res.data) as { behaviorAnalysis?: BehaviorAnalysis | null };
+    return data?.behaviorAnalysis ?? null;
   },
   // Authorized playback: <video src> cannot send the auth header, so we fetch bytes ourselves.
   async fetchRecordingBlob(sessionId: string): Promise<Blob> {

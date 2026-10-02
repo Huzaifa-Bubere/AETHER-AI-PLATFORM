@@ -7,6 +7,7 @@ import Interview from '../models/Interview';
 import { asyncHandler } from '../middleware/errorHandler';
 import cloudinaryService from '../services/cloudinary';
 import { profileUpdateValidation, imageFileValidation } from '../utils/validation';
+import { recordActivity } from '../services/activity.service';
 import logger from '../utils/logger';
 
 const router = express.Router();
@@ -120,6 +121,19 @@ router.put('/profile', profileUpdateValidation(), asyncHandler(async (req, res) 
     if (profile.phone !== undefined) user.profile.phone = profile.phone;
     if (profile.location !== undefined) user.profile.location = profile.location;
     if (profile.avatar !== undefined) user.profile.avatar = profile.avatar;
+    // Professional profile (spec §24–§28). Assigned wholesale because each of
+    // these is a list/scalar the client edits as a unit.
+    for (const field of ['headline', 'about', 'coverImage', 'openToWork', 'openToWorkRoles',
+                         'experience', 'education', 'projects', 'certifications', 'achievements'] as const) {
+      if (profile[field] !== undefined) (user.profile as any)[field] = profile[field];
+    }
+    if (profile.links !== undefined) {
+      user.profile.links = {
+        github: profile.links.github ?? user.profile.links?.github ?? '',
+        linkedin: profile.links.linkedin ?? user.profile.links?.linkedin ?? '',
+        portfolio: profile.links.portfolio ?? user.profile.links?.portfolio ?? '',
+      };
+    }
   }
 
   // Update preferences fields individually
@@ -128,9 +142,25 @@ router.put('/profile', profileUpdateValidation(), asyncHandler(async (req, res) 
     if (preferences.experienceLevel !== undefined) user.preferences.experienceLevel = preferences.experienceLevel;
     if (preferences.industries !== undefined) user.preferences.industries = preferences.industries;
     if (preferences.interviewTypes !== undefined) user.preferences.interviewTypes = preferences.interviewTypes;
+    // Validated as an IANA identifier by profileUpdateValidation — this is what
+    // decides the candidate's calendar day for the streak and activity timeline.
+    if (preferences.timezone !== undefined) user.preferences.timezone = preferences.timezone;
   }
 
   await user.save();
+
+  // AETHER activity (spec §16): an explicit profile edit is qualifying activity.
+  await recordActivity({
+    userId: req.user!.userId,
+    eventType: 'PROFILE_UPDATED',
+    entityType: 'PROFILE',
+    entityId: String(user._id),
+    entityLabel: `${user.profile.firstName} ${user.profile.lastName}`.trim(),
+    metadata: {
+      updatedProfileFields: Object.keys(profile ?? {}),
+      updatedPreferenceFields: Object.keys(preferences ?? {}),
+    },
+  });
 
   logger.info(`User profile updated: ${user.email}`);
 

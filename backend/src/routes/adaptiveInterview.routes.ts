@@ -17,6 +17,7 @@ import { analyzeDelivery, analyzeStar } from '../services/speechAnalysis';
 import { runBehaviorAnalysis } from '../services/behaviorAnalysis';
 import { recordAskedQuestion } from '../services/questionHistory';
 import { followUpTrail, learningRecommendations } from '../services/interviewReportEnhancer';
+import { recordInterviewCompletedOnce } from '../services/activity.service';
 import logger from '../utils/logger';
 
 // ── Webcam recording upload (disk storage → durable local copy, Cloudinary mirror) ──
@@ -102,6 +103,7 @@ router.post(
     body('interviewType').optional().isIn(['technical', 'behavioral', 'hr', 'project', 'mixed']),
     body('resumeId').optional({ nullable: true }).isMongoId(),
     body('jobDescription').optional({ nullable: true }).isString().trim().isLength({ max: 8000 }),
+    body('roleSlug').optional({ nullable: true }).isString().trim().isLength({ max: 64 }),
     body('consentRecording').optional().isBoolean(),
   ],
   asyncHandler(async (req, res) => {
@@ -115,6 +117,7 @@ router.post(
       interviewType: req.body.interviewType,
       resumeId: req.body.resumeId || null,
       jobDescription: req.body.jobDescription || '',
+      roleSlug: req.body.roleSlug || '',
     });
 
     // Explicit recording consent (spec §37) — stored timestamp, never implicit.
@@ -131,7 +134,8 @@ router.post(
     res.status(201).json({
       success: true,
       data: {
-        sessionId: session._id, domain: session.domain, difficulty: session.difficulty,
+        sessionId: session._id, domain: session.domain, role: session.role, roleSlug: session.roleSlug,
+        difficulty: session.difficulty,
         plannedQuestions: session.plannedQuestions, plan: session.plan,
         question: toClientQuestion(firstQuestion),
       },
@@ -309,6 +313,17 @@ router.post(
     session.report = await generateFinalReport(session, session.proctorEvents);
     await session.save();
 
+    await recordInterviewCompletedOnce({
+      sessionId: String(session._id),
+      userId: String(session.userId),
+      domain: session.domain,
+      role: session.role,
+      difficulty: session.difficulty,
+      overallScore: session.report.overallScore,
+      domainReadiness: session.report.domainReadiness,
+      questionCount: session.questions.length,
+    });
+
     logger.info(`Adaptive interview ${session._id} ended. Score: ${session.report.overallScore}, integrity: ${session.integrityScore}`);
     res.json({ success: true, data: { sessionId: session._id, completed: true, report: session.report } });
   }),
@@ -329,6 +344,19 @@ router.get(
       await session.save();
       logger.info(`Adaptive interview ${session._id} report generated on demand`);
     }
+
+    // Exactly-once regardless of whether the session ended via /:id/end or by
+    // exhausting its plan, and whether the report already existed.
+    await recordInterviewCompletedOnce({
+      sessionId: String(session._id),
+      userId: String(session.userId),
+      domain: session.domain,
+      role: session.role,
+      difficulty: session.difficulty,
+      overallScore: session.report?.overallScore ?? null,
+      domainReadiness: session.report?.domainReadiness ?? null,
+      questionCount: session.questions.length,
+    });
     res.json({
       success: true,
       data: {

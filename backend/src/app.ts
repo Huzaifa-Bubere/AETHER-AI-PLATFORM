@@ -31,6 +31,11 @@ import codingAdminRoutes from './coding/routes/coding.admin.routes';
 import integrityRoutes from './integrity/integrity.service';
 import careerRoutes from './career/routes/career.routes';
 import careerAdminRoutes from './career/routes/careerAdmin.routes';
+import roleProgressRoutes from './career/routes/roleProgress.routes';
+import activityRoutes from './routes/activity';
+import dashboardRoutes from './routes/dashboard';
+import profileRoutes from './routes/profile';
+import jobsRoutes from './jobs/routes/jobs.routes';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -179,6 +184,11 @@ export function createApp(): Application {
   app.use('/api/payment', apiLimiter, paymentRoutes);
   app.use('/api/subscription', apiLimiter, subscriptionRoutes);
   app.use('/api/analytics', apiLimiter, analyticsRoutes);
+  // One request paints the whole home dashboard (spec §14).
+  app.use('/api/dashboard', apiLimiter, dashboardRoutes);
+  app.use('/api/profile', apiLimiter, profileRoutes);
+  // AETHER Jobs + Job Fit (spec §49–§70).
+  app.use('/api/jobs', apiLimiter, jobsRoutes);
   app.use('/api/practice', apiLimiter, authenticateToken, requireCandidate, practiceRoutes);
   app.use('/api/scheduling', apiLimiter, authenticateToken, requireCandidate, schedulingRoutes);
   app.use('/api/health', healthRoutes); // no auth — public health check
@@ -199,7 +209,13 @@ export function createApp(): Application {
 
   // AETHER Career Learning + Career Intelligence module
   app.use('/api/careers', apiLimiter, careerRoutes);
+  // Multi-role goals + requirement matrix. Mounted after careerRoutes; paths
+  // are distinct so the two routers coexist without shadowing each other.
+  app.use('/api/careers', apiLimiter, roleProgressRoutes);
   app.use('/api/admin/careers', apiLimiter, careerAdminRoutes);
+
+  // AETHER activity + streak (auth applied inside the router).
+  app.use('/api/activity', apiLimiter, activityRoutes);
 
   // Error handling middleware (must be last)
   app.use(notFound);

@@ -3,6 +3,7 @@ import { body, param, query } from 'express-validator';
 import { authenticateToken, requireCandidate } from '../../middleware/auth';
 import { CareerRole } from '../models/CareerRole';
 import { UserCareerGoal } from '../models/UserCareerGoal';
+import { setPrimaryGoal } from '../services/roleGoals.service';
 import { RoadmapProgress, type NodeState } from '../models/RoadmapProgress';
 import { RoleTrendSnapshot, MarketDataSource } from '../models/market';
 import { Skill } from '../models/Skill';
@@ -331,20 +332,35 @@ router.post('/goal', authenticateToken, requireCandidate, [
   body('hoursPerWeek').optional().isInt({ min: 1, max: 80 }),
   body('experienceLevel').optional().isIn(['beginner', 'intermediate', 'advanced']),
   body('targetTimelineWeeks').optional().isInt({ min: 1, max: 104 }),
+  body('isPrimary').optional().isBoolean(),
 ], asyncHandler(async (req: Request, res: Response) => {
-  const { roleSlug, hoursPerWeek, experienceLevel, targetTimelineWeeks } = req.body;
+  const { roleSlug, hoursPerWeek, experienceLevel, targetTimelineWeeks, isPrimary } = req.body;
+  const userId = (req as any).user.userId;
   const role = await CareerRole.findOne({ slug: String(roleSlug).toLowerCase(), isActive: true });
   if (!role) {
     res.status(404).json({ success: false, message: 'Career role not found' });
     return;
   }
+  // The filter MUST include roleSlug: the unique index is now { userId, roleSlug },
+  // so an upsert keyed on userId alone would collide or create a partial doc.
   const goal = await UserCareerGoal.findOneAndUpdate(
-    { userId: (req as any).user.userId },
-    { $set: { roleSlug: role.slug, ...(hoursPerWeek != null && { hoursPerWeek }), ...(experienceLevel && { experienceLevel }), ...(targetTimelineWeeks != null && { targetTimelineWeeks }) } },
+    { userId, roleSlug: role.slug },
+    {
+      $set: {
+        ...(hoursPerWeek != null && { hoursPerWeek }),
+        ...(experienceLevel && { experienceLevel }),
+        ...(targetTimelineWeeks != null && { targetTimelineWeeks }),
+        ...(isPrimary === true && { isPrimary: true }),
+        lastActivityAt: new Date(),
+      },
+      $setOnInsert: { status: 'ACTIVE', isPrimary: false, priority: 0, targetLevel: 'JOB_READY', roadmapProgress: 0 },
+    },
     { upsert: true, new: true },
   );
+  // Promoting here keeps the invariant that exactly one goal is primary.
+  if (isPrimary === true) await setPrimaryGoal(userId, role.slug);
   // Initialize progress doc if missing.
-  await RoadmapProgress.updateOne({ userId: (req as any).user.userId, roleSlug: role.slug }, { $setOnInsert: { nodes: [] } }, { upsert: true });
+  await RoadmapProgress.updateOne({ userId, roleSlug: role.slug }, { $setOnInsert: { nodes: [] } }, { upsert: true });
   res.json({ success: true, data: goal });
 }));
 

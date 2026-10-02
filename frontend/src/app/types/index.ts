@@ -30,6 +30,8 @@ export interface UserPreferences {
   experienceLevel: 'entry' | 'mid' | 'senior' | 'executive';
   industries: string[];
   interviewTypes: InterviewType[];
+  /** IANA zone used to bucket activity into calendar days for the AETHER streak. */
+  timezone: string;
 }
 
 export interface Subscription {

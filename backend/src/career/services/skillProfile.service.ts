@@ -94,17 +94,29 @@ export async function rebuildSkillProfile(userId: string): Promise<void> {
   // 3. Coding submissions (problem tags) → PROJECT_EVIDENCE
   try {
     // Lazy import avoids a hard dependency cycle with the coding module.
-    const { CodingSubmission } = require('../../coding/models/CodingSubmission');
-    const submissions = await CodingSubmission.find({ userId, status: 'accepted' })
-      .sort({ createdAt: -1 })
+    // NOTE: the model is a DEFAULT export and the owner/problem fields are
+    // `user` and `problem` — querying `userId`/`problemId` here silently
+    // matched nothing, so coding evidence never reached the profile.
+    const CodingSubmission = require('../../coding/models/CodingSubmission').default;
+    const submissions = await CodingSubmission.find({ user: userId, status: 'Accepted' })
+      .sort({ submittedAt: -1 })
       .limit(50)
-      .populate('problemId', 'tags')
-      .select('problemId');
+      .populate('problem', 'tags category difficulty')
+      .select('problem submittedAt');
     for (const sub of submissions) {
-      const tags: string[] = (sub as any)?.problemId?.tags || [];
-      for (const tag of tags) {
-        const norm = normalizeSkillName(tag);
-        pushEvidence(raw, { skillSlug: norm?.canonical || tag.toLowerCase().trim(), kind: 'PROJECT_EVIDENCE', score: 75, source: 'coding', at: (sub as any).createdAt });
+      const problem: any = (sub as any)?.problem;
+      // A problem's category and tags are both real evidence of the skills it
+      // exercises, so both feed the same skill slugs.
+      const labels: string[] = [...(problem?.tags || []), problem?.category].filter(Boolean);
+      for (const label of labels) {
+        const norm = normalizeSkillName(String(label));
+        pushEvidence(raw, {
+          skillSlug: norm?.canonical || String(label).toLowerCase().trim(),
+          kind: 'PROJECT_EVIDENCE',
+          score: 75,
+          source: `coding:${problem?.slug ?? problem?.title ?? 'problem'}`,
+          at: (sub as any).submittedAt,
+        });
       }
     }
   } catch (err) { logger.warn('skillProfile.coding.failed', { err: (err as Error).message }); }
@@ -145,6 +157,70 @@ export async function rebuildSkillProfile(userId: string): Promise<void> {
       }
     }
   } catch (err) { logger.warn('skillProfile.roadmap.failed', { err: (err as Error).message }); }
+
+  // 6. Career-learning topics → COMPLETED_LEARNING, and their quizzes →
+  //    ASSESSMENT_EVIDENCE. A completed lesson and a scored quiz are different
+  //    strengths, so they are recorded separately (spec §91).
+  try {
+    const { TopicProgress } = require('../models/TopicProgress');
+    const { LearningTopic } = require('../models/LearningTopic');
+    const progresses = await TopicProgress.find({ userId });
+    for (const progress of progresses) {
+      const topic = await LearningTopic.findOne({ slug: progress.topicSlug })
+        .select('title skillSlugs')
+        .lean();
+      const slugs: string[] = (topic?.skillSlugs || []).length
+        ? topic!.skillSlugs
+        : [normalizeSkillName(topic?.title || progress.topicSlug)?.canonical || progress.topicSlug];
+
+      for (const rawSlug of slugs) {
+        if (!rawSlug) continue;
+        const slug = normalizeSkillName(rawSlug)?.canonical || rawSlug;
+        if (progress.state === 'COMPLETED') {
+          pushEvidence(raw, {
+            skillSlug: slug,
+            kind: 'COMPLETED_LEARNING',
+            source: `topic:${progress.topicSlug}`,
+            at: progress.completedAt ?? progress.updatedAt,
+          });
+        }
+        if (typeof progress.bestQuizScore === 'number') {
+          pushEvidence(raw, {
+            skillSlug: slug,
+            kind: 'ASSESSMENT_EVIDENCE',
+            score: progress.bestQuizScore,
+            source: `topic-quiz:${progress.topicSlug}`,
+            at: progress.updatedAt,
+          });
+        }
+      }
+    }
+  } catch (err) { logger.warn('skillProfile.topics.failed', { err: (err as Error).message }); }
+
+  // 7. Adaptive interviews → ASSESSMENT_EVIDENCE. The adaptive engine is the
+  //    live interview flow, so its per-topic scores are the current source;
+  //    source 4 above covers the older Interview documents.
+  try {
+    const AdaptiveInterview = require('../../models/AdaptiveInterview').default;
+    const interviews = await AdaptiveInterview.find({ userId, status: 'completed' })
+      .sort({ endedAt: -1 })
+      .limit(10)
+      .select('domain role report endedAt');
+    for (const interview of interviews) {
+      const topics = (interview as any)?.report?.topicPerformance || [];
+      for (const t of topics) {
+        if (!t?.topic || typeof t.avgScore !== 'number') continue;
+        const norm = normalizeSkillName(t.topic);
+        pushEvidence(raw, {
+          skillSlug: norm?.canonical || String(t.topic).toLowerCase().trim(),
+          kind: 'ASSESSMENT_EVIDENCE',
+          score: Math.round(t.avgScore),
+          source: `adaptive-interview:${(interview as any).role || (interview as any).domain}`,
+          at: (interview as any).endedAt,
+        });
+      }
+    }
+  } catch (err) { logger.warn('skillProfile.adaptiveInterview.failed', { err: (err as Error).message }); }
 
   // Write profile.
   const skills = [...raw.entries()].map(([skillSlug, evidences]) => {

@@ -5,6 +5,13 @@ import { Header } from './components/Header';
 import { ApplicationSidebar } from './components/ApplicationSidebar';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
 import { LandingPage } from './pages/LandingPage';
+import { NotFoundPage } from './pages/NotFoundPage';
+import {
+  ADMIN_HOME,
+  CANDIDATE_HOME,
+  LEGACY_ROUTE_REDIRECTS,
+  MARKETING_HOME,
+} from './components/navigation';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
@@ -26,7 +33,6 @@ const ResumeAnalyzerPage = lazy(() => import('./pages/ResumeAnalyzerPage').then(
 const ResumeBuilderPage = lazy(() => import('./pages/ResumeBuilderPage'));
 const InterviewSetupPage = lazy(() => import('./pages/InterviewSetupPage').then(m => ({ default: m.InterviewSetupPage })));
 const InterviewRoomPage = lazy(() => import('./pages/InterviewRoomPage').then(m => ({ default: m.InterviewRoomPage })));
-const CodingInterviewPage = lazy(() => import('./pages/CodingInterviewPage').then(m => ({ default: m.CodingInterviewPage })));
 const FeedbackPage = lazy(() => import('./pages/FeedbackPage').then(m => ({ default: m.FeedbackPage })));
 const HistoryPage = lazy(() => import('./pages/HistoryPage').then(m => ({ default: m.HistoryPage })));
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
@@ -60,6 +66,11 @@ const CareerIntelligenceRolePage = lazy(() => import('./pages/CareerIntelligence
 const AdminCareerPage = lazy(() => import('./pages/admin/CareerAdminPage'));
 const LearningContentAdminPage = lazy(() => import('./pages/admin/LearningContentAdminPage'));
 const BillingAdminPage = lazy(() => import('./pages/admin/BillingAdminPage').then(m => ({ default: m.BillingAdminPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const JobsPage = lazy(() => import('./pages/JobsPage').then(m => ({ default: m.JobsPage })));
+const JobDetailPage = lazy(() => import('./pages/JobDetailPage').then(m => ({ default: m.JobDetailPage })));
+const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage').then(m => ({ default: m.SavedJobsPage })));
+const JobFitPage = lazy(() => import('./pages/JobFitPage').then(m => ({ default: m.JobFitPage })));
 const AptitudeQuestionManager = lazy(() => import('../pages/admin/aptitude/QuestionManager'));
 const AptitudeTestManager = lazy(() => import('../pages/admin/aptitude/TestManager'));
 const AptitudeStudentManager = lazy(() => import('../pages/admin/aptitude/StudentManager'));
@@ -73,13 +84,16 @@ const PageLoader = () => (
 // Protected route wrapper
 function ProtectedRoute({ children, allowAdmin = false }: { children: React.ReactNode; allowAdmin?: boolean }) {
   const { isAuthenticated, isLoading, user } = useAuthStore();
+  const location = useLocation();
 
   if (isLoading) {
     return <PageLoader />;
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    // Spec §5: remember where the candidate was heading and return them there
+    // after a successful login instead of dumping them on the dashboard.
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
 
   // Admin accounts manage the platform, they don't take candidate assessments —
@@ -94,14 +108,32 @@ function ProtectedRoute({ children, allowAdmin = false }: { children: React.Reac
 // Public route wrapper
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, user } = useAuthStore();
+  const location = useLocation();
 
   if (isLoading) return <PageLoader />;
 
   if (isAuthenticated) {
-    return <Navigate to={user?.auth?.role === 'admin' ? '/admin' : '/dashboard'} replace />;
+    // Already signed in: honour the originally requested route if we have one.
+    const from = (location.state as { from?: string } | null)?.from;
+    if (from && from !== '/login') {
+      return <Navigate to={from} replace />;
+    }
+    return <Navigate to={user?.auth?.role === 'admin' ? ADMIN_HOME : CANDIDATE_HOME} replace />;
   }
 
   return <>{children}</>;
+}
+
+/**
+ * Spec §4: `/` is not a marketing page for signed-in users. An authenticated
+ * candidate lands on the dashboard (the dashboard IS the home); an admin lands on
+ * the admin panel. Anonymous visitors get the marketing page at /welcome.
+ */
+function HomeRoute() {
+  const { isAuthenticated, isLoading, user } = useAuthStore();
+  if (isLoading) return <PageLoader />;
+  if (!isAuthenticated) return <Navigate to={MARKETING_HOME} replace />;
+  return <Navigate to={user?.auth?.role === 'admin' ? ADMIN_HOME : CANDIDATE_HOME} replace />;
 }
 
 // Admin route wrapper
@@ -138,8 +170,9 @@ function AppContent() {
       <main id="main-content" className="application-content min-w-0">
       <PageErrorBoundary>
       <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<LandingPage />} />
+        {/* Home: dashboard for the signed-in candidate, marketing page for guests */}
+        <Route path="/" element={<HomeRoute />} />
+        <Route path={MARKETING_HOME} element={<LandingPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/login" element={
           <PublicRoute>
@@ -190,11 +223,12 @@ function AppContent() {
           </ProtectedRoute>
         } />
         <Route path="/analytics" element={
-          <Suspense fallback={<PageLoader />}>
-            <AnalyticsPage />
-          </Suspense>
-        }>
-        </Route>
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AnalyticsPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="/subscription" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -209,7 +243,7 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
-        <Route path="/resume" element={
+        <Route path="/resume-analyzer" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
               <ResumeAnalyzerPage />
@@ -230,6 +264,13 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        <Route path="/settings" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <SettingsPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="/interview-setup" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -237,21 +278,22 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
-        <Route path="/ai-interview" element={
+        {/* Canonical interview route (was /ai-interview) */}
+        <Route path="/interview" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
               <AdaptiveSetupPage />
             </Suspense>
           </ProtectedRoute>
         } />
-        <Route path="/ai-interview/:sessionId" element={
+        <Route path="/interview/:sessionId" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
               <AdaptiveInterviewRoomPage />
             </Suspense>
           </ProtectedRoute>
         } />
-        <Route path="/ai-interview/:sessionId/report" element={
+        <Route path="/interview/:sessionId/report" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
               <AdaptiveReportPage />
@@ -262,13 +304,6 @@ function AppContent() {
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
               <InterviewRoomPage />
-            </Suspense>
-          </ProtectedRoute>
-        } />
-        <Route path="/coding-interview" element={
-          <ProtectedRoute>
-            <Suspense fallback={<PageLoader />}>
-              <CodingInterviewPage />
             </Suspense>
           </ProtectedRoute>
         } />
@@ -366,6 +401,15 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        {/* Technical MCQ round has its own canonical route; the ?round= query
+            form still works because TestSelection reads it as a fallback. */}
+        <Route path="/technical" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <AptitudeTestSelection round="technical" />
+            </Suspense>
+          </ProtectedRoute>
+        } />
         <Route path="/aptitude/attempts/:attemptId" element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
@@ -377,6 +421,35 @@ function AppContent() {
           <ProtectedRoute>
             <Suspense fallback={<PageLoader />}>
               <AptitudeResultsDashboard />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        {/* AETHER Jobs + Job Fit (spec §49–§70) */}
+        <Route path="/jobs" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <JobsPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/saved-jobs" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <SavedJobsPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/job-fit" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <JobFitPage />
+            </Suspense>
+          </ProtectedRoute>
+        } />
+        <Route path="/jobs/:jobId" element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <JobDetailPage />
             </Suspense>
           </ProtectedRoute>
         } />
@@ -446,7 +519,17 @@ function AppContent() {
             </Suspense>
           </AdminRoute>
         } />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Legacy → canonical redirects (spec §3). Keeps old bookmarks working
+            without ever mounting a second copy of a page. */}
+        <Route path="/resume" element={<ProtectedRoute><Navigate to="/resume-analyzer" replace /></ProtectedRoute>} />
+        <Route path="/ai-interview" element={<ProtectedRoute><Navigate to="/interview" replace /></ProtectedRoute>} />
+        <Route path="/ai-interview/:sessionId" element={<ProtectedRoute><Navigate to="/interview/:sessionId" replace /></ProtectedRoute>} />
+        <Route path="/ai-interview/:sessionId/report" element={<ProtectedRoute><Navigate to="/interview/:sessionId/report" replace /></ProtectedRoute>} />
+        {Object.entries(LEGACY_ROUTE_REDIRECTS).map(([from, to]) => (
+          <Route key={from} path={from} element={<Navigate to={to} replace />} />
+        ))}
+
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
       </PageErrorBoundary>
       </main>

@@ -1,539 +1,523 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { User, Mail, Phone, MapPin, Briefcase, Save, ArrowLeft, Upload, CreditCard, Download, ExternalLink } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  AlertCircle,
+  Award,
+  BookOpen,
+  Briefcase,
+  CheckCircle2,
+  ExternalLink,
+  FileText,
+  Github,
+  GraduationCap,
+  Linkedin,
+  MapPin,
+  Pencil,
+  RefreshCw,
+} from 'lucide-react';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
-import { useAuthStore } from '../stores/authStore';
-import { apiService } from '../services/api';
-import toast from 'react-hot-toast';
+import { fetchProfessionalProfile, type ProfessionalProfile } from '../services/profile';
+import { AetherStreakCalendar } from '../components/activity/AetherStreakCalendar';
+import { RoleRequirementMatrix } from '../components/roles/RoleRequirementMatrix';
 
-export function ProfilePage() {
-  const navigate = useNavigate();
-  const { user, setUser } = useAuthStore();
-  
-  const [loading, setLoading] = useState(false);
-  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
-  const [formData, setFormData] = useState({
-    firstName: user?.profile.firstName || '',
-    lastName: user?.profile.lastName || '',
-    email: user?.email || '',
-    phone: user?.profile.phone || '',
-    location: user?.profile.location || '',
-    role: user?.preferences.role || '',
-    experienceLevel: user?.preferences.experienceLevel || 'entry',
-    industries: user?.preferences.industries || [] as string[],
-    interviewTypes: user?.preferences.interviewTypes || [] as string[],
-  });
+/**
+ * AETHER professional profile (spec §24–§28).
+ *
+ * A professional profile in the LinkedINFORMATION HIERARCHY, not a LinkedIn
+ * clone — AETHER branding, no feed, no posts, no connections. Every section is
+ * driven by real data from ProfileService, which reads the same services as the
+ * dashboard, so readiness and skill levels match on both pages (spec §93).
+ *
+ * Sections with nothing to show render an honest prompt rather than placeholder
+ * copy, and profile completeness is a deterministic field count — never
+ * inferred or generated.
+ */
 
-  const [newIndustry, setNewIndustry] = useState('');
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState(user?.profile.avatar || '');
-
-  const experienceLevels = [
-    { value: 'entry', label: 'Entry Level (0-2 years)' },
-    { value: 'mid', label: 'Mid Level (2-5 years)' },
-    { value: 'senior', label: 'Senior Level (5-10 years)' },
-    { value: 'executive', label: 'Executive (10+ years)' },
-  ];
-
-  const interviewTypeOptions = [
-    { value: 'behavioral', label: 'Behavioral' },
-    { value: 'technical', label: 'Technical' },
-    { value: 'coding', label: 'Coding' },
-    { value: 'system-design', label: 'System Design' },
-  ];
-
-  // Fetch payment history on mount
-  useEffect(() => {
-    const fetchPaymentHistory = async () => {
-      try {
-        const response = await apiService.get<any[]>('/payment/history');
-        if (response.success && response.data) {
-          setPaymentHistory(response.data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch payment history:', error);
-      } finally {
-        setLoadingHistory(false);
-      }
-    };
-
-    fetchPaymentHistory();
-  }, []);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAvatarFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleAddIndustry = () => {
-    if (newIndustry.trim() && !formData.industries.includes(newIndustry.trim())) {
-      setFormData(prev => ({
-        ...prev,
-        industries: [...prev.industries, newIndustry.trim()]
-      }));
-      setNewIndustry('');
-    }
-  };
-
-  const handleRemoveIndustry = (industry: string) => {
-    setFormData(prev => ({
-      ...prev,
-      industries: prev.industries.filter(i => i !== industry)
-    }));
-  };
-
-  const handleInterviewTypeToggle = (type: string) => {
-    setFormData(prev => ({
-      ...prev,
-      interviewTypes: prev.interviewTypes.includes(type)
-        ? prev.interviewTypes.filter(t => t !== type)
-        : [...prev.interviewTypes, type]
-    }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      // Upload avatar if changed
-      if (avatarFile) {
-        const avatarFormData = new FormData();
-        avatarFormData.append('avatar', avatarFile);
-        
-        // For now, just use the preview URL
-        // In production, upload to Cloudinary via backend
-        // const avatarResponse = await apiService.post('/user/upload-avatar', avatarFormData);
-      }
-
-      // Update profile
-      const response = await apiService.put('/user/profile', {
-        profile: {
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          phone: formData.phone,
-          location: formData.location,
-          avatar: avatarPreview,
-        },
-        preferences: {
-          role: formData.role,
-          experienceLevel: formData.experienceLevel,
-          industries: formData.industries,
-          interviewTypes: formData.interviewTypes,
-        },
-      });
-
-      if (response.success) {
-        // Update local user state
-        if (response.data) {
-          setUser(response.data as any);
-        }
-        toast.success('Profile updated successfully!');
-        navigate('/dashboard');
-      } else {
-        toast.error(response.error || 'Failed to update profile');
-      }
-    } catch (error: any) {
-      console.error('Profile update error:', error);
-      toast.error(error.message || 'Failed to update profile');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const formatCurrency = (amount: number, currency: string) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: currency,
-    }).format(amount / 100);
-  };
-
-  const formatDate = (date: string) => {
-    return new Intl.DateTimeFormat('en-IN', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }).format(new Date(date));
-  };
-
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      completed: 'bg-green-100 text-green-800',
-      pending: 'bg-yellow-100 text-yellow-800',
-      failed: 'bg-red-100 text-red-800',
-      refunded: 'bg-gray-100 text-gray-800',
-    };
-    return styles[status as keyof typeof styles] || styles.pending;
-  };
-
+function Section({
+  title,
+  icon,
+  children,
+  action,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
   return (
-    <div className="min-h-screen py-20 px-4 bg-gray-50">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Button
-            variant="outline"
-            onClick={() => navigate('/dashboard')}
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Dashboard
-          </Button>
-          <div>
-            <h1 className="text-4xl font-bold text-foreground">Edit Profile</h1>
-            <p className="text-muted-foreground">Update your personal information and preferences</p>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Avatar Section */}
-          <Card className='p-6'>
-            <h2 className="text-xl font-semibold mb-4">Profile Picture</h2>
-            <div className="flex items-center gap-6">
-              <div className="relative">
-                {avatarPreview ? (
-                  <img
-                    src={avatarPreview}
-                    alt="Avatar"
-                    className="w-24 h-24 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-24 h-24 bg-primary rounded-full flex items-center justify-center text-3xl font-bold text-white">
-                    {formData.firstName.charAt(0)}{formData.lastName.charAt(0)}
-                  </div>
-                )}
-                <label className="absolute bottom-0 right-0 p-2 bg-primary text-white rounded-full cursor-pointer hover:bg-primary/90">
-                  <Upload className="w-4 h-4" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleAvatarChange}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  Upload a profile picture. Recommended size: 400x400px
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Supported formats: JPG, PNG, GIF (max 2MB)
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          {/* Personal Information */}
-          <Card className='p-6'>
-            <h2 className="text-xl font-semibold mb-4">Personal Information</h2>
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  <User className="w-4 h-4 inline mr-2" />
-                  First Name
-                </label>
-                <input
-                  type="text"
-                  name="firstName"
-                  value={formData.firstName}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  <User className="w-4 h-4 inline mr-2" />
-                  Last Name
-                </label>
-                <input
-                  type="text"
-                  name="lastName"
-                  value={formData.lastName}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  <Mail className="w-4 h-4 inline mr-2" />
-                  Email
-                </label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  disabled
-                  className="w-full px-4 py-2 border border-border rounded-lg bg-gray-100 cursor-not-allowed"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Email cannot be changed</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  <Phone className="w-4 h-4 inline mr-2" />
-                  Phone
-                </label>
-                <input
-                  type="tel"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  placeholder="+1 234 567 8900"
-                  className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium mb-2">
-                  <MapPin className="w-4 h-4 inline mr-2" />
-                  Location
-                </label>
-                <input
-                  type="text"
-                  name="location"
-                  value={formData.location}
-                  onChange={handleInputChange}
-                  placeholder="Mumbai, India"
-                  className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-            </div>
-          </Card>
-
-          {/* Professional Information */}
-          <Card className='p-6'>
-            <h2 className="text-xl font-semibold mb-4">Professional Information</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  <Briefcase className="w-4 h-4 inline mr-2" />
-                  Current Role
-                </label>
-                <input
-                  type="text"
-                  name="role"
-                  value={formData.role}
-                  onChange={handleInputChange}
-                  placeholder="e.g., Software Engineer, Product Manager"
-                  className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Experience Level</label>
-                <select
-                  name="experienceLevel"
-                  value={formData.experienceLevel}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  {experienceLevels.map(level => (
-                    <option key={level.value} value={level.value}>
-                      {level.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Industries / Skills</label>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={newIndustry}
-                    onChange={(e) => setNewIndustry(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddIndustry())}
-                    placeholder="Add industry or skill"
-                    className="flex-1 px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  <Button type="button" onClick={handleAddIndustry} variant="outline">
-                    Add
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {formData.industries.map((industry, index) => (
-                    <span
-                      key={index}
-                      className="px-3 py-1 bg-blue-100 text-primary rounded-full text-sm flex items-center gap-2"
-                    >
-                      {industry}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveIndustry(industry)}
-                        className="text-primary hover:text-red-500"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Preferred Interview Types</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {interviewTypeOptions.map(type => (
-                    <button
-                      key={type.value}
-                      type="button"
-                      onClick={() => handleInterviewTypeToggle(type.value)}
-                      className={`p-3 rounded-lg border-2 transition-all text-left ${
-                        formData.interviewTypes.includes(type.value)
-                          ? 'border-primary bg-blue-50'
-                          : 'border-border bg-white hover:border-primary/50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                          formData.interviewTypes.includes(type.value)
-                            ? 'border-primary bg-primary'
-                            : 'border-gray-300'
-                        }`}>
-                          {formData.interviewTypes.includes(type.value) && (
-                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                              <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" />
-                            </svg>
-                          )}
-                        </div>
-                        <span className="font-medium">{type.label}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          {/* Payment History */}
-          <Card className='p-6'>
-            <div className="flex items-center gap-2 mb-4">
-              <CreditCard className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">Payment History</h2>
-            </div>
-            
-            {loadingHistory ? (
-              <div className="text-center py-8">
-                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-muted-foreground mt-4">Loading payment history...</p>
-              </div>
-            ) : paymentHistory.length === 0 ? (
-              <div className="text-center py-8">
-                <CreditCard className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-muted-foreground">No payment history yet</p>
-                <Button
-                  variant="outline"
-                  onClick={() => navigate('/subscription')}
-                  className="mt-4"
-                >
-                  View Subscription Plans
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {paymentHistory.map((payment) => (
-                  <div
-                    key={payment._id}
-                    className="border border-border rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="font-semibold text-lg">
-                            {payment.plan.charAt(0).toUpperCase() + payment.plan.slice(1)} Plan
-                          </h3>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(payment.status)}`}>
-                            {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                          </span>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
-                          <div>
-                            <span className="font-medium">Transaction ID:</span>{' '}
-                            <span className="font-mono text-xs">{payment._id}</span>
-                          </div>
-                          <div>
-                            <span className="font-medium">Date:</span>{' '}
-                            {formatDate(payment.createdAt)}
-                          </div>
-                          {payment.paymentMethod && (
-                            <div>
-                              <span className="font-medium">Payment Method:</span>{' '}
-                              {payment.paymentMethod.charAt(0).toUpperCase() + payment.paymentMethod.slice(1)}
-                            </div>
-                          )}
-                          <div>
-                            <span className="font-medium">Amount:</span>{' '}
-                            <span className="font-semibold text-primary">
-                              {formatCurrency(payment.amount, payment.currency)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {payment.receiptUrl && (
-                        <a
-                          href={payment.receiptUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-4 p-2 text-primary hover:bg-blue-50 rounded-lg transition-colors"
-                          title="View Receipt"
-                        >
-                          <ExternalLink className="w-5 h-5" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          {/* Action Buttons */}
-          <div className="flex justify-end gap-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigate('/dashboard')}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="default"
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Changes
-                </>
-              )}
-            </Button>
-          </div>
-        </form>
+    <section className="rounded-xl border border-border bg-card p-5">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-foreground">
+          <span className="text-primary" aria-hidden>
+            {icon}
+          </span>
+          {title}
+        </h2>
+        {action}
       </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyHint({ text, cta, href }: { text: string; cta?: string; href?: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
+      {text}
+      {cta && href && (
+        <Link to={href} className="mt-1 block font-medium text-primary hover:underline">
+          {cta}
+        </Link>
+      )}
     </div>
   );
 }
+
+function formatMonth(value?: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+}
+
+export function ProfilePage() {
+  const [profile, setProfile] = useState<ProfessionalProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedRole, setExpandedRole] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setProfile(await fetchProfessionalProfile());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load your profile.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (loading && !profile) {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-8">
+        <div className="h-48 animate-pulse rounded-xl bg-muted" />
+        <div className="h-64 animate-pulse rounded-xl bg-muted" />
+      </div>
+    );
+  }
+
+  if (error && !profile) {
+    return (
+      <div className="mx-auto w-full max-w-2xl px-4 py-16">
+        <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-6">
+          <h1 className="flex items-center gap-2 text-lg font-semibold text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            We could not load your profile
+          </h1>
+          <p className="mt-2 text-sm text-destructive">{error}</p>
+          <Button className="mt-4" onClick={() => void load()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) return null;
+
+  const { user, completeness, targetRoles, roleProgress, skills, streak, heatmap, activity, resumes } = profile;
+  const primaryDetail = roleProgress.primaryRole ? roleProgress.detail[roleProgress.primaryRole] : null;
+  const initials = (user.firstName?.[0] ?? '') + (user.lastName?.[0] ?? '');
+
+  const links = [
+    { href: user.links.github, label: 'GitHub', icon: <Github className="h-4 w-4" /> },
+    { href: user.links.linkedin, label: 'LinkedIn', icon: <Linkedin className="h-4 w-4" /> },
+    { href: user.links.portfolio, label: 'Portfolio', icon: <ExternalLink className="h-4 w-4" /> },
+  ].filter(l => Boolean(l.href));
+
+  return (
+    <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
+      {error && (
+        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Showing the last successful load — {error}
+        </div>
+      )}
+
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      <header className="overflow-hidden rounded-xl border border-border bg-card">
+        <div
+          className="h-32 bg-gradient-to-r from-indigo-500 via-blue-500 to-sky-400"
+          style={user.coverImage ? { backgroundImage: `url(${user.coverImage})`, backgroundSize: 'cover' } : undefined}
+        />
+        <div className="px-5 pb-5">
+          <div className="-mt-12 flex flex-wrap items-end justify-between gap-4">
+            <div className="flex items-end gap-4">
+              {user.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt=""
+                  className="h-24 w-24 rounded-full border-4 border-card bg-card object-cover"
+                />
+              ) : (
+                <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-card bg-primary/10 text-2xl font-bold text-primary">
+                  {initials || 'A'}
+                </div>
+              )}
+              <div className="pb-1">
+                <h1 className="text-2xl font-bold text-foreground">{user.fullName || 'Your profile'}</h1>
+                <p className="text-sm text-muted-foreground">
+                  {user.headline || 'Add a professional headline in Settings'}
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" asChild={false}>
+              <Link to="/settings">
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit profile
+              </Link>
+            </Button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            {user.location && (
+              <span className="inline-flex items-center gap-1">
+                <MapPin className="h-4 w-4" aria-hidden />
+                {user.location}
+              </span>
+            )}
+            {links.map(l => (
+              <a
+                key={l.label}
+                href={l.href}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center gap-1 text-primary hover:underline"
+              >
+                {l.icon}
+                {l.label}
+              </a>
+            ))}
+            {user.openToWork && (
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                Open to work
+                {user.openToWorkRoles.length > 0 && ` · ${user.openToWorkRoles.join(', ')}`}
+              </span>
+            )}
+          </div>
+
+          {/* Deterministic completeness — counts filled fields, names the rest */}
+          <div className="mt-4 rounded-lg border border-border bg-muted/40 p-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-foreground">Profile completeness</span>
+              <span className="tabular-nums font-semibold text-foreground">{completeness.score}%</span>
+            </div>
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-border">
+              <div className="h-full rounded-full bg-primary" style={{ width: `${completeness.score}%` }} />
+            </div>
+            {completeness.missing.length > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Missing: {completeness.missing.join(', ')}
+              </p>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* ── About ────────────────────────────────────────────────────────── */}
+      <Section title="About" icon={<Briefcase className="h-4 w-4" />}>
+        {user.about ? (
+          <p className="whitespace-pre-line text-sm leading-relaxed text-foreground">{user.about}</p>
+        ) : (
+          <EmptyHint
+            text="No professional summary yet. A short paragraph about what you build and are looking for helps recruiters and job matching."
+            cta="Add it in Settings"
+            href="/settings"
+          />
+        )}
+      </Section>
+
+      {/* ── Target roles + progress ───────────────────────────────────────── */}
+      <Section title="Target roles & progress" icon={<Briefcase className="h-4 w-4" />}>
+        {targetRoles.length === 0 ? (
+          <EmptyHint text="You are not targeting a role yet." cta="Choose a target role" href="/career-learning" />
+        ) : (
+          <div className="space-y-4">
+            {targetRoles.map(role => {
+              const detail = roleProgress.detail[role.roleSlug];
+              const isOpen = expandedRole === role.roleSlug;
+              return (
+                <div key={role.roleSlug} className="rounded-lg border border-border p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {role.roleName}
+                        {role.isPrimary && (
+                          <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-primary">
+                            Primary
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {role.met} met · {role.belowRequired} need improvement · {role.notAssessed} not assessed
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold tabular-nums text-foreground">
+                        {role.readiness === null ? <span className="text-sm italic text-muted-foreground">Not assessed</span> : `${role.readiness}%`}
+                      </span>
+                      {detail && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setExpandedRole(isOpen ? null : role.roleSlug)}
+                        >
+                          {isOpen ? 'Hide requirements' : 'View requirements'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  {isOpen && detail && (
+                    <div className="mt-4 border-t border-border pt-4">
+                      <RoleRequirementMatrix progress={detail} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Section>
+
+      {/* ── Skills ───────────────────────────────────────────────────────── */}
+      <Section title="Skills" icon={<CheckCircle2 className="h-4 w-4" />}>
+        {skills.skills.length === 0 ? (
+          <EmptyHint
+            text="No evidenced skills yet. Complete assessments, coding problems, interviews or lessons and your evidenced skills appear here."
+            cta="Take a technical assessment"
+            href="/technical"
+          />
+        ) : (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {skills.skills.map(skill => {
+              const evidence = Object.entries(skill.evidence).filter(([, v]) => v !== null);
+              return (
+                <li key={skill.skillSlug} className="rounded-lg border border-border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-foreground">{skill.skillSlug}</span>
+                    <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                      {skill.levelLabel}
+                    </span>
+                  </div>
+                  {evidence.length > 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Evidence: {evidence.map(([key]) => key).join(', ')}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs italic text-muted-foreground">No source recorded</p>
+                  )}
+                  {skill.bestEvidence === 'SELF_DECLARED' && (
+                    <p className="mt-1 text-[11px] font-medium text-amber-700">Self-declared</p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Section>
+
+      {/* ── Experience ───────────────────────────────────────────────────── */}
+      <Section title="Experience" icon={<Briefcase className="h-4 w-4" />}>
+        {user.experience.length === 0 ? (
+          <EmptyHint text="No work experience added yet." cta="Add experience in Settings" href="/settings" />
+        ) : (
+          <ul className="space-y-4">
+            {user.experience.map((exp, i) => (
+              <li key={i} className="border-l-2 border-primary/30 pl-4">
+                <p className="font-medium text-foreground">{exp.title}</p>
+                <p className="text-sm text-muted-foreground">
+                  {exp.company}
+                  {exp.location && ` · ${exp.location}`}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {formatMonth(exp.startDate)} – {exp.current ? 'Present' : formatMonth(exp.endDate)}
+                </p>
+                {exp.description && (
+                  <p className="mt-1 whitespace-pre-line text-sm text-foreground">{exp.description}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {/* ── Education ────────────────────────────────────────────────────── */}
+      <Section title="Education" icon={<GraduationCap className="h-4 w-4" />}>
+        {user.education.length === 0 ? (
+          <EmptyHint text="No education added yet." cta="Add education in Settings" href="/settings" />
+        ) : (
+          <ul className="space-y-3">
+            {user.education.map((edu, i) => (
+              <li key={i} className="border-l-2 border-primary/30 pl-4">
+                <p className="font-medium text-foreground">{edu.degree}</p>
+                <p className="text-sm text-muted-foreground">{edu.institution}</p>
+                <p className="text-xs text-muted-foreground">
+                  {edu.startYear ?? '—'} – {edu.endYear ?? '—'}
+                  {edu.grade && ` · ${edu.grade}`}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {/* ── Projects ─────────────────────────────────────────────────────── */}
+      <Section title="Projects" icon={<BookOpen className="h-4 w-4" />}>
+        {user.projects.length === 0 ? (
+          <EmptyHint
+            text="No projects listed. Projects are strong evidence for job matching."
+            cta="Add a project in Settings"
+            href="/settings"
+          />
+        ) : (
+          <ul className="space-y-4">
+            {user.projects.map((project, i) => (
+              <li key={i} className="border-l-2 border-primary/30 pl-4">
+                <p className="font-medium text-foreground">
+                  {project.link ? (
+                    <a href={project.link} target="_blank" rel="noreferrer noopener" className="text-primary hover:underline">
+                      {project.name}
+                    </a>
+                  ) : (
+                    project.name
+                  )}
+                </p>
+                {project.description && <p className="text-sm text-foreground">{project.description}</p>}
+                {project.technologies && project.technologies.length > 0 && (
+                  <p className="mt-1 flex flex-wrap gap-1.5">
+                    {project.technologies.map(tech => (
+                      <span key={tech} className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                        {tech}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {/* ── Certifications ───────────────────────────────────────────────── */}
+      <Section title="Certifications" icon={<Award className="h-4 w-4" />}>
+        {user.certifications.length === 0 ? (
+          <EmptyHint text="No certifications listed yet." cta="Add certifications in Settings" href="/settings" />
+        ) : (
+          <ul className="space-y-2">
+            {user.certifications.map((cert, i) => (
+              <li key={i}>
+                <p className="font-medium text-foreground">{cert.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {cert.issuer}
+                  {cert.issuedOn && ` · ${formatMonth(cert.issuedOn)}`}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {/* ── Resumes ──────────────────────────────────────────────────────── */}
+      <Section title="Resumes" icon={<FileText className="h-4 w-4" />}>
+        {resumes.length === 0 ? (
+          <EmptyHint text="No saved resume versions yet." cta="Build a resume" href="/resume-builder" />
+        ) : (
+          <ul className="space-y-2">
+            {resumes.map(resume => (
+              <li key={resume.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                <div>
+                  <p className="font-medium text-foreground">
+                    {resume.name}
+                    {resume.isDefault && <span className="ml-2 text-xs text-muted-foreground">(default)</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Updated {new Date(resume.updatedAt).toLocaleDateString('en-GB')}
+                  </p>
+                </div>
+                <span className="tabular-nums font-semibold text-foreground">
+                  {resume.atsScore === null ? 'Not scored' : `${resume.atsScore}/100`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {/* ── Streak ───────────────────────────────────────────────────────── */}
+      <AetherStreakCalendar
+        days={heatmap?.days ?? []}
+        summary={
+          streak
+            ? {
+                timezone: streak.timezone,
+                currentStreak: streak.currentStreak,
+                longestStreak: streak.longestStreak,
+                activeDays: streak.activeDays,
+              }
+            : null
+        }
+        loading={loading}
+      />
+
+      {/* ── Recent activity ──────────────────────────────────────────────── */}
+      <Section title="Recent activity" icon={<RefreshCw className="h-4 w-4" />}>
+        {activity.days.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No qualifying activity recorded yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {activity.days.map(day => (
+              <div key={day.date}>
+                <p className="text-xs font-semibold text-muted-foreground">{day.label}</p>
+                <ul className="mt-0.5 space-y-0.5">
+                  {day.entries.map((entry, i) => (
+                    <li key={i} className="text-sm text-foreground">
+                      <span className="text-muted-foreground">{entry.verb}</span>
+                      {entry.entityLabel && <span className="font-medium">: {entry.entityLabel}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {primaryDetail && primaryDetail.nextActions.length > 0 && (
+        <section className="rounded-xl border border-primary/30 bg-primary/5 p-5">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-primary">Next steps</h2>
+          <ul className="mt-2 space-y-2">
+            {primaryDetail.nextActions.map(action => (
+              <li key={action.skillSlug} className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-medium text-foreground">{action.name}</p>
+                  <p className="text-sm text-muted-foreground">{action.reason}</p>
+                </div>
+                <Link
+                  to={action.learningTopicSlug ? `/career-learning/topics/${action.learningTopicSlug}` : '/career-learning'}
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  Learn
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}

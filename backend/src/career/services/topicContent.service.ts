@@ -3,6 +3,7 @@ import { LearningTopic, ILearningTopic, ITopicBlock } from '../models/LearningTo
 import { TopicProgress, TopicState } from '../models/TopicProgress';
 import { LearningVideo } from '../models/LearningVideo';
 import logger from '../../utils/logger';
+import { recordActivity } from '../../services/activity.service';
 
 /**
  * AETHER Career Learning — topic content service (spec §28–§59).
@@ -333,9 +334,27 @@ export async function setTopicState(userId: string, slug: string, state: TopicSt
     throw Object.assign(new Error(`Invalid state: ${state}`), { code: 'INVALID_STATE' });
   }
   const doc = await upsertProgress(userId, slug);
+  const firstCompletion = state === 'COMPLETED' && doc.state !== 'COMPLETED';
   doc.state = state;
   if (state === 'COMPLETED') doc.completedAt = new Date();
   await doc.save();
+
+  // AETHER activity (spec §16): completing a lesson is qualifying activity, but
+  // only the FIRST completion counts — re-opening a finished lesson must not
+  // inflate the streak or the activity count.
+  if (firstCompletion) {
+    const topic = await LearningTopic.findOne({ slug: String(slug).toLowerCase() })
+      .select('title roleSlugs').lean();
+    await recordActivity({
+      userId,
+      eventType: 'LESSON_COMPLETED',
+      entityType: 'TOPIC',
+      entityId: String(doc._id),
+      entityLabel: topic?.title ?? doc.topicSlug,
+      roleId: topic?.roleSlugs?.[0],
+      metadata: { topicSlug: doc.topicSlug },
+    });
+  }
   return { topicSlug: doc.topicSlug, state: doc.state, bookmarked: doc.bookmarked };
 }
 
@@ -436,6 +455,18 @@ export async function gradeTopicQuiz(userId: string, slug: string, answers: numb
   if (score < 60) doc.state = 'REVIEW_NEEDED';
   else if (doc.state !== 'COMPLETED') doc.state = 'IN_PROGRESS';
   await doc.save();
+
+  // AETHER activity (spec §16): a graded quiz is qualifying activity and carries
+  // the real score, so the timeline and skill evidence can both read it.
+  await recordActivity({
+    userId,
+    eventType: 'QUIZ_COMPLETED',
+    entityType: 'TOPIC',
+    entityId: String(doc._id),
+    entityLabel: topic.title,
+    roleId: topic.roleSlugs?.[0],
+    metadata: { topicSlug: topic.slug, scorePercent: score, correct, total },
+  });
 
   return { score, correct, total, results, weakTags, recommendations, stateAfter: doc.state };
 }

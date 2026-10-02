@@ -7,6 +7,7 @@ import { testAvailability } from '../services/aptitudeAvailability.service';
 import { prepareAssessment } from '../services/rag/assessment';
 import { generateAIAnalysis, performanceAnalysis } from '../services/aptitudeAI.service';
 import { fingerprintQuestion } from '../services/questions/identity';
+import { recordActivity } from '../services/activity.service';
 
 type Attempt = InstanceType<typeof AptitudeAttempt>;
 
@@ -211,6 +212,26 @@ async function finalizeSubmission(original: Attempt, auto: boolean, pending?: an
     }, { new: true });
     if (updated) {
       Object.assign(original, updated.toObject());
+      // AETHER activity (spec §16). This is the one place an attempt transitions
+      // to completed — submit, expiry-on-result-read and expiry-on-list all land
+      // here, and the compare-and-set update above makes it exactly once.
+      await recordActivity({
+        userId: String(updated.user),
+        eventType: updated.roundType === 'technical' ? 'TECHNICAL_COMPLETED' : 'APTITUDE_COMPLETED',
+        entityType: 'APTITUDE_ATTEMPT',
+        entityId: String(updated._id),
+        entityLabel: updated.testTitle,
+        metadata: {
+          roundType: updated.roundType,
+          scorePercent: updated.scorePercent,
+          accuracyPercent: updated.accuracyPercent,
+          correctCount: updated.correctCount,
+          incorrectCount: updated.incorrectCount,
+          unansweredCount: updated.unansweredCount,
+          totalMarks: updated.totalMarks,
+          autoSubmitted: updated.autoSubmitted,
+        },
+      });
       if (process.env.GEMINI_API_KEY) {
         void generateAIAnalysis(updated, questions).then(aiAnalysis => AptitudeAttempt.updateOne({ _id: updated._id }, { $set: { aiAnalysis } }))
           .catch(() => { /* Scores remain available when optional commentary fails. */ });

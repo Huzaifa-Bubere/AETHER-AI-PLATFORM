@@ -534,6 +534,8 @@ export async function startAdaptiveSession(params: {
   interviewType?: 'technical' | 'behavioral' | 'hr' | 'project' | 'mixed';
   resumeId?: string | null;
   jobDescription?: string;
+  /** Career role slug this interview is evidence for (spec §78). */
+  roleSlug?: string;
 }): Promise<IAdaptiveInterview> {
   const plan = await generateDomainPlan(params.domain, params.difficulty, params.plannedQuestions);
 
@@ -565,6 +567,7 @@ export async function startAdaptiveSession(params: {
     userId: params.userId,
     domain: params.domain,
     role: params.role,
+    roleSlug: (params.roleSlug || '').toLowerCase().trim(),
     experienceLevel: params.experienceLevel || '',
     interviewType: params.interviewType || 'technical',
     difficulty: params.difficulty,

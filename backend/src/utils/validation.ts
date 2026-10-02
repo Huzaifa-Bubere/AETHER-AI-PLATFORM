@@ -259,6 +259,21 @@ export const profileUpdateValidation = (): ValidationChain[] => {
       .trim()
       .isLength({ max: 200 })
       .withMessage('Location must be less than 200 characters'),
+    // IANA zone, validated with the same list the runtime uses, so an invalid
+    // zone can never reach StreakService / day-bucketing.
+    body('preferences.timezone')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .custom((value) => {
+        if (!value) return true;
+        try {
+          // Throws RangeError for an unknown IANA identifier.
+          new Intl.DateTimeFormat('en-US', { timeZone: value });
+          return true;
+        } catch {
+          throw new Error('timezone must be a valid IANA timezone, e.g. Asia/Kolkata');
+        }
+      }),
     body('preferences.role')
       .optional({ nullable: true, checkFalsy: true })
       .trim()

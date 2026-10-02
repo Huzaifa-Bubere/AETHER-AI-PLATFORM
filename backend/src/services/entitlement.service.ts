@@ -26,7 +26,11 @@ export interface PlanContext {
 
 /** Map legacy User.subscription.plan onto the plan config. */
 function normalizeLegacyPlan(plan?: string): PlanId {
-  if (plan === 'pro' || plan === 'enterprise') return 'pro';
+  // Case-insensitive: legacy rows may hold 'Pro'/'PRO'/'Enterprise'. An
+  // unrecognised value must resolve to free, never throw, so entitlement
+  // checks can never block a request.
+  const lowered = String(plan ?? '').trim().toLowerCase();
+  if (lowered === 'pro' || lowered === 'enterprise') return 'pro';
   return 'free';
 }
 

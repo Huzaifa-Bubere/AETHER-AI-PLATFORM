@@ -2,22 +2,23 @@ import { Link, useLocation } from 'react-router-dom';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useSubscriptionStore } from '../stores/subscriptionStore';
-import { adminNavigation, candidateNavigation, isNavigationActive } from './navigation';
-
-const GROUP_LABELS: Record<string, string> = {
-  OVERVIEW: 'Overview',
-  ASSESS: 'Assess',
-  CAREER: 'Career',
-  ACCOUNT: 'Account',
-};
+import {
+  adminNavigation,
+  candidateNavigation,
+  isImmersiveRoute,
+  isNavigationActive,
+  isPublicRoute,
+  NAV_GROUP_LABELS,
+  NAV_GROUP_ORDER,
+} from './navigation';
 
 export function ApplicationSidebar() {
   const { isAuthenticated, user } = useAuthStore();
   const { pathname, search } = useLocation();
   const sub = useSubscriptionStore();
-  const inSession = /^\/(interview-room|coding-interview|ai-interview\/|aptitude\/attempts\/)/.test(pathname);
-  const publicPage = ['/', '/login', '/signup', '/admin/login', '/forgot-password', '/reset-password', '/verify-email'].includes(pathname);
-  if (!isAuthenticated || publicPage || inSession) return null;
+  // Route classification comes from navigation.ts so the sidebar, the header and
+  // the mobile drawer can never disagree about what is public or immersive.
+  if (!isAuthenticated || isPublicRoute(pathname) || isImmersiveRoute(pathname)) return null;
   const isAdmin = user?.auth?.role === 'admin';
   const items = isAdmin ? adminNavigation : candidateNavigation;
   const isFree = !isAdmin && sub.planId === 'free';
@@ -25,11 +26,11 @@ export function ApplicationSidebar() {
   // Group items for candidates; admins keep the flat list.
   const groups = isAdmin
     ? null
-    : ['OVERVIEW', 'ASSESS', 'CAREER', 'ACCOUNT'].map(g => ({
+    : NAV_GROUP_ORDER.map(g => ({
         key: g,
-        label: GROUP_LABELS[g],
+        label: NAV_GROUP_LABELS[g],
         items: items.filter(i => i.group === g),
-      }));
+      })).filter(g => g.items.length > 0);
 
   const linkClass = (active: boolean) =>
     `flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`;

@@ -48,7 +48,7 @@ export function AdaptiveInterviewRoomPage() {
 
   // ── Resume session on reload ───────────────────────────────────────────
   useEffect(() => {
-    if (!sessionId) { navigate('/ai-interview', { replace: true }); return; }
+    if (!sessionId) { navigate('/interview', { replace: true }); return; }
     const store = useAdaptiveInterviewStore.getState();
     if (!store.sessionId || store.sessionId !== sessionId) {
       void resumeSession(sessionId);
@@ -104,7 +104,7 @@ export function AdaptiveInterviewRoomPage() {
           toast.error('Recording not uploaded — your report is still available', { id: 'recording-upload' });
         }
       }
-      if (id) navigate(`/ai-interview/${id}/report${integrityTermination ? '?integrity=terminated' : ''}`, { replace: true });
+      if (id) navigate(`/interview/${id}/report${integrityTermination ? '?integrity=terminated' : ''}`, { replace: true });
     } finally {
       busy.current = false;
       setFinishing(false);
@@ -226,7 +226,7 @@ export function AdaptiveInterviewRoomPage() {
             <p className="text-sm text-slate-700">{error}</p>
             <div className="flex gap-2 justify-center">
               <button onClick={() => window.location.reload()} className="px-4 py-2 rounded-lg bg-white border border-border text-sm font-medium">Retry</button>
-              <button onClick={() => navigate('/ai-interview')} className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold">New interview</button>
+              <button onClick={() => navigate('/interview')} className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold">New interview</button>
             </div>
           </div>
         ) : (

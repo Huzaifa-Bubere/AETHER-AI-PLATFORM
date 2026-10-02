@@ -1,13 +1,74 @@
 import mongoose, { Document, Schema, Model } from 'mongoose';
 import type { SkillType } from './Skill';
 
-export type SkillPriority = 'ESSENTIAL' | 'RECOMMENDED' | 'OPTIONAL';
+export type SkillPriority = 'ESSENTIAL' | 'RECOMMENDED' | 'BONUS' | 'OPTIONAL';
+
+/**
+ * How much this requirement counts toward role readiness (spec §39).
+ * The weights are fixed and documented, not tunable per role — a role that
+ * weighted its own skills could always declare itself fully met.
+ */
+export const IMPORTANCE_WEIGHTS: Record<SkillPriority, number> = {
+  ESSENTIAL: 3,
+  RECOMMENDED: 2,
+  BONUS: 1,
+  /** Legacy value for the pre-multi-role seed data; treated as BONUS. */
+  OPTIONAL: 1,
+};
+
+/** Structured requirement categories (spec §35). */
+export const REQUIREMENT_CATEGORIES = [
+  'PROGRAMMING_LANGUAGES',
+  'FRAMEWORKS_LIBRARIES',
+  'DATABASES',
+  'CS_FUNDAMENTALS',
+  'APIS',
+  'CLOUD',
+  'DEVOPS',
+  'TESTING',
+  'TOOLS',
+  'SYSTEM_DESIGN',
+  'DATA_AI',
+  'PROFESSIONAL_SKILLS',
+] as const;
+
+export type RequirementCategory = (typeof REQUIREMENT_CATEGORIES)[number];
+
+/** How deep the candidate must be in a requirement (spec §37). */
+export const REQUIRED_LEVELS = [1, 2, 3, 4] as const;
+export type RequiredLevel = (typeof REQUIRED_LEVELS)[number];
+
+export const REQUIRED_LEVEL_LABELS: Record<RequiredLevel, string> = {
+  1: 'Foundation',
+  2: 'Working Knowledge',
+  3: 'Job Ready',
+  4: 'Advanced',
+};
+
+export function isValidRequiredLevel(value: unknown): value is RequiredLevel {
+  return typeof value === 'number' && (REQUIRED_LEVELS as readonly number[]).includes(value);
+}
 
 export interface IRoleSkill {
   skillSlug: string;
   name: string;
   priority: SkillPriority;
   skillType: SkillType;
+  /**
+   * Grouping used by the requirements UI and the coverage rollup. Optional in
+   * TypeScript so pre-matrix seed data still compiles; Mongoose defaults it.
+   */
+  category?: RequirementCategory;
+  /**
+   * Depth the role demands. Optional in TypeScript for the same reason;
+   * Mongoose defaults it to 2 (Working Knowledge).
+   */
+  requiredLevel?: RequiredLevel;
+  /**
+   * LearningTopic slug that closes this gap, so a missing requirement can link
+   * straight to a real lesson instead of a dead end.
+   */
+  learningTopicSlug?: string;
   stageId?: string;
 }
 
@@ -71,6 +132,8 @@ export interface ICareerRole extends Document {
   resources: ILearningResource[];
   projects: IProjectSuggestion[];
   marketAliases: string[];
+  /** Set when an admin last reviewed the requirement matrix for this role. */
+  requirementsReviewedAt?: Date;
   experienceExpectations?: string;
   portfolioExpectations?: string;
   isActive: boolean;
@@ -84,8 +147,13 @@ export interface ICareerRoleModel extends Model<ICareerRole> {
 const roleSkillSchema = new Schema<IRoleSkill>({
   skillSlug: { type: String, required: true, lowercase: true, trim: true },
   name: { type: String, required: true, trim: true },
-  priority: { type: String, enum: ['ESSENTIAL', 'RECOMMENDED', 'OPTIONAL'], required: true },
+  priority: { type: String, enum: ['ESSENTIAL', 'RECOMMENDED', 'BONUS', 'OPTIONAL'], required: true },
   skillType: { type: String, required: true },
+  // Defaults keep pre-matrix seed documents valid: legacy rows are treated as
+  // CS_FUNDAMENTALS at "Working Knowledge" until an admin reviews them.
+  category: { type: String, enum: REQUIREMENT_CATEGORIES, default: 'CS_FUNDAMENTALS' },
+  requiredLevel: { type: Number, enum: REQUIRED_LEVELS, default: 2, min: 1, max: 4 },
+  learningTopicSlug: { type: String, lowercase: true, trim: true },
   stageId: { type: String, trim: true },
 }, { _id: false });
 
@@ -158,6 +226,8 @@ const careerRoleSchema = new Schema<ICareerRole, ICareerRoleModel>({
   resources: { type: [resourceSchema], default: [] },
   projects: { type: [projectSchema], default: [] },
   marketAliases: [{ type: String, lowercase: true, trim: true }],
+  /** Set when an admin last reviewed the requirement matrix for this role. */
+  requirementsReviewedAt: { type: Date },
   experienceExpectations: { type: String },
   portfolioExpectations: { type: String },
   isActive: { type: Boolean, default: true, index: true },
@@ -166,6 +236,8 @@ const careerRoleSchema = new Schema<ICareerRole, ICareerRoleModel>({
 
 careerRoleSchema.index({ category: 1, isActive: 1 });
 careerRoleSchema.index({ marketAliases: 1 });
+careerRoleSchema.index({ 'skills.category': 1 });
+careerRoleSchema.index({ 'skills.skillSlug': 1 });
 
 careerRoleSchema.statics.findBySlug = function (slug: string) {
   return this.findOne({ slug: slug.toLowerCase() });

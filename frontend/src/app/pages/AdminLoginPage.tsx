@@ -35,7 +35,16 @@ export default function AdminLoginPage() {
       // Redirect to admin dashboard
       navigate('/admin');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Invalid admin credentials');
+      // apiService.post does NOT throw the axios error — it returns a failure
+      // response, and authStore re-throws a plain Error. Reading
+      // `err.response.data.message` here therefore always yielded undefined and
+      // masked the real reason behind a generic 'Invalid admin credentials'.
+      const message =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'Invalid admin credentials';
+      setError(message);
       setLoading(false);
     }
   };

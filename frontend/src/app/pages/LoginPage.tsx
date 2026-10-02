@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Mail, Lock, Brain, Eye, EyeOff } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/Input';
@@ -10,7 +10,11 @@ import toast from 'react-hot-toast';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, isLoading, error } = useAuthStore();
+  // Spec §5: ProtectedRoute records the blocked destination; return to it after
+  // login instead of always landing on the dashboard.
+  const returnTo = (location.state as { from?: string } | null)?.from;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,10 +33,11 @@ export function LoginPage() {
     try {
       const result = await login(email, password);
       toast.success('Login successful!');
-      if (result?.user?.auth?.role === 'admin') {
-        navigate('/admin');
+      const isAdmin = result?.user?.auth?.role === 'admin';
+      if (returnTo && !isAdmin) {
+        navigate(returnTo, { replace: true });
       } else {
-        navigate('/dashboard');
+        navigate(isAdmin ? '/admin' : '/dashboard', { replace: true });
       }
     } catch (error: any) {
       toast.error(error.message || 'Login failed');

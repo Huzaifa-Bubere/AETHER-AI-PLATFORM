@@ -31,11 +31,13 @@ export function LandingPage() {
                     <ChevronRight className="ml-2 w-5 h-5" />
                   </Button>
                 </Link>
-                <Link to="/features">
+                {/* Same-page anchor: /features was a client-side route that never
+                    existed, so this used to be a dead link. */}
+                <a href="#features">
                   <Button variant="outline" size="lg">
                     Explore Platform
                   </Button>
-                </Link>
+                </a>
               </div>
               <div className="flex items-center gap-8 pt-4">
                 <div>

@@ -21,14 +21,15 @@
  *   priorityScore = (base + marketBoost + trendBoost) × prereqReady
  * Higher = learn sooner. prerequisites always gate.
  */
-import type { ICareerRole, IRoleSkill } from '../models/CareerRole';
+import { IMPORTANCE_WEIGHTS, type ICareerRole, type IRoleSkill } from '../models/CareerRole';
 import type { ISkillStat } from '../models/market';
 
-export const PRIORITY_WEIGHT: Record<IRoleSkill['priority'], number> = {
-  ESSENTIAL: 3,
-  RECOMMENDED: 2,
-  OPTIONAL: 1,
-};
+/**
+ * Same weights the role-readiness formula uses. Re-exported from the model
+ * rather than redeclared so the readiness ordering and the readiness PERCENTAGE
+ * can never disagree (spec §93).
+ */
+export const PRIORITY_WEIGHT: Record<IRoleSkill['priority'], number> = IMPORTANCE_WEIGHTS;
 
 export const GAP_THRESHOLD = 50;
 const PREREQ_READY_THRESHOLD = 60;

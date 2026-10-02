@@ -100,7 +100,7 @@ export function AdaptiveReportPage() {
   }, [sessionId]);
 
   useEffect(() => {
-    if (!sessionId) { navigate('/ai-interview', { replace: true }); return; }
+    if (!sessionId) { navigate('/interview', { replace: true }); return; }
     let cancelled = false;
     const load = async () => {
       try {
@@ -163,7 +163,7 @@ export function AdaptiveReportPage() {
           <button onClick={retry} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: '#e2e8f0', fontSize: 13 }}>
             <RefreshCw style={{ width: 13, height: 13 }} /> Retry
           </button>
-          <button onClick={() => navigate('/ai-interview')} style={{ all: 'unset', cursor: 'pointer', padding: '9px 16px', borderRadius: 10, background: '#6366f1', color: '#fff', fontSize: 13, fontWeight: 600 }}>
+          <button onClick={() => navigate('/interview')} style={{ all: 'unset', cursor: 'pointer', padding: '9px 16px', borderRadius: 10, background: '#6366f1', color: '#fff', fontSize: 13, fontWeight: 600 }}>
             New interview
           </button>
         </div>
@@ -539,7 +539,7 @@ export function AdaptiveReportPage() {
 
         {/* ── Actions ── */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', paddingBottom: 20 }}>
-          <button onClick={() => navigate('/ai-interview')} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '13px 26px', borderRadius: 12, background: 'linear-gradient(135deg, #6366f1, #818cf8)', color: '#fff', fontSize: 14, fontWeight: 700 }}>
+          <button onClick={() => navigate('/interview')} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '13px 26px', borderRadius: 12, background: 'linear-gradient(135deg, #6366f1, #818cf8)', color: '#fff', fontSize: 14, fontWeight: 700 }}>
             <Brain style={{ width: 15, height: 15 }} /> Practice Again
           </button>
           <button onClick={() => navigate('/dashboard')} style={{ all: 'unset', cursor: 'pointer', padding: '13px 26px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>

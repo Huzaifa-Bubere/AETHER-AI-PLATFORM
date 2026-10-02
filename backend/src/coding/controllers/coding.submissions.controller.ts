@@ -13,6 +13,7 @@ import {
   IComplexityComparison,
 } from '../complexity/complexity';
 import logger from '../../utils/logger';
+import { recordActivity } from '../../services/activity.service';
 
 /**
  * AETHER Coding — execution & submission endpoints.
@@ -158,6 +159,42 @@ class CodingSubmissionsController {
         explanation: null,
         submittedAt: new Date(),
       });
+
+      // 4b. AETHER activity (spec §16). A submission is always qualifying; an
+      // ACCEPTED one also emits CODING_ACCEPTED so the timeline can distinguish
+      // "tried it" from "solved it" without inferring anything from scores.
+      const accepted = exec.status === 'Accepted';
+      await recordActivity({
+        userId: String(userId),
+        eventType: 'CODING_SUBMITTED',
+        entityType: 'CODING_SUBMISSION',
+        entityId: String(submission._id),
+        entityLabel: problem.title,
+        metadata: {
+          problemSlug: problem.slug,
+          language,
+          status: exec.status,
+          passedTests: exec.passedTests,
+          totalTests: exec.totalTests,
+          overallScore: score?.overall ?? null,
+        },
+      });
+      if (accepted) {
+        await recordActivity({
+          userId: String(userId),
+          eventType: 'CODING_ACCEPTED',
+          entityType: 'CODING_SUBMISSION',
+          entityId: String(submission._id),
+          entityLabel: problem.title,
+          metadata: {
+            problemSlug: problem.slug,
+            language,
+            passedTests: exec.passedTests,
+            totalTests: exec.totalTests,
+            complexityLevel: optimization.level,
+          },
+        });
+      }
 
       // 5. Gemini explanation — failure must not break evaluation
       let explanation = null;

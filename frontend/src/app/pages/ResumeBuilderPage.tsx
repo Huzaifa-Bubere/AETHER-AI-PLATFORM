@@ -275,7 +275,7 @@ export default function ResumeBuilderPage() {
         {/* Header / toolbar (spec §14) */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
-            <Link to="/resume" className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-1">
+            <Link to="/resume-analyzer" className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-1">
               <ArrowLeft className="w-3.5 h-3.5" /> Resume Analyzer
             </Link>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary mb-1 ml-2">
@@ -378,7 +378,7 @@ export default function ResumeBuilderPage() {
               <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
                 <Briefcase className="w-3.5 h-3.5" /> {activeTemplate.label}
               </span>
-              <Link to="/resume" className="text-[11px] font-semibold text-primary hover:underline">
+              <Link to="/resume-analyzer" className="text-[11px] font-semibold text-primary hover:underline">
                 Verify in Resume Analyzer →
               </Link>
             </div>

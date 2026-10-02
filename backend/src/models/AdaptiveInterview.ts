@@ -172,11 +172,25 @@ export interface IAdaptiveInterview extends Document {
   userId: mongoose.Types.ObjectId;
   domain: string;
   role: string;
+  /**
+   * Career role slug this interview is evidence FOR (spec §78). A Backend
+   * interview must not silently become Data Analyst evidence — role progress
+   * and the role-matched dashboard charts both filter on this. Null for
+   * interviews started before multi-role, or with a free-text role only.
+   */
+  roleSlug: string;
   experienceLevel?: string;
   interviewType?: 'technical' | 'behavioral' | 'hr' | 'project' | 'mixed';
   difficulty: Difficulty;
   plannedQuestions: number;
   status: 'in-progress' | 'completed' | 'abandoned';
+  /**
+   * Set the first time INTERVIEW_COMPLETED activity is emitted for this session.
+   * A session can complete either by running out of questions or via POST /:id/end,
+   * and the report may be generated lazily afterwards — this flag makes the
+   * activity write exactly-once across all three paths.
+   */
+  activityRecorded: boolean;
   plan: IPlanItem[];
   /** Optional resume anchor (Resume Analyzer output drives questions). */
   resumeId?: mongoose.Types.ObjectId | null;
@@ -351,11 +365,13 @@ const adaptiveInterviewSchema = new Schema<IAdaptiveInterview>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     domain: { type: String, required: true, trim: true },
     role: { type: String, default: '', trim: true },
+    roleSlug: { type: String, default: '', lowercase: true, trim: true, index: true },
     experienceLevel: { type: String, default: '', trim: true },
     interviewType: { type: String, enum: ['technical', 'behavioral', 'hr', 'project', 'mixed'], default: 'technical' },
     difficulty: { type: String, enum: ['easy', 'medium', 'hard'], required: true },
     plannedQuestions: { type: Number, required: true, min: 3, max: 15 },
     status: { type: String, enum: ['in-progress', 'completed', 'abandoned'], default: 'in-progress', index: true },
+    activityRecorded: { type: Boolean, default: false },
     plan: { type: [planItemSchema], default: [] },
     resumeId: { type: Schema.Types.ObjectId, ref: 'Resume', default: null },
     resumeContext: {
@@ -439,6 +455,8 @@ const adaptiveInterviewSchema = new Schema<IAdaptiveInterview>(
 
 adaptiveInterviewSchema.index({ userId: 1, createdAt: -1 });
 adaptiveInterviewSchema.index({ domain: 1 });
+// Role-matched interview analytics: "my Backend interviews over time".
+adaptiveInterviewSchema.index({ userId: 1, roleSlug: 1, status: 1, endedAt: -1 });
 
 // ── Integrity scoring: deterministic deduction per proctor event ─────────────
 export const PROCTOR_DEDUCTIONS: Record<ProctorEventType, number> = {

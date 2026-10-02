@@ -55,7 +55,7 @@ export function DashboardAnalyticsHero({ firstName, hasCareerGoal }: { firstName
   const cards = [
     { icon: Brain, label: 'Technical Accuracy', metric: m?.technicalAccuracy, to: '/aptitude' },
     { icon: Code, label: 'Coding Score', metric: m?.codingScore, to: '/coding' },
-    { icon: MessageSquare, label: 'Interview Communication', metric: m?.interviewCommunication, to: '/ai-interview' },
+    { icon: MessageSquare, label: 'Interview Communication', metric: m?.interviewCommunication, to: '/interview' },
     { icon: FileText, label: 'Resume Quality', metric: m?.resumeQuality, to: '/resume-builder' },
     { icon: GraduationCap, label: 'Learning Progress', metric: m?.learningProgress, to: '/career-learning' },
   ];

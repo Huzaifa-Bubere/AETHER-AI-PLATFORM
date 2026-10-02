@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { body, validationResult } from 'express-validator';
-import User from '../models/User';
+import User, { normalizeEmailForLookup } from '../models/User';
 import { authenticateToken } from '../middleware/auth';
 import { generateTokens, verifyToken } from '../utils/auth';
 import { 
@@ -33,7 +33,7 @@ router.post('/register', registrationValidation(), async (req, res): Promise<voi
     const { email, password, profile, preferences } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizeEmailForLookup(email) });
     if (existingUser) {
       res.status(400).json({
         success: false,
@@ -117,7 +117,7 @@ router.post('/login', loginValidation(), async (req, res): Promise<void> => {
     const { email, password } = req.body;
 
     // Find user with password
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email: normalizeEmailForLookup(email) }).select('+password');
     if (!user) {
       res.status(401).json({
         success: false,
@@ -156,9 +156,15 @@ router.post('/login', loginValidation(), async (req, res): Promise<void> => {
     // Generate tokens
     const tokens = generateTokens(user._id.toString(), user.auth.tokenVersion ?? 0);
 
-    // Update last login
-    user.auth.lastLogin = new Date();
-    await user.save();
+    // Update last login.
+    //
+    // This is a targeted updateOne, NOT a full `user.save()`. A save()
+    // revalidates the ENTIRE document, so one malformed value in any unrelated
+    // legacy field (e.g. a `subscription.plan` of 'Pro' written before the
+    // enum normaliser existed) would reject the write and lock the account out
+    // of login. Authentication must not depend on the rest of the document
+    // being perfectly clean.
+    await User.updateOne({ _id: user._id }, { $set: { 'auth.lastLogin': new Date() } });
 
     logger.info(`User logged in: ${email}`);
 
@@ -268,7 +274,7 @@ router.post('/forgot-password', passwordResetLimiter, emailValidation(), async (
 
     const { email } = req.body;
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: normalizeEmailForLookup(email) });
     if (!user) {
       // Don't reveal if user exists or not
       res.json({
@@ -473,7 +479,7 @@ router.post('/resend-verification', passwordResetLimiter, [
 
     const { email } = req.body;
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: normalizeEmailForLookup(email) });
     if (!user) {
       // Don't reveal if user exists
       res.json({

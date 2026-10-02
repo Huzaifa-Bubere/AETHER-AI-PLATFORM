@@ -112,7 +112,7 @@ function EmptyChart({ metricId }: { metricId: string }) {
     technical_accuracy_by_category: { title: 'Not enough data yet.', cta: 'Start Assessment', to: '/aptitude' },
     assessment_score_over_time: { title: 'Complete your first assessment to see score trends.', cta: 'Start Assessment', to: '/aptitude' },
     coding_performance: { title: 'Solve your first coding problem to see coding analytics.', cta: 'Open Coding', to: '/coding' },
-    interview_scores_over_time: { title: 'Complete an AI interview to see communication trends.', cta: 'Start Interview', to: '/ai-interview' },
+    interview_scores_over_time: { title: 'Complete an AI interview to see communication trends.', cta: 'Start Interview', to: '/interview' },
     learning_progress: { title: 'Enroll in a course to start tracking learning progress.', cta: 'Explore Learning', to: '/career-learning' },
     ats_score_over_time: { title: 'Build or analyze a resume to track ATS quality.', cta: 'Open Resume Builder', to: '/resume-builder' },
     skill_profile: { title: 'Skill evidence builds up from assessments, quizzes and projects.' },

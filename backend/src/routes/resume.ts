@@ -11,6 +11,7 @@ import geminiService from '../services/gemini';
 import logger from '../utils/logger';
 import { processResume, serializeResume } from '../services/resumeProcessing';
 import localStorageService from '../services/localStorage';
+import { recordActivity } from '../services/activity.service';
 
 const router = express.Router();
 
@@ -109,6 +110,20 @@ router.post('/analyze', [
     });
 
     logger.info(`Resume analyzed for user ${req.user!.userId}`);
+
+    // AETHER activity (spec §16). Only the deterministic ATS numbers are stored
+    // as metadata — the AI narrative is never turned into a score here.
+    await recordActivity({
+      userId: req.user!.userId,
+      eventType: 'RESUME_ANALYZED',
+      entityType: 'RESUME',
+      entityLabel: targetRole ? `${targetRole} resume` : 'Uploaded resume',
+      roleId: targetRole ? String(targetRole).toLowerCase() : undefined,
+      metadata: {
+        atsScore: (analysis as any)?.atsScore ?? (analysis as any)?.score ?? null,
+        targetRole: targetRole ?? null,
+      },
+    });
 
     res.json({
       success: true,

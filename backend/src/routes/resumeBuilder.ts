@@ -8,6 +8,7 @@ import Resume from '../models/Resume';
 import logger from '../utils/logger';
 import { getCurrentPlan, getRemainingUsage, consumeUsage, assertAiCredits } from '../services/entitlement.service';
 import { UsageLedger } from '../models/UsageLedger';
+import { recordActivity } from '../services/activity.service';
 
 /**
  * AETHER Resume — deterministic ATS + builder routes (spec §54–64).
@@ -230,6 +231,18 @@ router.put('/versions/:id', authenticateToken, requireCandidate,
       );
     }
     res.json({ success: true, data: { version, ats } });
+
+    // AETHER activity (spec §16/§83). The deterministic ATS score travels with
+    // the event so the resume chart on the dashboard reads stored evidence.
+    await recordActivity({
+      userId: req.user!.userId,
+      eventType: 'RESUME_UPDATED',
+      entityType: 'RESUME_VERSION',
+      entityId: String(version._id),
+      entityLabel: version.name,
+      roleId: version.targetRoleSlug || undefined,
+      metadata: { atsScore: ats.totalScore, grade: ats.grade, targetRoleSlug: version.targetRoleSlug || null },
+    });
     return;
   })
 );

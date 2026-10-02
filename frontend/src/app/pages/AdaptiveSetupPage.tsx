@@ -78,7 +78,7 @@ export function AdaptiveSetupPage() {
       jobDescription: jobDescription.trim() || undefined,
       consentRecording,
     });
-    if (sessionId) navigate(`/ai-interview/${sessionId}`);
+    if (sessionId) navigate(`/interview/${sessionId}`);
   };
 
   return (

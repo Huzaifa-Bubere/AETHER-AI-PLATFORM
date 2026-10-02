@@ -16,7 +16,10 @@
     "seed:problems": "ts-node src/coding/seed/seedProblems.ts",
     "seed:careers": "ts-node src/career/seed/seedCareers.ts",
     "seed:courses": "ts-node src/career/seed/seedCourses.ts",
-    "seed:topics": "ts-node src/career/seed/seedTopics.ts"
+    "seed:topics": "ts-node src/career/seed/seedTopics.ts",
+    "migrate:multi-role": "ts-node src/scripts/migrateMultiRoleGoals.ts",
+    "repair:plans": "ts-node src/scripts/repairUserPlans.ts",
+    "seed:admin": "ts-node src/scripts/seedAdmin.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

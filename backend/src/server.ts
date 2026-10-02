@@ -9,6 +9,7 @@ import { createApp } from './app';
 import { initializeRedis } from './services/redis';
 import { initializeCloudinary } from './services/cloudinary';
 import { setupSocketHandlers } from './services/socket';
+import { startJobRefreshScheduler } from './jobs/services/refreshScheduler';
 import logger from './utils/logger';
 import { ensureDnsFallback, forcePublicDns, isDnsError } from './utils/dnsFallback';
 
@@ -182,6 +183,14 @@ const initializeServices = async () => {
     // Setup Socket.IO handlers
     setupSocketHandlers(io);
     logger.info('Socket.IO handlers initialized successfully');
+
+    // Scheduled job refresh (spec §63). Runs on an interval, never on a page
+    // load, so opening /jobs does not call every external provider.
+    try {
+      startJobRefreshScheduler();
+    } catch (error) {
+      logger.warn('[jobs] scheduler failed to start - job listings will use stored data only');
+    }
 
   } catch (error) {
     logger.error('Service initialization error:', error);

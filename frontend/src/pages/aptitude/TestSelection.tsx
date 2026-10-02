@@ -13,7 +13,16 @@ interface AttemptSummary {
   attemptId: string; testId: string; title: string; status: string;
   startedAt: string; score: number; totalMarks: number;
 }
-export default function TestSelection() {
+interface TestSelectionProps {
+  /**
+   * Canonical route support (spec §3): `/aptitude` and `/technical` each mount
+   * this page with an explicit round. The `?round=` query is kept only as a
+   * fallback so older shared links still land on the right round.
+   */
+  round?: 'aptitude' | 'technical';
+}
+
+export default function TestSelection({ round: roundProp }: TestSelectionProps = {}) {
   const [tests, setTests] = useState<TestSummary[]>([]);
   const [attempts, setAttempts] = useState<AttemptSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,7 +34,7 @@ export default function TestSelection() {
   const starting = useRef(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const round = searchParams.get('round') === 'technical' ? 'technical' : 'aptitude';
+  const round = roundProp ?? (searchParams.get('round') === 'technical' ? 'technical' : 'aptitude');
   const visibleTests = tests.filter(test => test.roundType === round);
 
   useEffect(() => {

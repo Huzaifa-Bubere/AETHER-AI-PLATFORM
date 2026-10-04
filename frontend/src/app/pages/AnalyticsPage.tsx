@@ -50,13 +50,20 @@ function ChartCard({
   title: string;
   subtitle?: string;
   env: Envelope<any> | null;
-  children: React.ReactNode;
+  /**
+   * Lazily evaluated on purpose. The chart bodies dereference `env.data`, and JSX
+   * children passed as a value are built eagerly by the parent — so a plain
+   * `ReactNode` child would throw "Cannot read properties of null (reading 'data')"
+   * while the envelope is still loading or after a failed request.
+   */
+  children: () => React.ReactNode;
   sourceNote?: string;
 }) {
-  // Defensive: the page only stores non-null envelopes now, but keep this safe
-  // in case a future caller passes a partially-shaped response.
-  if (!env || typeof env !== 'object') return <ChartSkeleton />;
   const [showWhy, setShowWhy] = useState(false);
+
+  // Defensive: keep the card safe against a missing or partially-shaped envelope.
+  const rows = env && typeof env === 'object' && Array.isArray(env.data) ? env.data : null;
+  if (!env || !rows) return <ChartSkeleton />;
 
   return (
     <div className="rounded-2xl bg-white border border-slate-200 p-5">
@@ -88,10 +95,10 @@ function ChartCard({
 
       {!env ? (
         <ChartSkeleton />
-      ) : env.status === 'EMPTY' || env.data.length === 0 ? (
+      ) : env.status === 'EMPTY' || rows.length === 0 ? (
         <EmptyChart metricId={env.metricId} />
       ) : (
-        children
+        children()
       )}
     </div>
   );
@@ -131,8 +138,8 @@ function EmptyChart({ metricId }: { metricId: string }) {
   );
 }
 
-function ConfidenceChip({ env }: { env: Envelope<any> }) {
-  if (!env.confidence) return null;
+function ConfidenceChip({ env }: { env: Envelope<any> | null }) {
+  if (!env?.confidence) return null;
   const c = env.confidence === 'HIGH' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
     : env.confidence === 'MEDIUM' ? 'bg-amber-50 text-amber-700 border-amber-200'
     : 'bg-slate-100 text-slate-500 border-slate-200';
@@ -195,7 +202,7 @@ export function AnalyticsPage() {
   const radarData = useMemo(() => {
     // Normalized 0-100 radar across dimensions, each documented in its envelope.
     const norm = (env: Envelope<any> | null, pick: (d: any) => number | null): number | null => {
-      if (!env || env.status === 'EMPTY' || !env.data.length) return null;
+      if (!env || env.status === 'EMPTY' || !Array.isArray(env.data) || !env.data.length) return null;
       const v = pick(env.data[env.data.length - 1]);
       return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
     };
@@ -253,108 +260,122 @@ export function AnalyticsPage() {
 
         <div className="grid lg:grid-cols-2 gap-5">
           <ChartCard title="Technical Accuracy by Topic" subtitle="correct ÷ attempted × 100" env={tech}>
-            <>
-              <div className="flex items-center gap-2 mb-2"><ConfidenceChip env={tech} /></div>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={tech.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                  <XAxis dataKey="category" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={54} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-                  <Tooltip {...tooltipStyle}
-                    formatter={(v: any, _n, p: any) => [`${v}% · ${p.payload.correct}/${p.payload.attempted} correct`, 'Accuracy']}
-                    labelFormatter={l => `${l}`} />
-                  <Bar dataKey="accuracy" radius={[6, 6, 0, 0]}>
-                    {tech.data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </>
+            {() => (
+              <>
+                <div className="flex items-center gap-2 mb-2"><ConfidenceChip env={tech} /></div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={tech!.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                    <XAxis dataKey="category" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={54} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                    <Tooltip {...tooltipStyle}
+                      formatter={(v: any, _n, p: any) => [`${v}% · ${p.payload.correct}/${p.payload.attempted} correct`, 'Accuracy']}
+                      labelFormatter={l => `${l}`} />
+                    <Bar dataKey="accuracy" radius={[6, 6, 0, 0]}>
+                      {tech!.data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </>
+            )}
           </ChartCard>
 
           <ChartCard title="Assessment Score Over Time" subtitle="completed assessments, real dates only" env={assess}>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={assess.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-                <Tooltip {...tooltipStyle} formatter={(v: any) => [`${v}%`, 'Score']} />
-                <Line type="monotone" dataKey="score" stroke="#2563EB" strokeWidth={2.5} dot={{ r: 4, fill: '#2563EB' }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {() => (
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={assess!.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip {...tooltipStyle} formatter={(v: any) => [`${v}%`, 'Score']} />
+                  <Line type="monotone" dataKey="score" stroke="#2563EB" strokeWidth={2.5} dot={{ r: 4, fill: '#2563EB' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </ChartCard>
 
           <ChartCard title="Coding Performance" subtitle="per-submission score (passed ÷ total tests)" env={coding}>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={coding.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-                <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => [`${v} (${p.payload.difficulty})`, 'Score']} />
-                <Line type="monotone" dataKey="score" stroke="#4F46E5" strokeWidth={2.5} dot={{ r: 4, fill: '#4F46E5' }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {() => (
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={coding!.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => [`${v} (${p.payload.difficulty})`, 'Score']} />
+                  <Line type="monotone" dataKey="score" stroke="#4F46E5" strokeWidth={2.5} dot={{ r: 4, fill: '#4F46E5' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </ChartCard>
 
           <ChartCard title="Interview Communication Over Time" subtitle="completed AI interview sessions" env={interview}>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={interview.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-                <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => [`${v} · ${p.payload.domain}`, 'Score']} />
-                <Line type="monotone" dataKey="score" stroke="#10B981" strokeWidth={2.5} dot={{ r: 4, fill: '#10B981' }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {() => (
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={interview!.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => [`${v} · ${p.payload.domain}`, 'Score']} />
+                  <Line type="monotone" dataKey="score" stroke="#10B981" strokeWidth={2.5} dot={{ r: 4, fill: '#10B981' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </ChartCard>
 
           <ChartCard title="Learning Progress by Course" subtitle="completed ÷ total lessons" env={learning}>
-            <>
-              <div className="flex items-center gap-2 mb-2"><ConfidenceChip env={learning} /></div>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={learning.data} layout="vertical" margin={{ top: 4, right: 16, left: 30, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="course" width={120} tick={{ fontSize: 10 }} />
-                  <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => [`${v}% · ${p.payload.completed}/${p.payload.total} lessons`, 'Progress']} />
-                  <Bar dataKey="pct" radius={[0, 6, 6, 0]} fill="#4F46E5" />
-                </BarChart>
-              </ResponsiveContainer>
-            </>
+            {() => (
+              <>
+                <div className="flex items-center gap-2 mb-2"><ConfidenceChip env={learning} /></div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={learning!.data} layout="vertical" margin={{ top: 4, right: 16, left: 30, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
+                    <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="course" width={120} tick={{ fontSize: 10 }} />
+                    <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => [`${v}% · ${p.payload.completed}/${p.payload.total} lessons`, 'Progress']} />
+                    <Bar dataKey="pct" radius={[0, 6, 6, 0]} fill="#4F46E5" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </>
+            )}
           </ChartCard>
 
           <ChartCard title="Resume ATS Quality Over Time" subtitle="saved resume versions (labelled by scoring version)" env={ats}>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={ats.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-                <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => [`${v} · ${p.payload.label} (scoring v${p.payload.scoringVersion})`, 'ATS Quality']} />
-                <Line type="monotone" dataKey="score" stroke="#F59E0B" strokeWidth={2.5} dot={{ r: 4, fill: '#F59E0B' }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {() => (
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={ats!.data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => [`${v} · ${p.payload.label} (scoring v${p.payload.scoringVersion})`, 'ATS Quality']} />
+                  <Line type="monotone" dataKey="score" stroke="#F59E0B" strokeWidth={2.5} dot={{ r: 4, fill: '#F59E0B' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </ChartCard>
 
           <ChartCard
             title="Skill Radar"
             subtitle="normalized 0–100 across dimensions"
-            env={skills && skills.data.length ? readiness : null}
+            env={skills && Array.isArray(skills.data) && skills.data.length ? readiness : null}
             sourceNote="Each axis uses its own documented normalized metric; dimensions without data are excluded from claims."
           >
-            <>
-              {missingDims.length > 0 && (
-                <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
-                  Not assessed yet (shown at baseline, not zero ability): {missingDims.join(', ')}
-                </p>
-              )}
-              <ResponsiveContainer width="100%" height={280}>
-                <RadarChart data={radarData} outerRadius="72%">
-                  <PolarGrid stroke="#E2E8F0" />
-                  <PolarAngleAxis dataKey="dim" tick={{ fontSize: 11, fill: '#475569' }} />
-                  <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => p.payload.missing ? ['Not assessed', '—'] : [`${v}/100`, 'Score']} />
-                  <Radar dataKey="v" stroke="#2563EB" fill="#2563EB" fillOpacity={0.25} strokeWidth={2} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </>
+            {() => (
+              <>
+                {missingDims.length > 0 && (
+                  <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
+                    Not assessed yet (shown at baseline, not zero ability): {missingDims.join(', ')}
+                  </p>
+                )}
+                <ResponsiveContainer width="100%" height={280}>
+                  <RadarChart data={radarData} outerRadius="72%">
+                    <PolarGrid stroke="#E2E8F0" />
+                    <PolarAngleAxis dataKey="dim" tick={{ fontSize: 11, fill: '#475569' }} />
+                    <Tooltip {...tooltipStyle} formatter={(v: any, _n, p: any) => p.payload.missing ? ['Not assessed', '—'] : [`${v}/100`, 'Score']} />
+                    <Radar dataKey="v" stroke="#2563EB" fill="#2563EB" fillOpacity={0.25} strokeWidth={2} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </>
+            )}
           </ChartCard>
 
           <ChartCard
@@ -363,30 +384,36 @@ export function AnalyticsPage() {
             env={readiness}
             sourceNote="Formula: weight(priority) × user confidence ÷ total weight, from career_roles + skill profiles."
           >
-            <div className="space-y-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-black text-slate-900">{readiness.data[0]?.readiness}%</span>
-                <span className="text-xs text-slate-500">ready for {readiness.data[0]?.roleSlug}</span>
-              </div>
-              {(readiness.data[0]?.gaps || []).length > 0 && (
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Top gaps</p>
-                  <div className="space-y-1.5">
-                    {(readiness.data[0].gaps || []).slice(0, 5).map((g: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5">
-                        <span className="text-xs font-semibold text-slate-700">{g.skillSlug || g.skill || g.name}</span>
-                        <span className="text-[11px] font-bold text-amber-600">
-                          {typeof g.confidence === 'number' ? `${g.confidence}% evidenced` : g.priority || 'gap'}
-                        </span>
-                      </div>
-                    ))}
+            {() => {
+              const row = readiness!.data[0];
+              const gaps: any[] = Array.isArray(row?.gaps) ? row.gaps : [];
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-black text-slate-900">{row?.readiness}%</span>
+                    <span className="text-xs text-slate-500">ready for {row?.roleSlug}</span>
                   </div>
+                  {gaps.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Top gaps</p>
+                      <div className="space-y-1.5">
+                        {gaps.slice(0, 5).map((g: any, i: number) => (
+                          <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5">
+                            <span className="text-xs font-semibold text-slate-700">{g.skillSlug || g.skill || g.name}</span>
+                            <span className="text-[11px] font-bold text-amber-600">
+                              {typeof g.confidence === 'number' ? `${g.confidence}% evidenced` : g.priority || 'gap'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                    <TrendingUp className="w-3 h-3" /> {readiness!.sampleSize} skill dimensions considered
+                  </p>
                 </div>
-              )}
-              <p className="text-[11px] text-slate-400 flex items-center gap-1">
-                <TrendingUp className="w-3 h-3" /> {readiness.sampleSize} skill dimensions considered
-              </p>
-            </div>
+              );
+            }}
           </ChartCard>
         </div>
 

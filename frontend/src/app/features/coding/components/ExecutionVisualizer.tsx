@@ -22,7 +22,7 @@ import { traceService } from '../services/trace.service';
 import { buildStory } from './visualizer/story';
 import type { StoryInput, VizStep } from './visualizer/story.types';
 import { AlgorithmCanvas } from './visualizer/AlgorithmCanvas';
-import { ExecutionCodePanel, PlaybackControls, ExecutionSummary } from './visualizer/ExecutionCodePanel';
+import { ExecutionCodePanel, PlaybackControls, ExecutionSummary, KeyboardHints } from './visualizer/ExecutionCodePanel';
 import { VariablesDrawer } from './visualizer/StructureVisualizers';
 
 const SPEEDS = [0.5, 1, 1.5, 2] as const;
@@ -278,25 +278,38 @@ function StoryPlayer(props: {
       if (e.key === 'ArrowRight') { setPlaying(false); setStepIndex(i => Math.min(total - 1, i + 1)); }
       if (e.key === 'ArrowLeft') { setPlaying(false); setStepIndex(i => Math.max(0, i - 1)); }
       if (e.key === ' ') { e.preventDefault(); setPlaying(p => !p); }
+      if (e.key === 'Home') { e.preventDefault(); setPlaying(false); setStepIndex(0); }
+      if (e.key === 'End') { e.preventDefault(); setPlaying(false); setStepIndex(total - 1); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [total]);
 
   // ── Variable history for the drawer (§33) ──
-  const variableHistory = useMemo(() => {
-    const hist = new Map<string, string[]>();
-    for (const e of trace.events.slice(0, stepIndex + 1)) {
+  // Built ONCE per trace, not per step. The previous version rescanned
+  // events[0..stepIndex] on every step, which is O(n²) across a trace —
+  // ~2M iterations at the 2,000-step cap and the dominant cost while playing.
+  const historyIndex = useMemo(() => {
+    const perVar = new Map<string, Array<{ step: number; value: string }>>();
+    trace.events.forEach((e, i) => {
       for (const [k, v] of Object.entries(e.variables || {})) {
         if (k === '__ret') continue;
-        const arr = hist.get(k) || [];
+        const arr = perVar.get(k) || [];
         const val = typeof v === 'string' ? v : JSON.stringify(v);
-        if (arr[arr.length - 1] !== val && arr.length < 24) arr.push(val);
-        hist.set(k, arr);
+        // de-duplicate consecutive identical values, keep every distinct change
+        if (arr.length === 0 || arr[arr.length - 1].value !== val) arr.push({ step: i, value: val });
+        perVar.set(k, arr);
       }
-    }
-    return [...hist.entries()].map(([name, values]) => ({ name, values }));
-  }, [stepIndex, trace.events]);
+    });
+    return perVar;
+  }, [trace.events]);
+
+  const variableHistory = useMemo(() => {
+    return [...historyIndex.entries()].map(([name, entries]) => ({
+      name,
+      values: entries.filter(e => e.step <= stepIndex).slice(-24).map(e => e.value),
+    }));
+  }, [historyIndex, stepIndex]);
 
   const onViewInEditor = (line: number) => {
     window.dispatchEvent(new CustomEvent('aether-visualizer-reveal', { detail: { line } }));
@@ -396,6 +409,13 @@ function StoryPlayer(props: {
           onTogglePlay={() => (isLast ? (setStepIndex(0), setPlaying(true)) : setPlaying(p => !p))}
           onSpeed={setSpeed}
         />
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <span className="text-[10px] text-slate-400 font-mono">
+            step {total === 0 ? 0 : stepIndex + 1} of {total}
+            {current?.line ? ` · source line ${current.line}` : ''}
+          </span>
+          <KeyboardHints />
+        </div>
       </div>
     </div>
   );

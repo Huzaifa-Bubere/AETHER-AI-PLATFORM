@@ -19,6 +19,24 @@ import { IntegrityIndicator } from '../../integrity/IntegrityIndicator';
 import { IntegrityWarningModal } from '../../integrity/IntegrityWarningModal';
 import toast from 'react-hot-toast';
 
+/** Result tabs under the editor. Labels are explicit so 'AST'/'Analysis' keep
+ *  their intended casing instead of being derived from the id. */
+const TABS = [
+  { id: 'testcases', label: 'Testcases' },
+  { id: 'output', label: 'Output' },
+  { id: 'ast', label: 'AST' },
+  { id: 'complexity', label: 'Complexity' },
+  { id: 'analysis', label: 'Analysis' },
+] as const;
+
+/**
+ * Languages the backend can produce a REAL instrumented trace for.
+ * Mirrors traceCapabilities() in backend/src/coding/trace/trace.service.ts.
+ * Anything outside this list must not advertise a working visualizer — offering
+ * the button there leads to a dead-end "Visualization Unavailable" screen.
+ */
+const TRACEABLE_LANGUAGES = ['python', 'javascript', 'typescript', 'cpp', 'c', 'java'];
+
 /**
  * AETHER Coding — Problem Workspace.
  * Left: problem statement. Right: Monaco editor. Bottom: tabs
@@ -47,6 +65,7 @@ export function ProblemWorkspacePage() {
 
   const code = codeByLanguage[language] || '';
   const monacoLanguage = CODING_LANGUAGES.find(l => l.id === language)?.monaco || 'plaintext';
+const visualizerSupported = TRACEABLE_LANGUAGES.includes(language);
 
   // Bidirectional sync: current editor line (from store) ↔ AST node
   const highlightedLine = useMemo(() => selectedLine, [selectedLine]);
@@ -224,29 +243,32 @@ export function ProblemWorkspacePage() {
           </div>
 
           {/* Tabs */}
-          <div className="shrink-0 border-b bg-white px-4 flex items-center gap-1 overflow-x-auto">
-            {['testcases', 'output', 'ast', 'complexity', 'analysis'].map(tab => (
+          <div className="shrink-0 border-b bg-white flex flex-col">
+            <div className="flex items-stretch gap-2 px-2 sm:px-4">
+            <div role="tablist" aria-label="Result views" className="flex items-end gap-1 overflow-x-auto min-w-0 flex-1">
+            {TABS.map(tab => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                aria-selected={activeTab === tab}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                aria-selected={activeTab === tab.id}
                 role="tab"
                 className={`px-3 py-2 text-sm capitalize whitespace-nowrap border-b-2 transition-colors ${
-                  activeTab === tab
+                  activeTab === tab.id
                     ? 'border-blue-600 text-blue-700 font-medium'
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                {tab === 'ast' ? 'AST' : tab === 'analysis' ? 'Analysis' : tab}
+                {tab.label}
               </button>
             ))}
-            <div className="ml-auto flex items-center gap-2 py-1.5">
+            </div>
+            <div className="shrink-0 flex items-center gap-2 py-1.5 border-l border-slate-100 pl-2 sm:pl-3">
               {/* Part A — persistent optimization indicator after submission. */}
               {submitResult?.optimization && (
                 <button
                   onClick={() => setActiveTab('analysis')}
                   title={submitResult.optimization.message}
-                  className={`text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors ${
+                  className={`hidden sm:inline-flex text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors whitespace-nowrap ${
                     submitResult.optimization.level === 'OPTIMAL'
                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                       : submitResult.optimization.level === 'POSSIBLY_IMPROVABLE'
@@ -268,21 +290,33 @@ export function ProblemWorkspacePage() {
                   variant="outline"
                   size="sm"
                   onClick={() => setVisualizerOpen(true)}
-                  className="border-blue-300 text-blue-700 hover:bg-blue-50"
-                  title="Watch an animated dry run of your submitted code"
+                  disabled={!visualizerSupported}
+                  className={
+                    visualizerSupported
+                      ? 'border-blue-300 text-blue-700 hover:bg-blue-50'
+                      : 'opacity-60'
+                  }
+                  title={
+                    visualizerSupported
+                      ? 'Watch an animated dry run of your submitted code'
+                      : `Execution tracing is not available for ${language} yet \u2014 Run and Submit still work normally.`
+                  }
                 >
-                  <Layers className="w-4 h-4 mr-1" /> Visualize Execution
+                  <Layers className="w-4 h-4" />
+                  <span className="hidden md:inline">Visualize Execution</span>
+                  <span className="md:hidden">Visualize</span>
                 </Button>
               )}
               <Button variant="outline" size="sm" onClick={() => runCode('sample')} disabled={isRunning}>
                 {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                Run
+                <span className="ml-1">Run</span>
               </Button>
               <Button size="sm" onClick={handleSubmit} disabled={isSubmitting || integrityLocked}
-                className="bg-blue-600 hover:bg-blue-700 text-white">
+                className="bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap">
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 Submit
               </Button>
+            </div>
             </div>
           </div>
 

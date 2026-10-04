@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
+
+/** Stable empty array — keeps the gap hook's dependency identity constant. */
+const NO_SKILLS: string[] = [];
 import { FileText, CheckCircle, XCircle, Lightbulb, Download, Upload, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { useResumeSkillGap } from '../features/resume/useResumeSkillGap';
 import { Card } from '../components/ui/card';
 import { apiService } from '../services/api';
 import toast from 'react-hot-toast';
@@ -196,6 +200,17 @@ export function ResumeAnalyzerPage() {
   setJobMatchScore(score);
 };
 
+  // Gap is computed against the candidate's selected target roles — the backend's
+  // own `missingSkills` is hardcoded empty and could never populate this panel.
+  // This hook MUST stay above the early returns below: it calls useState/useEffect/
+  // useMemo, so running it only on the data branch made React throw
+  // "Rendered more hooks than during the previous render" when loading finished.
+  // The skills array needs a STABLE identity, otherwise the effect re-runs on
+  // every render and the profile is refetched in a loop.
+  const gapSkills = resumeData?.extractedSkills?.length ? resumeData.extractedSkills : NO_SKILLS;
+  const gapEnabled = !loading && !!resumeData && resumeData.processingStatus !== 'failed';
+  const gap = useResumeSkillGap(gapSkills, gapEnabled);
+
   // Loading state
   if (loading) {
     return (
@@ -284,8 +299,7 @@ export function ResumeAnalyzerPage() {
   }
 
   // Resume data exists - show analysis
-  const extractedSkills = resumeData.extractedSkills || [];
-  const missingSkills = resumeData.missingSkills || [];
+  const extractedSkills = gapSkills;
   const suggestions = resumeData.suggestions || [];
 
   return (
@@ -371,20 +385,8 @@ export function ResumeAnalyzerPage() {
                   </p>
                 </div>
 
-                <div>
-                  <h4 className="text-lg mb-2">Extracted Skills</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {extractedSkills.length > 0 ? (
-                      extractedSkills.map((skill, index) => (
-                        <span key={index} className="px-3 py-1 bg-primary/20 text-primary rounded-full text-sm">
-                          {skill}
-                        </span>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No skills extracted yet</p>
-                    )}
-                  </div>
-                </div>
+                {/* Extracted skills render once, in the analysis grid below —
+                    duplicating them here made the same list appear twice. */}
 
                 <div>
                   <h4 className="text-lg mb-2">Resume Analysis</h4>
@@ -476,6 +478,28 @@ export function ResumeAnalyzerPage() {
       </div>
     </div>
 
+    {/* Score breakdown — these three are already returned by the backend; the
+        page previously only ever showed the single overall figure. */}
+    {resumeData.analysisStatus === 'completed' && (
+      <div className="space-y-2.5">
+        {([
+          ['Content quality', resumeData.contentQuality, 'bg-indigo-500'],
+          ['Keywords', resumeData.keywords, 'bg-blue-500'],
+          ['Impact', resumeData.impact, 'bg-emerald-500'],
+        ] as const).map(([label, value, bar]) => (
+          <div key={label}>
+            <div className="mb-1 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">{label}</span>
+              <span className="font-mono tabular-nums">{value ?? '—'}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+              <div className={`h-full rounded-full ${bar}`} style={{ width: `${Math.max(0, Math.min(100, value ?? 0))}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+
     <p className="text-muted-foreground text-sm">
       Qualitative feedback on extracted content; visual formatting is not assessed.
     </p>
@@ -498,18 +522,28 @@ export function ResumeAnalyzerPage() {
             </Card>
 
             <Card className="p-6">
-  <h3 className="text-lg mb-4">Resume Section Analysis</h3>
+  <h3 className="text-lg mb-1">Resume Section Analysis</h3>
+  <p className="mb-4 text-xs text-muted-foreground">
+    Which sections the parser found. A missing section is not necessarily an error —
+    some formats omit them.
+  </p>
 
-  <div className="space-y-3">
-
-    {[
+  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+    {([
       ['Summary', !!resumeData.summary], ['Experience', !!resumeData.experience?.length],
-      ['Skills', !!extractedSkills.length], ['Projects', !!resumeData.projects?.length],
+      ['Skills', extractedSkills.length > 0], ['Projects', !!resumeData.projects?.length],
       ['Education', !!resumeData.education?.length],
-    ].map(([label, present]) => <div key={String(label)} className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-      <span>{label}</span><span className="text-sm text-muted-foreground">{present ? 'Found' : 'Not extracted'}</span>
-    </div>)}
-
+      ['Certifications', !!resumeData.certifications?.length],
+    ] as const).map(([label, present]) => (
+      <div key={String(label)} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-secondary/50 px-3 py-2.5">
+        <span className="text-sm">{label}</span>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+          present ? 'bg-emerald-500/15 text-emerald-600' : 'bg-amber-500/15 text-amber-600'
+        }`}>
+          {present ? 'Found' : 'Not found'}
+        </span>
+      </div>
+    ))}
   </div>
 </Card>
 
@@ -519,16 +553,51 @@ export function ResumeAnalyzerPage() {
                 <XCircle className="w-5 h-5 text-red-400" />
                 <h3 className="text-lg">Missing Skills</h3>
               </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Compare your extracted skills with a target job description to identify relevant gaps.
+              {gap.loading ? (
+              <p className="text-sm text-muted-foreground">Comparing against your target roles…</p>
+            ) : !gap.available ? null : !gap.hasRoles ? (
+              <p className="text-sm text-muted-foreground">
+                Choose a target role in Career Intelligence and this panel will list the
+                requirements your resume does not yet evidence.
               </p>
-              <div className="flex flex-wrap gap-2">
-                {missingSkills.map((skill, index) => (
-                  <span key={index} className="px-3 py-1 bg-red-500/20 text-red-400 rounded-full text-sm">
-                    {skill}
-                  </span>
+            ) : gap.total === 0 ? (
+              <p className="flex items-center gap-1.5 text-sm text-emerald-600">
+                <CheckCircle className="w-4 h-4" /> Your resume evidences every requirement for
+                your target role.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Requirements not evidenced by this resume or by your stored activity, for your
+                  selected role{gap.roles.length > 1 ? 's' : ''}.
+                </p>
+                {gap.roles.filter(r => r.missing.length > 0).map(role => (
+                  <div key={role.roleSlug} className="mb-4 last:mb-0">
+                    <div className="mb-2 flex items-center gap-2">
+                      <p className="text-sm font-semibold">{role.roleName}</p>
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {role.matched}/{role.total} covered
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {role.missing.map(m => (
+                        <span
+                          key={m.name}
+                          title={`${m.priority} requirement`}
+                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                            m.priority === 'ESSENTIAL'
+                              ? 'bg-red-500/15 text-red-600'
+                              : 'bg-amber-500/15 text-amber-600'
+                          }`}
+                        >
+                          {m.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 ))}
-              </div>
+              </>
+            )}
             </Card>
           </div>
         </div>

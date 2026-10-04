@@ -31,14 +31,42 @@ const skills: string[] = rawSkills.flatMap((group: unknown): string[] => {
 return Array.from(new Set<string>(skills));
 }
 
+/**
+ * Normalise the AI evaluation into the stored shape.
+ *
+ * This used to be all-or-nothing: a single score outside 0-100, or one
+ * suggestion missing a field, threw and the candidate lost the WHOLE review —
+ * which is why real uploads so often showed "AI content feedback is
+ * temporarily unavailable". Model output varies with the document, so the
+ * contract is now repaired rather than enforced destructively:
+ *   - numeric scores are clamped into 0-100 (a 105 becomes 100)
+ *   - unusable suggestions are dropped, valid siblings are kept
+ *   - only a response with NO usable scores at all is rejected
+ */
 export function validateResumeEvaluation(value: any) {
-  if (!value || !['score', 'contentQuality', 'keywords', 'impact'].every(k => typeof value[k] === 'number' && Number.isFinite(value[k]) && value[k] >= 0 && value[k] <= 100) || !Array.isArray(value.suggestions)) {
-    throw new Error('Resume evaluation failed validation.');
+  const clamp = (n: unknown): number | null => {
+    const num = typeof n === 'number' ? n : Number(n);
+    if (!Number.isFinite(num)) return null;
+    return Math.max(0, Math.min(100, Math.round(num)));
+  };
+
+  const scores = ['score', 'contentQuality', 'keywords', 'impact'].map(k => clamp(value?.[k]));
+  if (scores.some(s => s === null)) {
+    throw new Error('Resume evaluation failed validation: scores missing or non-numeric.');
   }
-  if (value.suggestions.length > 8 || value.suggestions.some((s: any) => !s || typeof s.title !== 'string' || typeof s.description !== 'string' || !['high', 'medium', 'low'].includes(s.priority))) {
-    throw new Error('Resume suggestions failed validation.');
-  }
-  return { score: value.score, contentQuality: value.contentQuality, keywords: value.keywords, impact: value.impact, suggestions: value.suggestions };
+  const [score, contentQuality, keywords, impact] = scores as number[];
+
+  const raw = Array.isArray(value?.suggestions) ? value.suggestions : [];
+  const suggestions = raw
+    .filter((s: any) => s && typeof s.title === 'string' && typeof s.description === 'string')
+    .map((s: any) => ({
+      title: s.title.slice(0, 200),
+      description: s.description.slice(0, 1200),
+      priority: ['high', 'medium', 'low'].includes(s.priority) ? s.priority : 'medium',
+    }))
+    .slice(0, 8);
+
+  return { score, contentQuality, keywords, impact, suggestions };
 }
 
 export function serializeResume(resume: IResume) {
@@ -72,8 +100,11 @@ export async function processResume(file: Express.Multer.File, userId: string) {
     form.append('resume_file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
     parsed = await pythonAI.post('/api/resume/parse', form, { headers: form.getHeaders() });
     if (parsed.error || typeof parsed.raw_text !== 'string' || parsed.raw_text.trim().length < 20) throw new Error('No readable resume text');
-  } catch {
+  } catch (parseError: any) {
     parsed = null;
+    // Log the real reason: the user-facing message is intentionally generic, so
+    // without this an outage here is indistinguishable from a bad PDF.
+    logger.warn('resume.parse.failed', { userId, file: file.originalname, reason: parseError?.message || String(parseError) });
     errorMessage = 'File saved. Resume text could not be extracted; retry with a text-based PDF or DOCX when the parser is available.';
   }
   if (parsed) {
@@ -83,7 +114,18 @@ Give evidence-based content feedback. Do not invent skills, employment, accompli
 Return ONLY JSON {"score":0,"contentQuality":0,"keywords":0,"impact":0,"suggestions":[{"title":"...","description":"...","priority":"high|medium|low"}]}.
 Scores 0-100 are your qualitative content assessment. Do not claim to inspect visual formatting from extracted text.
 RESUME DATA: ${JSON.stringify(parsed.raw_text.slice(0, 25000))}`));
-    } catch { errorMessage = 'Resume parsed. AI content feedback is temporarily unavailable.'; }
+    } catch (evalError: any) {
+      // The generic message below hides the cause; log it so a bad key, a quota
+      // failure, a non-STOP finishReason and a schema-validation rejection can
+      // be told apart instead of all presenting as "temporarily unavailable".
+      logger.warn('resume.evaluation.failed', {
+        userId,
+        file: file.originalname,
+        model: process.env.GEMINI_MODEL || 'default',
+        reason: evalError?.message || String(evalError),
+      });
+      errorMessage = 'Resume parsed. AI content feedback is temporarily unavailable.';
+    }
   }
   const resume = new Resume({ userId, filename: file.originalname, fileUrl: uploaded.secure_url, publicId: uploaded.public_id,
     fileSize: file.size, mimeType: file.mimetype, storageType,

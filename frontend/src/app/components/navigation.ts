@@ -86,6 +86,9 @@ export const adminNavigation: NavItem[] = [
 export const CANDIDATE_HOME = '/dashboard';
 export const ADMIN_HOME = '/admin';
 export const MARKETING_HOME = '/welcome';
+export const LOGIN = '/login';
+export const SIGNUP = '/signup';
+export const ADMIN_LOGIN = '/admin/login';
 
 /**
  * Legacy → canonical redirects (spec §3). Keys are the OLD path patterns, values

@@ -172,6 +172,28 @@ export function PlaybackControls({
   );
 }
 
+/** Keyboard shortcut legend — the shortcuts work but were previously undiscoverable. */
+export function KeyboardHints() {
+  const hints: Array<[string, string]> = [
+    ['Space', 'play / pause'],
+    ['←', 'back one step'],
+    ['→', 'forward one step'],
+    ['Home', 'restart'],
+  ];
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+      {hints.map(([key, what]) => (
+        <span key={key} className="inline-flex items-center gap-1">
+          <kbd className="rounded border border-slate-300 bg-slate-50 px-1 py-px font-mono text-[9px] font-semibold text-slate-600">
+            {key}
+          </kbd>
+          {what}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── ExecutionSummary (§31/§32) ──────────────────────────────────────────────
 
 export function ExecutionSummary({

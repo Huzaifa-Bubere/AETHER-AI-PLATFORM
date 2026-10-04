@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, RefreshCw, Search } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { JobCard } from '../components/jobs/JobCard';
@@ -7,10 +7,12 @@ import {
   fetchJobs,
   saveJob,
   unsaveJob,
+  fetchSavedJobs,
   type JobListResponse,
   type JobSummary,
   type WorkMode,
   type JobType,
+  type ExperienceLevel,
 } from '../services/jobs';
 import { fetchRoleGoals } from '../services/roleProgress';
 import toast from 'react-hot-toast';
@@ -24,14 +26,21 @@ import toast from 'react-hot-toast';
  */
 export function JobsPage() {
   const navigate = useNavigate();
+  // Filters live in the URL so refresh, back/forward and shared links all work.
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<JobListResponse | null>(null);
   const [roles, setRoles] = useState<Array<{ roleSlug: string; roleName: string; isPrimary: boolean }>>([]);
-  const [role, setRole] = useState('');
-  const [q, setQ] = useState('');
-  const [location, setLocation] = useState('');
-  const [workMode, setWorkMode] = useState<WorkMode | ''>('');
-  const [jobType, setJobType] = useState<JobType | ''>('');
-  const [postedWithinDays, setPostedWithinDays] = useState('');
+  const [role, setRole] = useState(() => searchParams.get('role') ?? '');
+  const [qInput, setQInput] = useState(() => searchParams.get('q') ?? '');
+  // `q` is the DEBOUNCED value that actually triggers a request.
+  const [q, setQ] = useState(qInput);
+  const [location, setLocation] = useState(() => searchParams.get('location') ?? '');
+  const [workMode, setWorkMode] = useState<WorkMode | ''>(() => (searchParams.get('workMode') as WorkMode) ?? '');
+  const [jobType, setJobType] = useState<JobType | ''>(() => (searchParams.get('jobType') as JobType) ?? '');
+  const [experience, setExperience] = useState<ExperienceLevel | ''>(
+    () => (searchParams.get('experience') as ExperienceLevel) ?? '',
+  );
+  const [postedWithinDays, setPostedWithinDays] = useState(() => searchParams.get('postedWithinDays') ?? '');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +52,29 @@ export function JobsPage() {
       .catch(() => setRoles([]));
   }, []);
 
+  // Keyword input is debounced so a request is not fired on every keystroke.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setQ(qInput);
+      setPage(1);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [qInput]);
+
+  // Mirror filter state into the URL (replace, so history is not spammed).
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    if (role) next.role = role;
+    if (q) next.q = q;
+    if (location) next.location = location;
+    if (workMode) next.workMode = workMode;
+    if (jobType) next.jobType = jobType;
+    if (experience) next.experience = experience;
+    if (postedWithinDays) next.postedWithinDays = postedWithinDays;
+    if (page > 1) next.page = String(page);
+    setSearchParams(next, { replace: true });
+  }, [role, q, location, workMode, jobType, experience, postedWithinDays, page, setSearchParams]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -53,6 +85,7 @@ export function JobsPage() {
         location: location || undefined,
         workMode: workMode || undefined,
         jobType: jobType || undefined,
+        experience: experience || undefined,
         postedWithinDays: postedWithinDays ? Number(postedWithinDays) : undefined,
         page,
       });
@@ -62,28 +95,50 @@ export function JobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [role, q, location, workMode, jobType, postedWithinDays, page]);
+  }, [role, q, location, workMode, jobType, experience, postedWithinDays, page]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const toggleSave = async (job: JobSummary) => {
+  // Saved state comes from the SERVER, not local component state, so a job
+  // saved in a previous session still shows as saved after refresh (spec §11).
+  const loadSaved = useCallback(async () => {
     try {
-      if (savedIds.has(job.id)) {
+      const saved = await fetchSavedJobs();
+      setSavedIds(new Set(saved.items.map(i => i.job?.id).filter((id): id is string => Boolean(id))));
+    } catch {
+      // Leave the set untouched; the list is still usable without it.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSaved();
+  }, [loadSaved]);
+
+  const toggleSave = async (job: JobSummary) => {
+    const wasSaved = savedIds.has(job.id);
+    // Optimistic, then reconciled against the server so a failed write is undone.
+    setSavedIds(prev => {
+      const next = new Set(prev);
+      if (wasSaved) next.delete(job.id); else next.add(job.id);
+      return next;
+    });
+    try {
+      if (wasSaved) {
         await unsaveJob(job.id);
-        setSavedIds(prev => {
-          const next = new Set(prev);
-          next.delete(job.id);
-          return next;
-        });
         toast.success('Removed from saved jobs');
       } else {
         await saveJob(job.id);
-        setSavedIds(prev => new Set(prev).add(job.id));
         toast.success('Saved');
       }
+      void loadSaved();
     } catch {
+      setSavedIds(prev => {
+        const next = new Set(prev);
+        if (wasSaved) next.add(job.id); else next.delete(job.id);
+        return next;
+      });
       toast.error('Could not update saved jobs');
     }
   };

@@ -89,7 +89,7 @@ export interface ITraceMetadata {
    *  the visualizer keeps prior steps viewable and shows the failure state. */
   runtimeError?: string;
   /** engine that produced the trace */
-  engine: 'python-instrumented' | 'js-instrumented' | 'java-adapter' | 'none';
+  engine: 'python-instrumented' | 'js-instrumented' | 'cpp-instrumented' | 'c-instrumented' | 'java-adapter' | 'none';
 }
 
 export interface ITraceResult {

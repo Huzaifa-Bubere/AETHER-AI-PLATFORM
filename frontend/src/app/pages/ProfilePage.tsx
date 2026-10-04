@@ -45,8 +45,8 @@ function Section({
   action?: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-card p-5">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-foreground">
           <span className="text-primary" aria-hidden>
             {icon}
@@ -62,7 +62,7 @@ function Section({
 
 function EmptyHint({ text, cta, href }: { text: string; cta?: string; href?: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
+    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-4 text-sm leading-relaxed text-muted-foreground">
       {text}
       {cta && href && (
         <Link to={href} className="mt-1 block font-medium text-primary hover:underline">
@@ -142,7 +142,7 @@ export function ProfilePage() {
   ].filter(l => Boolean(l.href));
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-6 sm:px-6 sm:py-8">
       {error && (
         <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Showing the last successful load — {error}
@@ -156,29 +156,38 @@ export function ProfilePage() {
           style={user.coverImage ? { backgroundImage: `url(${user.coverImage})`, backgroundSize: 'cover' } : undefined}
         />
         <div className="px-5 pb-5">
-          <div className="-mt-12 flex flex-wrap items-end justify-between gap-4">
-            <div className="flex items-end gap-4">
-              {user.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt=""
-                  className="h-24 w-24 rounded-full border-4 border-card bg-card object-cover"
-                />
-              ) : (
-                <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-card bg-primary/10 text-2xl font-bold text-primary">
-                  {initials || 'A'}
-                </div>
-              )}
-              <div className="pb-1">
-                <h1 className="text-2xl font-bold text-foreground">{user.fullName || 'Your profile'}</h1>
-                <p className="text-sm text-muted-foreground">
+          {/* items-end aligns the name block to the avatar's baseline; min-w-0 lets a
+              long name shrink and wrap instead of overflowing the row. */}
+          <div className="-mt-12 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+            <div className="flex min-w-0 flex-1 items-end gap-4">
+              <span className="shrink-0">
+                {user.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt=""
+                    className="h-24 w-24 rounded-full border-4 border-card bg-card object-cover"
+                  />
+                ) : (
+                  <span className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-card bg-primary/10 text-2xl font-bold text-primary">
+                    {initials || 'A'}
+                  </span>
+                )}
+              </span>
+              <div className="min-w-0 flex-1 pb-1">
+                <h1 className="break-words text-2xl font-bold leading-tight text-foreground">
+                  {user.fullName || 'Your profile'}
+                </h1>
+                <p className="break-words text-sm leading-snug text-muted-foreground">
                   {user.headline || 'Add a professional headline in Settings'}
                 </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" asChild={false}>
+            {/* asChild renders the Button's styles onto the Link itself. Without it
+                the anchor nests inside a real <button>, which is invalid HTML and
+                leaves the icon and label misaligned. */}
+            <Button variant="outline" size="sm" asChild>
               <Link to="/settings">
-                <Pencil className="mr-2 h-4 w-4" />
+                <Pencil className="h-4 w-4" aria-hidden />
                 Edit profile
               </Link>
             </Button>
@@ -253,9 +262,9 @@ export function ProfilePage() {
               const isOpen = expandedRole === role.roleSlug;
               return (
                 <div key={role.roleSlug} className="rounded-lg border border-border p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-foreground">
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words font-medium text-foreground">
                         {role.roleName}
                         {role.isPrimary && (
                           <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-primary">
@@ -267,14 +276,21 @@ export function ProfilePage() {
                         {role.met} met · {role.belowRequired} need improvement · {role.notAssessed} not assessed
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-bold tabular-nums text-foreground">
-                        {role.readiness === null ? <span className="text-sm italic text-muted-foreground">Not assessed</span> : `${role.readiness}%`}
-                      </span>
+                    {/* items-center keeps the readiness value on the same optical
+                        line as the button regardless of which label is shown. */}
+                    <div className="flex shrink-0 items-center gap-3">
+                      {role.readiness === null ? (
+                        <span className="text-sm italic text-muted-foreground">Not assessed</span>
+                      ) : (
+                        <span className="text-lg font-bold tabular-nums leading-none text-foreground">
+                          {role.readiness}%
+                        </span>
+                      )}
                       {detail && (
                         <Button
                           variant="ghost"
                           size="sm"
+                          className="whitespace-nowrap"
                           onClick={() => setExpandedRole(isOpen ? null : role.roleSlug)}
                         >
                           {isOpen ? 'Hide requirements' : 'View requirements'}
@@ -303,19 +319,19 @@ export function ProfilePage() {
             href="/technical"
           />
         ) : (
-          <ul className="grid gap-3 sm:grid-cols-2">
+          <ul className="grid items-stretch gap-3 sm:grid-cols-2">
             {skills.skills.map(skill => {
               const evidence = Object.entries(skill.evidence).filter(([, v]) => v !== null);
               return (
-                <li key={skill.skillSlug} className="rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-foreground">{skill.skillSlug}</span>
-                    <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                <li key={skill.skillSlug} className="flex flex-col rounded-lg border border-border p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 break-words font-medium text-foreground">{skill.skillSlug}</span>
+                    <span className="shrink-0 whitespace-nowrap rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
                       {skill.levelLabel}
                     </span>
                   </div>
                   {evidence.length > 0 ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-1 break-words text-xs text-muted-foreground">
                       Evidence: {evidence.map(([key]) => key).join(', ')}
                     </p>
                   ) : (

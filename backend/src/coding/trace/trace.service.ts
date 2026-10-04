@@ -2,6 +2,7 @@ import type { ITraceResult, ITraceMetadata, ITracePattern, ITraceEvent } from '.
 import { TRACE_LIMITS, safeSerialize } from './trace.types';
 import { buildPythonTraceHarness, parsePythonTraceStdout, normalizePythonEvent, appendOutputEvent } from './pythonTrace';
 import { buildJsTraceProgram, parseJsTraceStdout, normalizeJsEvent } from './jsTrace';
+import { buildCppTraceProgram, parseCppTraceStdout, normalizeCppEvent } from './cppTrace';
 
 /**
  * AETHER Coding — trace orchestration service.
@@ -12,7 +13,7 @@ import { buildJsTraceProgram, parseJsTraceStdout, normalizeJsEvent } from './jsT
  *  - java                 → adapter runs the candidate solution on the real
  *                           input and records a FUNCTION-level trace (entry,
  *                           exit, result). NOT claimed as line-level support.
- *  - cpp / c              → visualization unavailable; Judge0 runs continue.
+ *  - cpp / c              → full trace via compile-time macro instrumentation
  *
  * The tracer executes through the SAME sandboxed chain as official runs
  * (Judge0 when configured → existing Piston/legacy runner). Candidate code is
@@ -38,6 +39,8 @@ const SUPPORTED: Record<string, boolean> = {
   python: true,
   javascript: true,
   typescript: true,
+  cpp: true,
+  c: true,
   java: false, // function-level adapter only — see runJavaFunctionTrace
 };
 
@@ -47,9 +50,9 @@ export function traceSupportedFor(language: string): boolean {
 
 export function traceCapabilities() {
   return {
-    fullTrace: ['python', 'javascript', 'typescript'],
+    fullTrace: ['python', 'javascript', 'typescript', 'cpp', 'c'],
     functionTrace: ['java'],
-    unavailable: ['cpp', 'c'],
+    unavailable: [],
     limits: {
       maxTraceSteps: TRACE_LIMITS.maxTraceSteps,
       maxTraceBytes: TRACE_LIMITS.maxTraceBytes,
@@ -345,6 +348,94 @@ function buildResult(
   };
 }
 
+/** Trace a C/C++ solution by compiling it with probe macros in the sandbox. */
+async function traceCpp(params: {
+  sourceCode: string;
+  language: 'cpp' | 'c';
+  testInput: string;
+  functionName?: string;
+}): Promise<ITraceResult> {
+  let program: string;
+  let signatureKnown = false;
+  try {
+    const built = buildCppTraceProgram({
+      sourceCode: params.sourceCode,
+      language: params.language,
+      testInput: params.testInput,
+      functionName: params.functionName,
+      maxSteps: TRACE_LIMITS.maxTraceSteps,
+    });
+    program = built.program;
+    signatureKnown = !!built.signature;
+  } catch (err: any) {
+    return unavailable(`Could not instrument this code: ${err?.message || 'parse failure'}`, { ...params, language: params.language });
+  }
+
+  const started = Date.now();
+  let run: { stdout: string; stderr: string; success: boolean; error?: string };
+  try {
+    run = await runInSandbox(params.language, program);
+  } catch (err: any) {
+    return unavailable(`Trace execution failed: ${err?.message || 'unknown error'}`, { ...params, language: params.language });
+  }
+
+  const parsed = parseCppTraceStdout(run.stdout || '');
+  const engine: ITraceMetadata['engine'] = `${params.language}-instrumented`;
+
+  if (parsed.events.length === 0) {
+    // A compile failure is reported verbatim rather than hidden behind an
+    // empty visualization — the user needs the compiler message.
+    const compileError = run.error || run.stderr;
+    const reason = compileError
+      ? `The ${params.language} code could not be compiled for tracing: ${String(compileError).slice(0, 300)}`
+      : signatureKnown
+        ? 'No trace events were produced (harness output missing).'
+        : 'Could not find a solution function to call — visual tracing needs a function to invoke.';
+    return unavailable(reason, { ...params, language: params.language }, engine);
+  }
+
+  const events = parsed.events.map((raw, i) => normalizeCppEvent(raw, i + 1));
+  if (parsed.programOutput) {
+    const last = events[events.length - 1];
+    events.push({
+      step: (last?.step ?? 0) + 1, line: 0, event: 'OUTPUT',
+      function: last?.function || '<module>', variables: {},
+      stdout: parsed.programOutput, callDepth: last?.callDepth ?? 0,
+    });
+  }
+
+  const runtimeError = parsed.stopped ? undefined : (run.error || undefined);
+
+  if (parsed.stopped || events.length > TRACE_LIMITS.maxTraceSteps || payloadTooLarge(events)) {
+    return buildResult(events.slice(0, TRACE_LIMITS.maxTraceSteps), {
+      language: params.language,
+      functionName: params.functionName,
+      inputPreview: params.testInput,
+      totalSteps: events.length,
+      truncated: true,
+      finalOutput: parsed.programOutput,
+      runtimeMs: Date.now() - started,
+      patterns: [],
+      returnValue: parsed.returnValue ?? undefined,
+      engine,
+    }, true, 'Visualization stopped because execution generated too many steps.');
+  }
+
+  return buildResult(events, {
+    language: params.language,
+    functionName: params.functionName,
+    inputPreview: params.testInput,
+    totalSteps: events.length,
+    truncated: false,
+    finalOutput: parsed.programOutput,
+    runtimeMs: Date.now() - started,
+    patterns: [],
+    returnValue: parsed.returnValue ?? undefined,
+    runtimeError,
+    engine,
+  }, false);
+}
+
 /** Public entry — used by the visualization controller. */
 export async function generateTrace(params: {
   language: string;
@@ -365,6 +456,7 @@ export async function generateTrace(params: {
       return traceJavaFunctionLevel({ sourceCode: params.sourceCode, testInput: params.testInput, functionName: params.functionName });
     case 'cpp':
     case 'c':
+      return traceCpp({ sourceCode: params.sourceCode, language: params.language as 'cpp' | 'c', testInput: params.testInput, functionName: params.functionName });
     default:
       return unavailable(
         `Line-level visualization is not yet supported for ${params.language}. Judge0 execution and AST analysis remain fully available.`,

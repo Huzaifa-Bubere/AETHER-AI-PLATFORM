@@ -38,8 +38,31 @@ interface ParsedRequirements {
   preferredSkills: string[];
 }
 
-const REQUIRED_HINTS = /\b(required|must have|must be|you have|we require|essential|minimum)\b/i;
-const PREFERRED_HINTS = /\b(preferred|nice to have|bonus|plus|desirable|ideally|good to have)\b/i;
+/**
+ * Requirement wording (spec §22–§23).
+ *
+ * These are deliberately explicit lists of English phrases rather than an AI
+ * classifier, so the same description always yields the same required/preferred
+ * split and the result is auditable. See AUDIT note below for what the previous
+ * version missed.
+ *
+ * AUDIT FINDINGS this replaced:
+ *  - "Mandatory" and "You should have" were not recognised as required.
+ *  - "Advantage" and "Preferred qualifications" were not recognised as preferred.
+ *  - A bare "Qualifications" / "Essential" heading set no section context.
+ *  - Any skill mentioned only in prose was marked REQUIRED, which over-stated
+ *    the required set and inflated the required-coverage denominator.
+ */
+const REQUIRED_HINTS = /\b(required|requirement|must have|must-have|must be|you have|you should have|we require|essential|essential qualifications?|mandatory|mandatory requirements?|minimum qualifications?|minimum \d+\+? ?years?|good command of|proficiency in)\b/i;
+const PREFERRED_HINTS = /\b(preferred|preferred qualifications?|nice to have|nice-to-have|bonus|plus|desirable|ideally|good to have|an advantage|advantageous|familiarity with|exposure to|working knowledge of)\b/i;
+
+/**
+ * Section headings. PREFERRED is matched FIRST so that "Preferred
+ * Qualifications" is never swallowed by a bare "Qualifications" required rule.
+ */
+const REQUIRED_SECTION = /^(required\s+)?(requirements?|must[- ]haves?|required qualifications?|minimum qualifications|essential( qualifications?| requirements?)?|mandatory( requirements?)?|what you(?:'| wi)?ll need|skills? (?:&|and) qualifications|minimum qualifications?)\b/i;
+const PREFERRED_SECTION = /^(preferred(\s+qualifications?)?|nice[- ]to[- ]haves?|bonus( points?)?|good to have|desirable|advantage|preferred requirements?)\b/i;
+const NEUTRAL_SECTION = /^(responsibilities|about the role|about us|what you(?:'| wi)?ll do|job description|key responsibilities|the role|company description|benefits|what we offer)\b/i;
 
 /**
  * Split a job description into required vs preferred requirements, using the
@@ -59,15 +82,17 @@ export async function parseJobRequirements(text: string, roleSlug?: string | nul
 
   for (const line of lines) {
     const lower = line.toLowerCase();
-    if (/^(requirements?|must haves?|required qualifications?|minimum qualifications|what you.ll need)\b/.test(lower)) {
-      section = 'required';
-      continue;
-    }
-    if (/^(preferred|nice to haves?|bonus|good to have|desirable)\b/.test(lower)) {
+    // Preferred is checked first so "Preferred Qualifications" is never read
+    // as a required section by the bare "Qualifications" alternative.
+    if (PREFERRED_SECTION.test(lower)) {
       section = 'preferred';
       continue;
     }
-    if (/^(responsibilities|about the role|what you.ll do|job description)\b/.test(lower)) {
+    if (REQUIRED_SECTION.test(lower)) {
+      section = 'required';
+      continue;
+    }
+    if (NEUTRAL_SECTION.test(lower)) {
       section = 'unknown';
       continue;
     }
@@ -77,7 +102,10 @@ export async function parseJobRequirements(text: string, roleSlug?: string | nul
     if (REQUIRED_HINTS.test(line)) importance = 'REQUIRED';
     else if (PREFERRED_HINTS.test(line)) importance = 'PREFERRED';
     else if (section !== 'unknown') importance = section === 'preferred' ? 'PREFERRED' : 'REQUIRED';
-    else continue; // no signal → not a requirement
+    else {
+      // No requirement wording at all — prose, not a stated requirement.
+      continue;
+    }
 
     candidates.push({ label: line, importance });
   }
@@ -112,14 +140,21 @@ export async function parseJobRequirements(text: string, roleSlug?: string | nul
     });
   }
 
-  // Any canonical skill mentioned in the description but not in a bullet still
-  // counts as a requirement of the role.
+  // Any canonical skill mentioned in the description but never stated as a
+  // requirement bullet is still a skill the posting cares about.
+  //
+  // DOCUMENTED FALLBACK (spec §A4): the model has two states, REQUIRED and
+  // PREFERRED. A skill with no requirement wording anywhere in the description
+  // is given PREFERRED, because promoting it to REQUIRED would over-state what
+  // the employer asked for and would also enlarge the denominator of the
+  // 30-point required-coverage component.
   for (const slug of skills) {
     if (requirements.some(r => r.skillSlug === slug)) continue;
+    const importance: 'REQUIRED' | 'PREFERRED' = 'PREFERRED';
     requirements.push({
       skillSlug: slug,
       label: slug,
-      importance: 'REQUIRED',
+      importance,
       evidenceStatus: 'NOT_EVIDENCED',
       currentLevel: null,
       currentLevelLabel: null,

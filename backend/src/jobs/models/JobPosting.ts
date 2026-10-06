@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema, Model } from 'mongoose';
+import { jobFingerprint } from '../services/jobFingerprint.service';
 
 /**
  * Job postings (spec §60).
@@ -76,6 +77,21 @@ export interface IJobPosting extends Document {
   active: boolean;
   /** Short verbatim requirement/responsibility bullets, when extractable. */
   requirements: string[];
+
+  /**
+   * Cross-provider canonical group (spec §C). Several providers can list the
+   * same vacancy; this fingerprint lets the UI show one card while keeping
+   * every source. It never replaces (provider, externalId), which remains the
+   * primary identity.
+   */
+  canonicalGroupId?: string | null;
+  /** Every provider the vacancy was seen on. Provenance is never discarded. */
+  sources: Array<{
+    provider: string;
+    externalId: string;
+    sourceUrl: string;
+    datePosted: Date | null;
+  }>;
 }
 
 export interface IJobPostingModel extends Model<IJobPosting> {
@@ -129,6 +145,18 @@ const jobPostingSchema = new Schema<IJobPosting, IJobPostingModel>({
 
   active: { type: Boolean, default: true, index: true },
   requirements: [{ type: String, trim: true }],
+
+  canonicalGroupId: { type: String, default: null, lowercase: true, trim: true, index: true },
+  sources: {
+    type: [{
+      _id: false,
+      provider: { type: String, trim: true, lowercase: true },
+      externalId: { type: String, trim: true },
+      sourceUrl: { type: String, trim: true },
+      datePosted: { type: Date, default: null },
+    }],
+    default: [],
+  },
 });
 
 // Spec §62: one posting per provider identity. This is the deduplication
@@ -140,12 +168,39 @@ jobPostingSchema.index({ roleIds: 1, active: 1, datePosted: -1 });
 jobPostingSchema.index({ active: 1, fetchedAt: -1 });
 // Fallback dedup for providers without a stable id, and free-text search.
 jobPostingSchema.index({ normalizedTitle: 1, normalizedCompany: 1 });
+// Cross-provider grouping (spec §C): postings sharing a canonical group are the
+// same real-world vacancy listed by more than one provider.
+jobPostingSchema.index({ canonicalGroupId: 1, active: 1, datePosted: -1 });
 jobPostingSchema.index({ title: 'text', company: 'text', description: 'text' });
 
 jobPostingSchema.statics.upsertFromProvider = async function (provider, externalId, doc) {
   const filter = { provider, externalId };
   const existing = await this.findOne(filter).select('_id');
-  const update = { $set: { ...doc, fetchedAt: new Date(), active: doc.active ?? true } };
+  const update = {
+    $set: {
+      ...doc,
+      fetchedAt: new Date(),
+      active: doc.active ?? true,
+      // Cross-provider fingerprint, recomputed on every ingest so a corrected
+      // title or date moves the posting to the right group (spec §C).
+      canonicalGroupId: jobFingerprint({
+        title: doc.title,
+        company: doc.company,
+        location: doc.location,
+        datePosted: doc.datePosted ?? null,
+      }),
+    },
+    // Provenance is appended, never replaced: a posting that later appears on
+    // another provider keeps its original record here too (spec §C3).
+    $addToSet: {
+      sources: {
+        provider,
+        externalId,
+        sourceUrl: doc.sourceUrl ?? '',
+        datePosted: doc.datePosted ?? null,
+      },
+    },
+  };
   const result = await this.findOneAndUpdate(filter, update, { upsert: true, new: true, setDefaultsOnInsert: true });
   return { posting: result as IJobPosting, created: !existing };
 };

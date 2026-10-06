@@ -108,12 +108,37 @@ export function JobCard({
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
         <span className="text-xs text-muted-foreground">
           {relativeDate(job.datePosted)} · via {job.source}
+          {(job.availableFromNProviders ?? 1) > 1 && (
+            <span className="ml-1 text-muted-foreground">
+              · also listed by {(job.availableFromNProviders ?? 1) - 1} other source(s)
+            </span>
+          )}
         </span>
         <div className="flex flex-wrap items-center gap-2">
-          {job.fit?.score != null && (
-            <span className="rounded bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
-              {job.fit.score}/100 match
+          {/*
+            Two DIFFERENT numbers, deliberately worded differently (spec §B4):
+              - relevance  → search ranking ("why is this at the top?")
+              - fit        → AETHER Job Requirement Match ("how well do my
+                             evidences align with this one JD?")
+            They are never both labelled "match".
+          */}
+          {job.recommendation?.recommendationScore != null && (
+            <span
+              className="rounded bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground"
+              title={job.recommendation.reasonSummary}
+            >
+              {job.recommendation.recommendationScore} relevance
+              {job.recommendation.recommendationLabel
+                ? ` · ${job.recommendation.recommendationLabel}`
+                : ''}
             </span>
+          )}
+          {job.fit?.score != null ? (
+            <span className="rounded bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+              {job.fit.score}/100 requirement match
+            </span>
+          ) : (
+            <span className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">Not analyzed</span>
           )}
           <Button variant="ghost" size="sm" onClick={() => onSave(job)}>
             <Bookmark className={`mr-1 h-4 w-4 ${saved ? 'fill-primary text-primary' : ''}`} />

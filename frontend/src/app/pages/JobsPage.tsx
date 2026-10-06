@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, RefreshCw, Search } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -8,6 +8,9 @@ import {
   saveJob,
   unsaveJob,
   fetchSavedJobs,
+  recordJobVisit,
+  EXPERIENCE_FILTER_OPTIONS,
+  INDIA_LOCATION_SUGGESTIONS,
   type JobListResponse,
   type JobSummary,
   type WorkMode,
@@ -45,6 +48,13 @@ export function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  // Real count of jobs newer than the candidate's previous visit. Null means
+  // there is no honest baseline yet, so NO badge is shown (spec §F1).
+  const [newJobs, setNewJobs] = useState<number | null>(null);
+
+  // Track whether the role filter came from the user/URL so the primary-role
+  // default never fights an explicit choice.
+  const roleFromUrl = useRef(searchParams.get('role') != null);
 
   useEffect(() => {
     fetchRoleGoals()
@@ -60,6 +70,15 @@ export function JobsPage() {
     }, 400);
     return () => window.clearTimeout(t);
   }, [qInput]);
+
+  // PART 5: when /jobs opens without an explicit role in the URL, prefer the
+  // candidate's PRIMARY role. This is only a search view preference -- it never
+  // writes to the stored primaryRole.
+  useEffect(() => {
+    if (roleFromUrl.current || role) return;
+    const primary = roles.find(r => r.isPrimary);
+    if (primary) setRole(primary.roleSlug);
+  }, [roles, role]);
 
   // Mirror filter state into the URL (replace, so history is not spammed).
   useEffect(() => {
@@ -116,6 +135,15 @@ export function JobsPage() {
     void loadSaved();
   }, [loadSaved]);
 
+  // Record the visit and learn how much is new. The backend reads the previous
+  // timestamp before writing the new one, so the count is never measured against
+  // a stamp this request just moved (spec §F2).
+  useEffect(() => {
+    recordJobVisit(role || null)
+      .then(result => setNewJobs(result.newJobs))
+      .catch(() => setNewJobs(null));
+  }, [role]);
+
   const toggleSave = async (job: JobSummary) => {
     const wasSaved = savedIds.has(job.id);
     // Optimistic, then reconciled against the server so a failed write is undone.
@@ -156,6 +184,13 @@ export function JobsPage() {
         </p>
       </header>
 
+      {/* Real "new since last visit" count. Rendered only when the count is real. */}
+      {newJobs != null && newJobs > 0 && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground">
+          {newJobs} new job{newJobs === 1 ? '' : 's'} matching this search since your last visit.
+        </div>
+      )}
+
       {/* Filters */}
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -163,8 +198,8 @@ export function JobsPage() {
             Search
             <input
               className={`${inputClass} w-full`}
-              value={q}
-              onChange={e => { setQ(e.target.value); setPage(1); }}
+              value={qInput}
+              onChange={e => { setQInput(e.target.value); setPage(1); }}
               placeholder="Job title, skill or company"
             />
           </label>
@@ -185,12 +220,23 @@ export function JobsPage() {
           </label>
           <label className="space-y-1 text-xs font-medium text-muted-foreground">
             Location
+            {/*
+              Advisory suggestions only. The input stays a free-text field, so
+              any location a provider returns is still searchable — the list is
+              never treated as a whitelist (spec §54).
+            */}
             <input
               className={`${inputClass} w-full`}
               value={location}
               onChange={e => { setLocation(e.target.value); setPage(1); }}
               placeholder="City or country"
+              list="aether-location-suggestions"
             />
+            <datalist id="aether-location-suggestions">
+              {INDIA_LOCATION_SUGGESTIONS.map(city => (
+                <option key={city} value={city} />
+              ))}
+            </datalist>
           </label>
           <label className="space-y-1 text-xs font-medium text-muted-foreground">
             Work mode
@@ -217,6 +263,20 @@ export function JobsPage() {
               <option value="PART_TIME">Part-time</option>
               <option value="INTERNSHIP">Internship</option>
               <option value="CONTRACT">Contract</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-xs font-medium text-muted-foreground">
+            Experience
+            <select
+              className={`${inputClass} w-full`}
+              value={experience}
+              onChange={e => { setExperience(e.target.value as ExperienceLevel | ''); setPage(1); }}
+            >
+              {EXPERIENCE_FILTER_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="space-y-1 text-xs font-medium text-muted-foreground">

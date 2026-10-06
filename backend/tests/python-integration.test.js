@@ -45,10 +45,18 @@ test('resume serialization never restores legacy fabricated scores or skills aft
   expect(parsedResumeSkills({ raw_text: 'Real content', skills: [{ skills: ['Python', 'SQL'] }, 'SQL'] })).toEqual(['Python', 'SQL']);
 });
 
-test('resume evaluation preserves zero and rejects invented out-of-range scores', () => {
+test('resume evaluation preserves zero and never passes through an invented out-of-range score', () => {
   const review = { score: 0, contentQuality: 0, keywords: 0, impact: 0, suggestions: [] };
   expect(validateResumeEvaluation(review).score).toBe(0);
-  expect(() => validateResumeEvaluation({ ...review, score: 101 })).toThrow();
+
+  // validateResumeEvaluation REPAIRS rather than rejects: an out-of-range
+  // score from the model is clamped into 0-100 instead of throwing away an
+  // otherwise usable evaluation. The score is still never passed through as-is.
+  expect(validateResumeEvaluation({ ...review, score: 101 }).score).toBe(100);
+  expect(validateResumeEvaluation({ ...review, score: -20 }).score).toBe(0);
+
+  // A payload with no usable score at all is still rejected outright.
+  expect(() => validateResumeEvaluation({ ...review, score: 'not-a-number' })).toThrow();
 });
 
 (process.env.PYTHON_INTEGRATION === '1' ? test : test.skip)('Node multipart adapter communicates with the real Python parser', async () => {

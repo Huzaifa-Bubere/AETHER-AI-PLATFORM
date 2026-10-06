@@ -19,7 +19,8 @@
     "seed:topics": "ts-node src/career/seed/seedTopics.ts",
     "migrate:multi-role": "ts-node src/scripts/migrateMultiRoleGoals.ts",
     "repair:plans": "ts-node src/scripts/repairUserPlans.ts",
-    "seed:admin": "ts-node src/scripts/seedAdmin.ts"
+    "seed:admin": "ts-node src/scripts/seedAdmin.ts",
+    "jobs:smoke": "npm run build && node scripts/jobsProviderSmoke.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

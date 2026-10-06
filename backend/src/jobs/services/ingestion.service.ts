@@ -3,6 +3,7 @@ import { configuredProviders, normalizeName, type FetchJobsQuery, type JobProvid
 import { extractSkills } from '../../career/services/skillExtraction';
 import { CareerRole } from '../../career/models/CareerRole';
 import logger from '../../utils/logger';
+import { recordProviderRun } from './providerHealth.service';
 
 /**
  * JobIngestionService (spec §59, §62, §63).
@@ -116,9 +117,25 @@ export async function ingestFromProvider(
   for (const job of jobs) {
     try {
       const doc = await normalizeForStorage(job);
-      const { created } = await JobPosting.upsertFromProvider(job.provider, job.externalId, doc);
-      if (created) report.created += 1;
-      else report.updated += 1;
+      const { posting, created } = await JobPosting.upsertFromProvider(job.provider, job.externalId, doc);
+      if (created) {
+        report.created += 1;
+        // Keep the lean shape the alert service needs, without re-querying.
+        lastCreatedPostings.push({
+          _id: posting._id,
+          title: posting.title,
+          company: posting.company,
+          location: posting.location ?? null,
+          workMode: posting.workMode,
+          jobType: posting.jobType,
+          experienceLevel: posting.experienceLevel,
+          datePosted: posting.datePosted ?? null,
+          roleIds: posting.roleIds ?? [],
+          extractedSkills: posting.extractedSkills ?? [],
+        });
+      } else {
+        report.updated += 1;
+      }
     } catch (error) {
       report.skipped += 1;
       report.errors.push(`${job.provider}:${job.externalId}: ${(error as Error).message}`);
@@ -129,13 +146,22 @@ export async function ingestFromProvider(
   return report;
 }
 
-/** Ingest from every configured provider. */
+/**
+ * Ingest from every configured provider.
+ *
+ * Failure isolation (spec §A47): one provider failing never aborts the others,
+ * because each provider is awaited inside its own try and its report is still
+ * returned.
+ */
 export async function runIngestion(query: FetchJobsQuery = {}): Promise<IngestionReport[]> {
   const providers = configuredProviders();
   const reports: IngestionReport[] = [];
 
+  // Providers run SEQUENTIALLY on purpose: a sequential loop makes the
+  // "one provider fails, the rest still complete" guarantee obvious, and a slow
+  // optional source cannot starve the official APIs of their turn.
   for (const provider of providers) {
-    reports.push(await ingestFromProvider(provider, query));
+    reports.push(await runOne(provider, query));
   }
   if (providers.length === 0) {
     // No provider is configured. Say so plainly instead of serving nothing
@@ -143,6 +169,63 @@ export async function runIngestion(query: FetchJobsQuery = {}): Promise<Ingestio
     logger.info('[jobs] ingestion skipped: no provider configured');
   }
   return reports;
+}
+
+/**
+ * The postings created by the most recent ingestion, for alert generation.
+ *
+ * Held in memory by the refresh cycle. Keeping it here means alerts are raised
+ * only for genuinely NEW postings and never for postings that already existed
+ * and merely got refreshed (spec §G1).
+ */
+let lastCreatedPostings: Array<Record<string, unknown>> = [];
+
+/**
+ * One provider's turn, wrapped so a failure is RECORDED rather than thrown, and
+ * so the remaining providers still run (spec §25, §74).
+ *
+ * Logging is structured and carries no credentials: the provider name, counts
+ * and duration only.
+ */
+async function runOne(provider: JobProviderAdapter, query: FetchJobsQuery): Promise<IngestionReport> {
+  const startedAt = Date.now();
+  try {
+    const report = await ingestFromProvider(provider, query);
+    recordProviderRun({
+      name: provider.name,
+      configured: true,
+      enabled: true,
+      hint: provider.configurationHint(),
+      // A skipped/unconfigured provider is not a failure.
+      ok: !report.skipped_provider,
+      error: report.errors[0] ?? null,
+      fetched: report.fetched,
+      created: report.created,
+      updated: report.updated,
+      skipped: report.skipped,
+      durationMs: Date.now() - startedAt,
+    });
+    return report;
+  } catch (error) {
+    const message = (error as Error).message;
+    logger.warn('jobs.provider_run_failed', { provider: provider.name, err: message });
+    recordProviderRun({
+      name: provider.name,
+      configured: true,
+      enabled: true,
+      hint: provider.configurationHint(),
+      ok: false,
+      error: message,
+      durationMs: Date.now() - startedAt,
+    });
+    return { provider: provider.name, fetched: 0, created: 0, updated: 0, skipped: 0, errors: [message] };
+  }
+}
+
+export function takeNewlyCreatedPostings(): Array<Record<string, unknown>> {
+  const created = lastCreatedPostings;
+  lastCreatedPostings = [];
+  return created;
 }
 
 /**

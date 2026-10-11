@@ -111,15 +111,47 @@ export const adaptiveInterviewApi = {
     const res = await client.post(`/api/adaptive-interview/${sessionId}/end`, terminationReason ? { terminationReason } : {});
     return unwrap(res.data) as { sessionId: string; completed: boolean; report: AdaptiveReport };
   },
+  /**
+   * Upload the recording with bounded retry (spec §4G).
+   *
+   * A retry only happens for transient failures (network error, timeout, 5xx).
+   * A 4xx is a contract problem (too large / wrong type) and retrying would just
+   * repeat it. The recording blob is validated before the first attempt so a
+   * zero-byte Blob is never uploaded (spec §4D).
+   */
   async uploadRecording(sessionId: string, blob: Blob, durationSeconds?: number) {
-    const form = new FormData();
-    form.append('recording', blob, 'interview-recording.webm');
-    if (durationSeconds && durationSeconds > 0) form.append('durationSeconds', String(Math.round(durationSeconds)));
-    const res = await client.post(`/api/adaptive-interview/${sessionId}/recording`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 300000, // large video files need a longer window
-    });
-    return unwrap(res.data) as { storageType: string; sizeBytes: number; playbackUrl: string };
+    if (!blob || blob.size <= 0) {
+      throw new Error('Recording contains no media data.');
+    }
+    const extension = /mp4|mpeg/i.test(blob.type) ? 'mp4' : 'webm';
+    const displayName = `interview-recording.${extension}`;
+
+    const attempt = async () => {
+      const form = new FormData();
+      form.append('recording', blob, displayName);
+      if (durationSeconds && durationSeconds > 0) form.append('durationSeconds', String(Math.round(durationSeconds)));
+      const res = await client.post(`/api/adaptive-interview/${sessionId}/recording`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000, // large video files need a longer window
+      });
+      return unwrap(res.data) as { storageType: string; sizeBytes: number; playbackUrl: string };
+    };
+
+    const MAX_ATTEMPTS = 3;
+    let lastError: any;
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      try {
+        return await attempt();
+      } catch (err: any) {
+        lastError = err;
+        const status = err?.response?.status as number | undefined;
+        const transient = status === undefined || status === 408 || status === 429 || status >= 500;
+        if (!transient || i === MAX_ATTEMPTS - 1) break;
+        // Small exponential backoff: 800ms, 1600ms.
+        await new Promise(resolve => setTimeout(resolve, 800 * Math.pow(2, i)));
+      }
+    }
+    throw lastError;
   },
   async getReport(sessionId: string) {
     const res = await client.get(`/api/adaptive-interview/${sessionId}/report`);

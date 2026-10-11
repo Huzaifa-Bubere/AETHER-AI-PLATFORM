@@ -118,8 +118,14 @@ function unwrap<T>(response: { success: boolean; data?: T; message?: string; err
   return response.data;
 }
 
+/**
+ * Role goals are a collection contract: always return an array.
+ * A backend that answers `data: null` (no goals yet, or a legacy shape) must
+ * not reach a component that calls `.map`/`.find` (spec §6B, §13).
+ */
 export async function fetchRoleGoals(): Promise<RoleGoal[]> {
-  return unwrap(await apiService.get<RoleGoal[]>('/careers/me/goals'));
+  const raw = unwrap<RoleGoal[] | null>(await apiService.get<RoleGoal[]>('/careers/me/goals'));
+  return Array.isArray(raw) ? raw : [];
 }
 
 export async function addRoleGoal(input: {
@@ -152,7 +158,14 @@ export async function fetchRoleRequirements(roleSlug: string): Promise<RoleProgr
 }
 
 export async function fetchResumeVersionsForFit(): Promise<Array<{ id: string; name: string; targetRoleSlug?: string }>> {
-  return unwrap(await apiService.get<Array<{ id: string; name: string; targetRoleSlug?: string }>>('/resume/versions'));
+  const raw = unwrap<any>(await apiService.get<Array<{ id: string; name: string; targetRoleSlug?: string }>>('/resume/versions'));
+  // The endpoint answers `{ versions: [...] }`; older callers expected a bare array.
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.versions) ? raw.versions : [];
+  return list.map((v: any) => ({
+    id: String(v.id ?? v._id ?? ''),
+    name: v.name ?? 'Untitled',
+    targetRoleSlug: v.targetRoleSlug,
+  }));
 }
 
 export async function fetchSkillProfile(rebuild = false): Promise<{ skills: SkillLevelDetail[]; totalEvidenced: number }> {

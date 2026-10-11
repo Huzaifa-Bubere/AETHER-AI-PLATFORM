@@ -184,11 +184,11 @@ export default function CareerRoadmapPage() {
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground pt-16"><Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading roadmap…</div>;
+    return <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground"><Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading roadmap…</div>;
   }
   if (error || !roadmap) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3 pt-16 text-center px-4">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3 text-center px-4">
         <p className="text-destructive text-sm">{error || 'Roadmap not found'}</p>
         <Link to="/career-learning" className="text-primary underline text-sm">Back to Career Learning</Link>
       </div>
@@ -202,7 +202,7 @@ export default function CareerRoadmapPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-14">
       <div className="mx-auto max-w-5xl space-y-6">
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">

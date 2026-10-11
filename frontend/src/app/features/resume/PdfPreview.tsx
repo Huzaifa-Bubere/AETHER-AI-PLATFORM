@@ -111,7 +111,11 @@ export function AtsPanel({ ats, jdMatch, analyzing, onRefresh }: {
     );
   }
 
-  const byKey = new Map(ats.categories.map(c => [c.key, c]));
+  // Defensive at the API boundary: an older/incomplete ATS payload must never
+  // crash the panel (spec §5A, §13).
+  const categories = Array.isArray(ats.categories) ? ats.categories : [];
+  const bulletFindings = Array.isArray(ats.bulletFindings) ? ats.bulletFindings : [];
+  const byKey = new Map(categories.map(c => [c.key, { ...c, findings: Array.isArray(c.findings) ? c.findings : [] }]));
   const tone = ats.totalScore >= 70 ? 'text-emerald-600' : ats.totalScore >= 55 ? 'text-amber-600' : 'text-rose-600';
 
   return (
@@ -159,10 +163,10 @@ export function AtsPanel({ ats, jdMatch, analyzing, onRefresh }: {
         })}
       </div>
 
-      {ats.bulletFindings.length > 0 && (
+      {bulletFindings.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-1">
           <p className="text-[12px] font-bold text-amber-800">Bullet improvements</p>
-          {ats.bulletFindings.slice(0, 3).map((b, i) => (
+          {bulletFindings.slice(0, 3).map((b, i) => (
             <p key={i} className="text-[11.5px] text-foreground/80">
               “{b.bullet.slice(0, 70)}{b.bullet.length > 70 ? '…' : ''}” — {b.issues[0]}
             </p>
@@ -174,15 +178,15 @@ export function AtsPanel({ ats, jdMatch, analyzing, onRefresh }: {
         <div className="rounded-xl border border-border p-3 space-y-2">
           <p className="text-[12px] font-bold text-foreground">Target job match: {jdMatch.matchScore}%</p>
           <div className="flex flex-wrap gap-1">
-            {jdMatch.matchedKeywords.slice(0, 10).map(k => (
+            {(jdMatch.matchedKeywords ?? []).slice(0, 10).map(k => (
               <span key={k} className="text-[10.5px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">{k}</span>
             ))}
           </div>
-          {jdMatch.missingKeywords.length > 0 && (
+          {(jdMatch.missingKeywords ?? []).length > 0 && (
             <>
               <p className="text-[11px] text-muted-foreground">Not found in your resume:</p>
               <div className="flex flex-wrap gap-1">
-                {jdMatch.missingKeywords.slice(0, 10).map(k => (
+                {(jdMatch.missingKeywords ?? []).slice(0, 10).map(k => (
                   <span key={k} className="text-[10.5px] px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">{k}</span>
                 ))}
               </div>

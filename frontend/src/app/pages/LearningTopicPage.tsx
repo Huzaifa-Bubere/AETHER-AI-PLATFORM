@@ -93,7 +93,7 @@ export default function LearningTopicPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+      <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-14">
         <div className="mx-auto max-w-7xl flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading lesson from the content database…
         </div>
@@ -103,7 +103,7 @@ export default function LearningTopicPage() {
 
   if (error || !page) {
     return (
-      <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+      <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-14">
         <div className="mx-auto max-w-3xl space-y-4">
           <Card className="p-6 rounded-2xl border-destructive/30">
             <p className="text-sm font-semibold text-destructive mb-1">This lesson could not be loaded</p>
@@ -122,7 +122,7 @@ export default function LearningTopicPage() {
   const optionalPrereqs = prerequisites.filter(p => p.optional);
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-16">
+    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-16">
       <div className="mx-auto max-w-7xl space-y-5">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">

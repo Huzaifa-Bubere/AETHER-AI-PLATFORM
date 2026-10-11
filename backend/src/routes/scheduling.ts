@@ -86,7 +86,7 @@ router.post('/schedule', [
       if (user) {
         await emailService.sendEmail({
           to: user.email,
-          subject: 'Interview Scheduled — ATHER',
+          subject: 'Interview Scheduled — AETHER',
           html: `
             <h2>Interview Scheduled</h2>
             <p>Hi ${user.profile?.firstName || 'there'},</p>
@@ -209,7 +209,7 @@ router.put('/:id/reschedule', [
       if (user) {
         await emailService.sendEmail({
           to: user.email,
-          subject: 'Interview Rescheduled — ATHER',
+          subject: 'Interview Rescheduled — AETHER',
           html: `
             <h2>Interview Rescheduled</h2>
             <p>Hi ${user.profile?.firstName || 'there'},</p>
@@ -269,7 +269,7 @@ router.delete('/:id', asyncHandler(async (req: Request, res: Response): Promise<
       if (user) {
         await emailService.sendEmail({
           to: user.email,
-          subject: 'Interview Cancelled — ATHER',
+          subject: 'Interview Cancelled — AETHER',
           html: `
             <h2>Interview Cancelled</h2>
             <p>Hi ${user.profile?.firstName || 'there'},</p>
@@ -359,7 +359,7 @@ router.post('/:id/send-reminder', asyncHandler(async (req: Request, res: Respons
       const user = interview.userId as any;
       await emailService.sendEmail({
         to: user.email,
-        subject: 'Interview Reminder — ATHER',
+        subject: 'Interview Reminder — AETHER',
         html: `
           <h2>Interview Reminder</h2>
           <p>Hi ${user.profile?.firstName || 'there'},</p>

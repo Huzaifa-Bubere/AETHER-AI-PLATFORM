@@ -104,7 +104,7 @@ export function SubscriptionPage() {
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
 
   return (
-    <div className="min-h-screen pt-16 bg-[#F8FAFC]">
+    <div className="min-h-screen bg-[#F8FAFC]">
       <div className="max-w-6xl mx-auto px-4 py-10">
         {/* ── Billing summary (§58) ── */}
         <div className="rounded-2xl bg-white border border-slate-200 p-6 mb-8">

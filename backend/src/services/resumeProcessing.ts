@@ -4,31 +4,27 @@ import localStorage from './localStorage';
 import pythonAI from './pythonAI';
 import { generateJson } from './ai/provider';
 import logger from '../utils/logger';
+import { computeAtsScore, type IResumeData } from './atsEngine';
+import {
+  normalizeSkillEntries, groupSkills, skillLabels, type SkillEntry,
+} from './resumeSkills';
 
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && !!v.trim()).map(v => v.trim()) : [];
+
+/** True when the parser produced usable text (the only validity gate). */
+export function isParsedResumeValid(parsed: any): boolean {
+  return !!parsed && !parsed.error && typeof parsed.raw_text === 'string' && parsed.raw_text.trim().length > 0;
+}
+
+/** Structured, canonicalised skills (slug + label + category). */
+export function parsedResumeSkillEntries(parsed: any): SkillEntry[] {
+  if (!isParsedResumeValid(parsed)) return [];
+  return normalizeSkillEntries(parsed.skills);
+}
+
+/** Flat canonical labels — kept for backwards compatibility with old records/UI. */
 export function parsedResumeSkills(parsed: any): string[] {
-  if (!parsed || parsed.error || typeof parsed.raw_text !== 'string' || !parsed.raw_text.trim()) return [];
- const rawSkills: unknown[] = Array.isArray(parsed.skills)
-  ? parsed.skills
-  : [];
-
-const skills: string[] = rawSkills.flatMap((group: unknown): string[] => {
-  if (typeof group === 'string') {
-    return [group];
-  }
-
-  if (
-    group &&
-    typeof group === 'object' &&
-    'skills' in group
-  ) {
-    return strings((group as { skills?: unknown }).skills);
-  }
-
-  return [];
-});
-
-return Array.from(new Set<string>(skills));
+  return skillLabels(parsedResumeSkillEntries(parsed));
 }
 
 /**
@@ -69,16 +65,83 @@ export function validateResumeEvaluation(value: any) {
   return { score, contentQuality, keywords, impact, suggestions };
 }
 
+/**
+ * Map the Python parser output onto the deterministic ATS engine's input so the
+ * Resume Analyzer can show a documented, non-AI quality score even when Gemini
+ * is unavailable. Nothing is invented — absent fields simply score lower.
+ */
+export function parsedResumeToAtsInput(parsed: any): IResumeData {
+  const contact = parsed?.contact_info || {};
+  const links = [contact.linkedin, contact.github].filter((v: unknown): v is string => typeof v === 'string' && !!v);
+
+  const experience = (Array.isArray(parsed?.experience) ? parsed.experience : []).map((e: any) => ({
+    title: e?.title || e?.position || e?.role || '',
+    company: e?.company || e?.organization || e?.employer || '',
+    location: e?.location || '',
+    duration: e?.duration || e?.dates || '',
+    description: typeof e?.description === 'string' ? e.description : '',
+    bullets: Array.isArray(e?.bullets) ? e.bullets : [],
+  }));
+
+  const projects = (Array.isArray(parsed?.projects) ? parsed.projects : []).map((p: any) => ({
+    name: p?.name || p?.title || '',
+    description: typeof p?.description === 'string' ? p.description : '',
+    technologies: Array.isArray(p?.technologies) ? p.technologies : strings(p?.tech),
+    link: p?.link || p?.url || '',
+    bullets: Array.isArray(p?.bullets) ? p.bullets : [],
+  }));
+
+  const education = (Array.isArray(parsed?.education) ? parsed.education : []).map((e: any) => ({
+    degree: e?.degree || '',
+    institution: e?.institution || '',
+    year: e?.year || '',
+    score: e?.gpa || e?.score || '',
+  }));
+
+  return {
+    name: contact.name || '',
+    email: contact.email || '',
+    phone: contact.phone || '',
+    location: contact.location || '',
+    links,
+    summary: typeof parsed?.summary === 'string' ? parsed.summary : '',
+    experience,
+    projects,
+    education,
+    skills: parsedResumeSkills(parsed),
+    certifications: strings(parsed?.certifications),
+    achievements: strings(parsed?.achievements),
+    languages: Array.isArray(parsed?.languages) ? parsed.languages : [],
+    customSections: [],
+  };
+}
+
 export function serializeResume(resume: IResume) {
   const parsed = resume.metadata.parsedData;
-  const valid = parsed && !parsed.error && typeof parsed.raw_text === 'string' && parsed.raw_text.trim();
+  const valid = isParsedResumeValid(parsed);
   const evaluation = resume.metadata.analysisVersion === '2.0.0' ? resume.metadata.evaluation : null;
+
+  // Stage statuses are independent so one failure never blanks the whole page.
+  const parseStatus = valid ? 'COMPLETED' : 'FAILED';
+  const aiReviewStatus = evaluation ? 'COMPLETED' : resume.metadata.analysisVersion === '2.0.0' ? 'UNAVAILABLE' : 'NOT_REQUESTED';
+  const deterministic = valid ? computeAtsScore(parsedResumeToAtsInput(parsed)) : null;
+  const deterministicAnalysisStatus = deterministic ? 'COMPLETED' : 'UNAVAILABLE';
+
+  const skillEntries = parsedResumeSkillEntries(parsed);
+
   return { _id: resume._id, id: resume._id, fileName: resume.filename, uploadDate: resume.metadata.uploadedAt,
     fileUrl: `/api/resume/${resume._id}/view`, processingStatus: valid ? 'completed' : resume.metadata.processingStatus === 'completed' ? 'failed' : resume.metadata.processingStatus,
+    parseStatus, deterministicAnalysisStatus, aiReviewStatus,
     analysisStatus: evaluation ? 'completed' : 'unavailable', errorMessage: resume.metadata.errorMessage,
+    // AI qualitative review (never the ATS/quality score).
     score: evaluation?.score ?? null, contentQuality: evaluation?.contentQuality ?? null,
     formatting: null, keywords: evaluation?.keywords ?? null, impact: evaluation?.impact ?? null,
-    extractedSkills: parsedResumeSkills(parsed), missingSkills: [], suggestions: evaluation?.suggestions || [],
+    suggestions: evaluation?.suggestions || [],
+    // Deterministic, documented quality score from atsEngine.
+    deterministic,
+    // Structured, deduplicated, categorised skills + flat labels for compat.
+    skills: skillEntries, skillGroups: groupSkills(skillEntries), extractedSkills: skillLabels(skillEntries),
+    missingSkills: [],
     parsedData: valid ? parsed : null, contactInfo: valid ? parsed.contact_info || {} : {},
     experience: valid ? parsed.experience || [] : [], education: valid ? parsed.education || [] : [],
     certifications: valid ? parsed.certifications || [] : [], projects: valid ? parsed.projects || [] : [], summary: valid ? parsed.summary || '' : '' };

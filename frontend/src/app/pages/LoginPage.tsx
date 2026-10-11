@@ -55,7 +55,7 @@ export function LoginPage() {
             <Brain className="w-6 h-6 text-white" />
           </div>
           <span className="text-2xl font-semibold text-foreground">
-            ATHER
+            AETHER
           </span>
         </div>
 

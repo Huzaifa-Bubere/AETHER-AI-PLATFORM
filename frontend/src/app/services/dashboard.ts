@@ -68,6 +68,34 @@ export interface DashboardSummary {
   recommendations: RecommendedAction[];
 }
 
+/**
+ * Collection fields that the dashboard renders with .map()/.find() must be
+ * arrays before any component touches them — a payload carrying
+ * `roleProgress.roles: null` used to reach the page and take the whole route
+ * down with "Cannot read properties of null". Normalizing here (the API
+ * boundary) keeps every consumer safe without scattering `?.` through the UI.
+ */
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function normalizeSummary(raw: DashboardSummary): DashboardSummary {
+  const source = raw as any;
+  const roleProgress = source.roleProgress ?? {};
+  return {
+    ...source,
+    recommendations: asArray(source.recommendations),
+    activity: {
+      ...(source.activity ?? {}),
+      days: asArray(source.activity?.days),
+    },
+    roleProgress: {
+      ...roleProgress,
+      roles: asArray(roleProgress.roles),
+    },
+  } as DashboardSummary;
+}
+
 export async function fetchDashboardSummary(roleSlug?: string): Promise<DashboardSummary> {
   const response = await apiService.get<DashboardSummary>('/dashboard/summary', {
     role: roleSlug || undefined,
@@ -75,5 +103,5 @@ export async function fetchDashboardSummary(roleSlug?: string): Promise<Dashboar
   if (!response.success || !response.data) {
     throw new Error(response.message || 'Could not load your dashboard.');
   }
-  return response.data;
+  return normalizeSummary(response.data);
 }

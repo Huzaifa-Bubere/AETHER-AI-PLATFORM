@@ -81,11 +81,11 @@ export default function CareerIntelligenceRolePage() {
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground pt-16"><Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading market intelligence…</div>;
+    return <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground"><Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading market intelligence…</div>;
   }
   if (error || !role) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3 pt-16 text-center px-4">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3 text-center px-4">
         <p className="text-destructive text-sm">{error || 'Role not found'}</p>
         <Link to="/career-intelligence" className="text-primary underline text-sm">Back to Career Intelligence</Link>
       </div>
@@ -108,7 +108,7 @@ export default function CareerIntelligenceRolePage() {
   const nameOf = (slug: string) => role.skills.find(s => s.skillSlug === slug)?.name || slug;
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-14">
       <div className="mx-auto max-w-6xl space-y-6">
         {/* Header */}
         <div>

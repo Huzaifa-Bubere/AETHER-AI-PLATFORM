@@ -12,6 +12,7 @@ import { AstTreeView } from '../components/AstTreeView';
 import { ComplexityPanel, AstMetricsPanel, ScorePanel } from '../components/AnalysisPanels';
 import { OptimizationFeedback } from '../components/OptimizationFeedback';
 import { ExecutionVisualizer } from '../components/ExecutionVisualizer';
+import { SubmissionAnalysisModal } from '../components/SubmissionAnalysisModal';
 import { CODING_LANGUAGES, type ITestOutcome } from '../types';
 import { useIntegrityMonitor } from '../../integrity/useIntegrityMonitor';
 import { DEFAULT_POLICIES } from '../../integrity/integrity.types';
@@ -49,6 +50,8 @@ export function ProblemWorkspacePage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [integrityLocked, setIntegrityLocked] = useState(false);
   const [visualizerOpen, setVisualizerOpen] = useState(false);
+  // Post-submission analysis opens automatically (spec §3A).
+  const [analysisOpen, setAnalysisOpen] = useState(false);
 
   const {
     problem, language, codeByLanguage, activeTab, isRunning, isSubmitting,
@@ -142,9 +145,20 @@ const visualizerSupported = TRACEABLE_LANGUAGES.includes(language);
     }
   };
 
+  // Open the analysis panel whenever a NEW submission result arrives, whether it
+  // came from the Submit button or from the integrity auto-submit path.
+  const lastOpenedSubmission = useRef<string | null>(null);
+  useEffect(() => {
+    const id = submitResult?.submissionId;
+    if (id && id !== lastOpenedSubmission.current) {
+      lastOpenedSubmission.current = id;
+      setAnalysisOpen(true);
+    }
+  }, [submitResult?.submissionId]);
+
   if (!problem && !error) {
     return (
-      <div className="min-h-screen pt-16 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
       </div>
     );
@@ -152,7 +166,7 @@ const visualizerSupported = TRACEABLE_LANGUAGES.includes(language);
 
   if (error || !problem) {
     return (
-      <div className="min-h-screen pt-16 flex flex-col items-center justify-center gap-3 p-6">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-6">
         <p className="text-slate-600">{error || 'Problem not found'}</p>
         <Button variant="outline" onClick={() => navigate('/coding')}>Back to Coding Dashboard</Button>
       </div>
@@ -162,13 +176,13 @@ const visualizerSupported = TRACEABLE_LANGUAGES.includes(language);
   const tests: ITestOutcome[] = runResult?.tests || submitResult?.tests || [];
   const currentResult = submitResult || runResult;
 
-  // pt-16 clears the fixed app navbar (h-16); the page itself never scrolls —
+  // clears the fixed app navbar (h-16); the page itself never scrolls —
   // each column scrolls internally, so nothing hides behind the navbar.
   return (
     <div className={
       isFullscreen
         ? 'fixed inset-0 z-50 bg-slate-50 flex flex-col overflow-hidden'
-        : 'h-screen pt-16 flex flex-col overflow-hidden bg-slate-50'
+        : 'h-screen flex flex-col overflow-hidden bg-slate-50'
     }>
       {/* Top bar */}
       <div className="shrink-0 bg-white border-b px-4 py-2.5 flex items-center justify-between">
@@ -466,6 +480,23 @@ const visualizerSupported = TRACEABLE_LANGUAGES.includes(language);
           onContinue={integrity.dismissModal}
         />
       )}
+
+      {/* Post-submission SUBMISSION ANALYSIS panel (spec §3A–§3F) */}
+      <SubmissionAnalysisModal
+        open={analysisOpen}
+        onClose={() => setAnalysisOpen(false)}
+        result={submitResult}
+        analysis={analysis}
+        code={code}
+        language={language}
+        monacoLanguage={monacoLanguage}
+        visualizerSupported={visualizerSupported}
+        onOpenVisualizer={() => { setAnalysisOpen(false); setVisualizerOpen(true); }}
+        problemTitle={problem.title}
+        expectedTime={problem.expectedTimeComplexity}
+        expectedSpace={problem.expectedSpaceComplexity}
+        knownApproaches={problem.knownApproaches}
+      />
 
       {/* Post-submission Execution Visualizer (never during official runs) */}
       {visualizerOpen && submitResult && (

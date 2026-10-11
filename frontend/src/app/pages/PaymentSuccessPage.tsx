@@ -68,7 +68,7 @@ export function PaymentSuccessPage() {
             Payment Successful!
           </h1>
           <p className="text-xl text-muted-foreground mb-8">
-            Thank you for subscribing to ATHER
+            Thank you for subscribing to AETHER
           </p>
 
           {/* Subscription Details */}

@@ -157,7 +157,7 @@ export function BillingAdminPage() {
 
   if (loading && !data) {
     return (
-      <div className="min-h-screen pt-16 bg-[#F8FAFC] flex items-center justify-center">
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
           <p className="text-sm text-slate-500">Loading billing data…</p>
@@ -168,7 +168,7 @@ export function BillingAdminPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen pt-16 bg-[#F8FAFC] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
         <div className="rounded-2xl bg-white border border-slate-200 p-8 text-center max-w-md">
           <AlertTriangle className="w-8 h-8 text-rose-500 mx-auto mb-3" />
           <p className="text-slate-700 font-semibold mb-4">{error}</p>
@@ -182,7 +182,7 @@ export function BillingAdminPage() {
   const cur = data!.currency === 'INR' ? '₹' : data!.currency + ' ';
 
   return (
-    <div className="min-h-screen pt-16 bg-[#F8FAFC]">
+    <div className="min-h-screen bg-[#F8FAFC]">
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">

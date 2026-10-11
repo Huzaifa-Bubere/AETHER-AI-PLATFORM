@@ -173,7 +173,7 @@ export default function LearningContentAdminPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-14">
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <div>

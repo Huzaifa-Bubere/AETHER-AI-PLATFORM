@@ -157,27 +157,90 @@ export function emptyResume(): ResumeDocument {
   };
 }
 
-/** Merge a stored (possibly older/partial) document onto the current shape. */
+const str = (value: unknown, fallback = ''): string => (typeof value === 'string' ? value : fallback);
+const strArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0) : [];
+
+/**
+ * Merge a stored (possibly older/partial) document onto the current shape.
+ *
+ * This is the single data boundary for the Resume Builder (spec §5A): every
+ * loaded document passes through here BEFORE React renders it, so components
+ * never have to guard `doc.x.length` against legacy records that predate a
+ * field. Strings are coerced too — a key present-but-undefined must not crash
+ * `.trim()` either.
+ */
 export function normalizeResume(raw: Partial<ResumeDocument> | null | undefined): ResumeDocument {
   const base = emptyResume();
-  if (!raw) return base;
+  if (!raw || typeof raw !== 'object') return base;
+
+  const experience = Array.isArray(raw.experience)
+    ? raw.experience.filter(Boolean).map(e => ({
+        title: str((e as ResumeExperience)?.title),
+        company: str((e as ResumeExperience)?.company),
+        location: str((e as ResumeExperience)?.location),
+        duration: str((e as ResumeExperience)?.duration),
+        startDate: str((e as ResumeExperience)?.startDate),
+        endDate: str((e as ResumeExperience)?.endDate),
+        description: str((e as ResumeExperience)?.description),
+        bullets: strArray((e as ResumeExperience)?.bullets),
+      }))
+    : [];
+
+  const projects = Array.isArray(raw.projects)
+    ? raw.projects.filter(Boolean).map(p => ({
+        name: str((p as ResumeProject)?.name),
+        description: str((p as ResumeProject)?.description),
+        technologies: strArray((p as ResumeProject)?.technologies),
+        link: str((p as ResumeProject)?.link),
+        bullets: strArray((p as ResumeProject)?.bullets),
+      }))
+    : [];
+
+  const education = Array.isArray(raw.education)
+    ? raw.education.filter(Boolean).map(e => ({
+        degree: str((e as ResumeEducation)?.degree),
+        institution: str((e as ResumeEducation)?.institution),
+        location: str((e as ResumeEducation)?.location),
+        year: str((e as ResumeEducation)?.year),
+        score: str((e as ResumeEducation)?.score),
+      }))
+    : [];
+
+  const languages = Array.isArray(raw.languages)
+    ? raw.languages.filter(Boolean).map(l => ({ name: str(l?.name), level: str(l?.level, 'Fluent') }))
+    : [];
+
+  const customSections = Array.isArray(raw.customSections)
+    ? raw.customSections.filter(Boolean).map(s => ({ title: str(s?.title), items: strArray(s?.items) }))
+    : [];
+
   return {
     ...base,
-    ...raw,
-    links: Array.isArray(raw.links) ? raw.links.filter(Boolean) : [],
-    skills: Array.isArray(raw.skills) ? raw.skills.filter(Boolean) : [],
-    certifications: Array.isArray(raw.certifications) ? raw.certifications.filter(Boolean) : [],
-    achievements: Array.isArray(raw.achievements) ? raw.achievements.filter(Boolean) : [],
-    languages: Array.isArray(raw.languages) ? raw.languages : [],
-    customSections: Array.isArray(raw.customSections) ? raw.customSections : [],
-    experience: Array.isArray(raw.experience) ? raw.experience.map(e => ({ ...e, bullets: e.bullets || [] })) : [],
-    projects: Array.isArray(raw.projects) ? raw.projects.map(p => ({ ...p, bullets: p.bullets || [] })) : [],
-    education: Array.isArray(raw.education) ? raw.education : [],
+    name: str(raw.name),
+    title: str(raw.title ?? (raw as any).headline),
+    email: str(raw.email),
+    phone: str(raw.phone),
+    location: str(raw.location),
+    summary: str(raw.summary),
+    targetJobDescription: str(raw.targetJobDescription),
+    links: strArray(raw.links),
+    skills: strArray(raw.skills),
+    certifications: strArray(raw.certifications),
+    achievements: strArray(raw.achievements),
+    languages,
+    customSections,
+    experience,
+    projects,
+    education,
     sectionOrder: orderFromKeys(raw.sectionOrder),
     pageSize: raw.pageSize === 'LETTER' ? 'LETTER' : 'A4',
     typography: { ...base.typography, ...(raw.typography || {}) },
   };
 }
+
+/** Canonical name used by callers that want the boundary to be explicit. */
+export const normalizeResumeDocument = normalizeResume;
 
 function orderFromKeys(keys: unknown): SectionKey[] {
   const valid = (Array.isArray(keys) ? keys : []).filter(

@@ -99,7 +99,7 @@ export default function CareerAdminPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-14">
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
           <Link to="/admin" className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-2">

@@ -82,7 +82,7 @@ export function AdaptiveSetupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-20 pb-14 px-4 text-slate-900">
+    <div className="min-h-screen bg-slate-50 pb-14 px-4 text-slate-900">
       <div className="max-w-4xl mx-auto">
         <button onClick={() => navigate('/interview-setup')} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-6">
           <ArrowLeft className="w-3.5 h-3.5" /> Back to interview types

@@ -124,12 +124,56 @@ function unwrap<T>(response: { success: boolean; data?: T; message?: string; err
   return response.data;
 }
 
+/**
+ * Normalize a job summary so `skills`/`roleIds` are ALWAYS arrays.
+ * A backend that returns `null` for a collection must not crash the UI (spec §6B).
+ */
+function normalizeJobSummary(job: any): JobSummary {
+  return {
+    ...job,
+    id: String(job?.id ?? job?._id ?? ''),
+    title: job?.title ?? '',
+    company: job?.company ?? '',
+    location: job?.location ?? null,
+    skills: Array.isArray(job?.skills) ? job.skills.filter((s: unknown) => typeof s === 'string') : [],
+    roleIds: Array.isArray(job?.roleIds) ? job.roleIds : [],
+    salary: job?.salary ?? { min: null, max: null, currency: null, raw: null, period: null },
+    recommendation: job?.recommendation ?? null,
+    fit: job?.fit ?? null,
+  } as JobSummary;
+}
+
+/** Normalize the list envelope — arrays default to `[]`, never `null`. */
+export function normalizeJobListResponse(raw: any): JobListResponse {
+  const providers = Array.isArray(raw?.providers) ? raw.providers : [];
+  return {
+    jobs: Array.isArray(raw?.jobs) ? raw.jobs.map(normalizeJobSummary) : [],
+    page: Number(raw?.page) || 1,
+    pages: Number(raw?.pages) || 1,
+    total: Number(raw?.total) || 0,
+    freshness: {
+      lastFetchedAt: raw?.freshness?.lastFetchedAt ?? null,
+      lastFetchedRelative: raw?.freshness?.lastFetchedRelative ?? null,
+      totalActive: Number(raw?.freshness?.totalActive) || 0,
+    },
+    providers,
+    noProviderConfigured: !!raw?.noProviderConfigured,
+  };
+}
+
 export async function fetchJobs(query: JobsQuery = {}): Promise<JobListResponse> {
-  return unwrap(await apiService.get<JobListResponse>('/jobs', query));
+  return normalizeJobListResponse(unwrap(await apiService.get<JobListResponse>('/jobs', query)));
 }
 
 export async function fetchJob(id: string): Promise<JobDetail> {
-  return unwrap(await apiService.get<JobDetail>(`/jobs/${id}`));
+  const raw: any = unwrap(await apiService.get<JobDetail>(`/jobs/${id}`));
+  return {
+    ...normalizeJobSummary(raw),
+    description: raw?.description ?? '',
+    requirements: Array.isArray(raw?.requirements) ? raw.requirements : [],
+    active: raw?.active !== false,
+    savedStatus: raw?.savedStatus ?? null,
+  } as JobDetail;
 }
 
 export async function saveJob(id: string, status = 'SAVED'): Promise<unknown> {
@@ -170,12 +214,39 @@ export interface SavedJobItem {
   } | null;
 }
 
+/** Normalize a saved-job reference: `job` may legitimately be missing/null. */
+export function normalizeSavedJob(item: any): SavedJobItem {
+  const job = item?.job && typeof item.job === 'object' ? item.job : null;
+  return {
+    id: String(item?.id ?? item?._id ?? ''),
+    status: (item?.status ?? 'SAVED') as ApplicationStatus,
+    savedAt: item?.savedAt ?? new Date().toISOString(),
+    appliedAt: item?.appliedAt ?? null,
+    notes: item?.notes ?? '',
+    resumeVersionId: item?.resumeVersionId ?? null,
+    job: job ? {
+      id: String(job.id ?? job._id ?? ''),
+      title: job.title ?? 'Untitled role',
+      company: job.company ?? '',
+      location: job.location ?? null,
+      source: job.source ?? '',
+      sourceUrl: job.sourceUrl ?? '',
+      workMode: job.workMode ?? 'UNSPECIFIED',
+      active: job.active !== false,
+    } : null,
+  };
+}
+
 export async function fetchSavedJobs(): Promise<{ items: SavedJobItem[]; counts: Record<string, number> }> {
-  return unwrap(await apiService.get<{ items: SavedJobItem[]; counts: Record<string, number> }>('/jobs/saved'));
+  const raw: any = unwrap(await apiService.get<{ items: SavedJobItem[]; counts: Record<string, number> }>('/jobs/saved'));
+  return {
+    items: Array.isArray(raw?.items) ? raw.items.map(normalizeSavedJob) : [],
+    counts: raw && typeof raw.counts === 'object' && raw.counts !== null ? raw.counts : {},
+  };
 }
 
 export async function updateSavedJobStatus(id: string, status: ApplicationStatus): Promise<SavedJobItem> {
-  return unwrap(await apiService.patch<SavedJobItem>(`/jobs/saved/${id}`, { status }));
+  return normalizeSavedJob(unwrap(await apiService.patch<SavedJobItem>(`/jobs/saved/${id}`, { status })));
 }
 
 // ── Job fit (spec §49–§56) ───────────────────────────────────────────────────
@@ -216,13 +287,33 @@ export interface FitAnalysis {
   calculationVersion: string;
 }
 
+/** Normalize a fit analysis so its collections are always arrays (spec §7). */
+export function normalizeFitAnalysis(raw: any): FitAnalysis {
+  return {
+    ...raw,
+    _id: String(raw?._id ?? ''),
+    jobDescriptionText: raw?.jobDescriptionText ?? '',
+    roleSlug: raw?.roleSlug ?? null,
+    score: typeof raw?.score === 'number' ? raw.score : null,
+    label: raw?.label ?? null,
+    components: Array.isArray(raw?.components) ? raw.components : [],
+    requirements: Array.isArray(raw?.requirements) ? raw.requirements : [],
+    matchedRequirements: Array.isArray(raw?.matchedRequirements) ? raw.matchedRequirements : [],
+    missingRequirements: Array.isArray(raw?.missingRequirements) ? raw.missingRequirements : [],
+    nextActions: Array.isArray(raw?.nextActions) ? raw.nextActions : [],
+    recommendedResumeVersionId: raw?.recommendedResumeVersionId ?? null,
+    recommendedResumeReason: raw?.recommendedResumeReason ?? null,
+    calculationVersion: raw?.calculationVersion ?? '',
+  } as FitAnalysis;
+}
+
 export async function analyzeJobFit(input: {
   jobDescription?: string;
   jobId?: string;
   roleSlug?: string;
   resumeVersionId?: string;
 }): Promise<FitAnalysis> {
-  return unwrap(await apiService.post<FitAnalysis>('/jobs/fit/analyze', input));
+  return normalizeFitAnalysis(unwrap(await apiService.post<FitAnalysis>('/jobs/fit/analyze', input)));
 }
 // ── Search preferences, saved searches, alerts, "new since last visit" ──────
 // (spec §D, §E, §F, §G)
@@ -240,7 +331,8 @@ export interface JobSearchPreference {
 }
 
 export async function fetchJobPreferences(): Promise<JobSearchPreference[]> {
-  return unwrap(await apiService.get<JobSearchPreference[]>('/jobs/preferences'));
+  const raw = unwrap<JobSearchPreference[] | null>(await apiService.get<JobSearchPreference[]>('/jobs/preferences'));
+  return Array.isArray(raw) ? raw : [];
 }
 
 /**
@@ -271,7 +363,8 @@ export interface SavedJobSearch {
 }
 
 export async function fetchSavedSearches(): Promise<SavedJobSearch[]> {
-  return unwrap(await apiService.get<SavedJobSearch[]>('/jobs/saved-searches'));
+  const raw = unwrap<SavedJobSearch[] | null>(await apiService.get<SavedJobSearch[]>('/jobs/saved-searches'));
+  return Array.isArray(raw) ? raw : [];
 }
 
 export async function createSavedSearch(
@@ -313,7 +406,13 @@ export interface JobAlertsResponse {
 }
 
 export async function fetchJobAlerts(unreadOnly = false): Promise<JobAlertsResponse> {
-  return unwrap(await apiService.get<JobAlertsResponse>(`/jobs/alerts${unreadOnly ? '?unread=true' : ''}`));
+  const raw: any = unwrap(await apiService.get<JobAlertsResponse>(`/jobs/alerts${unreadOnly ? '?unread=true' : ''}`));
+  return {
+    items: Array.isArray(raw?.items) ? raw.items : [],
+    unreadCount: Number(raw?.unreadCount) || 0,
+    threshold: Number(raw?.threshold) || 0,
+    delivery: raw?.delivery ?? 'in-app',
+  };
 }
 
 export async function markJobAlertRead(id: string): Promise<void> {

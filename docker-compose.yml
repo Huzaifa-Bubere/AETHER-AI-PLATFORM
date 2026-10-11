@@ -35,6 +35,15 @@ services:
       - PYTHON_AI_SERVER_API_KEY=${PYTHON_AI_SERVER_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
       - ALLOW_UNSAFE_LOCAL_CODE_EXECUTION=${ALLOW_UNSAFE_LOCAL_CODE_EXECUTION:-true}
+      # Optional JobSpy source (spec §66, §67). Inside Docker the backend must
+      # reach the service by NAME, never localhost. Disabled by default.
+      - JOBSPY_ENABLED=${JOBSPY_ENABLED:-false}
+      - JOBSPY_SERVICE_URL=http://job-provider-service:8010
+      - JOBSPY_SOURCES=${JOBSPY_SOURCES:-}
+      - JOBSPY_RESULTS_PER_SOURCE=${JOBSPY_RESULTS_PER_SOURCE:-25}
+      - JOBSPY_TIMEOUT_MS=${JOBSPY_TIMEOUT_MS:-30000}
+      # Adzuna market. Previously hardcoded to the UK endpoint for every user.
+      - ADZUNA_COUNTRY=${ADZUNA_COUNTRY:-in}
     # Persist locally-stored interview recordings and logs across container restarts
     volumes:
       - backend_uploads:/app/uploads
@@ -43,6 +52,24 @@ services:
       - mongodb
       - redis
       - ai-server
+      - job-provider-service
+    networks:
+      - smart-interview-network
+
+  # Optional JobSpy-backed provider service (spec §6–§9, §66).
+  # Isolated from ai-server so JobSpy's scraping dependencies can never affect
+  # MediaPipe / ML. Disabled by default: it starts, reports DISABLED on
+  # /health, and queries nothing until JOBSPY_SOURCES is set.
+  job-provider-service:
+    build:
+      context: ./job-provider-service
+      dockerfile: Dockerfile
+    ports:
+      - "8010:8010"
+    environment:
+      - JOBSPY_ENABLED=${JOBSPY_ENABLED:-false}
+      - JOBSPY_SOURCES=${JOBSPY_SOURCES:-}
+      - JOBSPY_TIMEOUT_SECONDS=${JOBSPY_TIMEOUT_SECONDS:-30}
     networks:
       - smart-interview-network
 

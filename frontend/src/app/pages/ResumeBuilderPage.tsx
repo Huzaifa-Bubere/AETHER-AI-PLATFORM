@@ -259,7 +259,7 @@ export default function ResumeBuilderPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background pt-20 px-6">
+      <div className="min-h-screen bg-background px-6">
         <div className="mx-auto max-w-7xl flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading your resume versions…
         </div>
@@ -270,7 +270,7 @@ export default function ResumeBuilderPage() {
   const activeTemplate = TEMPLATES.find(t => t.id === template) || TEMPLATES[0];
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-14">
       <div className="mx-auto max-w-7xl space-y-4">
         {/* Header / toolbar (spec §14) */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">

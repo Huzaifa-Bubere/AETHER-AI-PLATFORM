@@ -61,7 +61,7 @@ export function AdminDashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen py-20 px-4 flex items-center justify-center">
+      <div className="min-h-screen px-4 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-muted-foreground">Loading dashboard...</p>
@@ -73,7 +73,7 @@ export function AdminDashboardPage() {
   // Show partial data if some endpoints failed
   if (!stats && !systemMetrics && !aiMetrics) {
     return (
-      <div className="min-h-screen py-20 px-4 flex items-center justify-center">
+      <div className="min-h-screen px-4 flex items-center justify-center">
         <div className="text-center max-w-md">
           <AlertTriangle className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
           <h2 className="text-2xl gradient-text mb-2">Unable to Load Dashboard</h2>
@@ -164,7 +164,7 @@ export function AdminDashboardPage() {
   };
 
   return (
-    <div className="min-h-screen py-20 px-4">
+    <div className="min-h-screen px-4">
       <div className="max-w-7xl mx-auto space-y-8">
         {/* Header */}
         <div>

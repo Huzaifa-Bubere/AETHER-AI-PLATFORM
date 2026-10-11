@@ -166,8 +166,13 @@ export async function getDashboardSummary(
   ]);
 
   // ── Selected role ──────────────────────────────────────────────────────────
+  // `roles` is a COLLECTION: it must be an array before anything calls .find()
+  // on it. A role-progress payload with `roles: null` used to reach this line
+  // and crash the whole dashboard with
+  // "Cannot read properties of null (reading 'find')".
+  const roleList = Array.isArray(roleProgress?.roles) ? roleProgress.roles : [];
   const selectedSlug = options.roleSlug ?? roleProgress?.primaryRole ?? null;
-  const selectedSummary = selectedSlug ? roleProgress?.roles.find(r => r.roleSlug === selectedSlug) ?? null : null;
+  const selectedSummary = selectedSlug ? roleList.find(r => r.roleSlug === selectedSlug) ?? null : null;
   const selectedDetail = selectedSlug ? roleProgress?.detail?.[selectedSlug] ?? null : null;
 
   // ── Metric cards ───────────────────────────────────────────────────────────

@@ -34,8 +34,8 @@ load_dotenv(Path(__file__).resolve().parents[1] / '.env')
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="ATHER - ML Server",
-    description="AI/ML processing server for ATHER platform",
+    title="AETHER - ML Server",
+    description="AI/ML processing server for AETHER platform",
     version="1.0.0"
 )
 
@@ -77,7 +77,7 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
 async def root():
     """Health check endpoint"""
     return {
-        "message": "ATHER - ML Server",
+        "message": "AETHER - ML Server",
         "status": "running",
         "version": "1.0.0"
     }

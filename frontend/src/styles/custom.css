@@ -1,9 +1,22 @@
 /* Clean minimal SaaS utilities */
+
+/*
+ * One source of truth for the fixed header height (spec §6D).
+ * The Header is `h-16` (4rem) and fixed, so the app shell reserves exactly that
+ * space once, here — pages must NOT add their own pt-16/pt-20/pt-24 guesses.
+ * The sidebar offset is reserved on the same element so both apply together.
+ */
+:root { --app-header-height: 4rem; }
+
+.application-content { padding-top: var(--app-header-height); }
+/* The public marketing page owns its own (sticky) header and hero offset. */
+.application-content.no-header-offset { padding-top: 0; }
+
 @media (min-width: 1280px) {
   .application-sidebar + .application-content { margin-left: 15rem; }
 }
 
-html { color-scheme: light; scroll-padding-top: 5rem; }
+html { color-scheme: light; scroll-padding-top: var(--app-header-height); }
 :focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }

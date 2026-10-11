@@ -137,14 +137,14 @@ export default function CourseDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen pt-16 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
       </div>
     );
   }
   if (error || !data) {
     return (
-      <div className="min-h-screen pt-16 flex flex-col items-center justify-center gap-3 p-6">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-6">
         <p className="text-slate-600">{error || 'Course not found'}</p>
         <Button variant="outline" onClick={() => navigate('/career-learning')}>Back to Career Learning</Button>
       </div>
@@ -154,7 +154,7 @@ export default function CourseDetailPage() {
   const { course, modules, progress } = data;
 
   return (
-    <div className="min-h-screen bg-background px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+    <div className="min-h-screen bg-background px-4 sm:px-6 lg:px-8 pb-14">
       <div className="mx-auto max-w-5xl space-y-6">
         <Link to={`/career-learning/${course.roleSlugs[0] || ''}`} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800">
           <ArrowLeft className="w-3.5 h-3.5" /> Back to roadmap

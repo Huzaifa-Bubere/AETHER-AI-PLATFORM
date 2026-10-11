@@ -26,7 +26,7 @@ export default function CareerLearningPage() {
   }, [search, category]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pt-20 pb-14">
+    <div className="min-h-screen bg-background text-foreground px-4 sm:px-6 lg:px-8 pb-14">
       <div className="mx-auto max-w-6xl space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">

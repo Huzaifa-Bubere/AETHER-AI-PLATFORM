@@ -157,17 +157,21 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
+  const location = useLocation();
   useEffect(() => {
     const expired = () => useAuthStore.setState({ user: null, isAuthenticated: false, isLoading: false });
     window.addEventListener('auth:expired', expired);
     void useAuthStore.getState().checkAuth();
     return () => window.removeEventListener('auth:expired', expired);
   }, []);
+  // The public marketing page renders its own sticky header and must not be
+  // pushed down by the app-shell header offset (spec §6D).
+  const isMarketing = location.pathname === MARKETING_HOME;
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
       <ApplicationSidebar />
-      <main id="main-content" className="application-content min-w-0">
+      <main id="main-content" className={`application-content min-w-0${isMarketing ? ' no-header-offset' : ''}`}>
       <PageErrorBoundary>
       <Routes>
         {/* Home: dashboard for the signed-in candidate, marketing page for guests */}

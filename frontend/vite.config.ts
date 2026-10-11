@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [
     // The React and Tailwind plugins are both required for Make, even if
-    // Tailwind is not being actively used â€“ do not remove them
+    // Tailwind is not being actively used – do not remove them
     react(),
     tailwindcss(),
   ],
@@ -35,20 +35,19 @@ export default defineConfig({
         manualChunks: {
           // Vendor chunks
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'ui-vendor': [
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-dropdown-menu',
-            '@radix-ui/react-select',
-            '@radix-ui/react-tabs',
-            '@radix-ui/react-tooltip',
-          ],
-          'chart-vendor': ['chart.js', 'react-chartjs-2', 'recharts'],
+          // Only Radix packages that are still installed AND reachable. The
+          // other entries pointed at primitives removed as dead code, which
+          // made Rollup fail with "Could not resolve entry module".
+          'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-accordion'],
+          // Recharts is the only charting library the app imports; the
+          // chart.js / react-chartjs-2 entries were dead dependencies.
+          'chart-vendor': ['recharts'],
           'editor-vendor': ['@monaco-editor/react'],
           // NOTE: @react-pdf/renderer is intentionally NOT listed here. It is
           // only imported by the lazily-loaded /resume-builder route, so Vite
           // keeps it in that route's own chunk; forcing a separate vendor chunk
           // produced a circular chunk (pdf-vendor <-> chart-vendor) warning.
-          'utils': ['axios', 'zustand', 'date-fns', 'clsx', 'tailwind-merge'],
+          'utils': ['axios', 'zustand', 'clsx', 'tailwind-merge'],
         },
       },
     },
@@ -72,7 +71,6 @@ export default defineConfig({
       'react-router-dom',
       'axios',
       'zustand',
-      'socket.io-client',
     ],
   },
 })

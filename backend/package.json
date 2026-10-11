@@ -1,5 +1,5 @@
 {
-  "name": "smart-interview-ai-backend",
+  "name": "aether-backend",
   "version": "1.0.0",
   "description": "Backend server for Smart Interview AI platform",
   "main": "dist/server.js",

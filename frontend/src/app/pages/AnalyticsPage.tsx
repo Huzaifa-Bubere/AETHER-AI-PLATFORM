@@ -222,7 +222,7 @@ export function AnalyticsPage() {
   const missingDims = radarData.filter(d => d.missing).map(d => d.dim);
 
   return (
-    <div className="min-h-screen pt-16 bg-[#F8FAFC]">
+    <div className="min-h-screen bg-[#F8FAFC]">
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>

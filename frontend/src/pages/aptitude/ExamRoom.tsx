@@ -108,7 +108,7 @@ export default function ExamRoom() {
   const statuses = questions.map((qq) => responses[qq._id]?.status ?? 'not-visited');
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-background pt-16 text-foreground">
+    <div ref={containerRef} className="min-h-screen bg-background text-foreground">
       {error && <p role="alert" className="bg-red-50 p-4 text-red-700">{error} <button disabled={submitting || navigating} onClick={() => { setConfirmSubmitOpen(false); void submit(deadline ? Date.now() >= deadline.getTime() : false); }} className="underline">Retry submission</button></p>}
       <p role="status" className="px-6 text-sm text-muted-foreground">{submitting ? 'Submitting…' : saving ? 'Saving answer…' : 'Answers save automatically.'}</p>
       {/* Top bar */}

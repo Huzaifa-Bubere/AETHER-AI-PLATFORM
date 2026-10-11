@@ -50,13 +50,13 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background pt-24 pb-12 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background pb-12 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Admin Badge */}
         <div className="flex justify-center mb-6">
           <div className="bg-primary text-white px-6 py-3 rounded-full flex items-center gap-2 shadow-lg">
             <Shield className="w-5 h-5" />
-            <span className="font-semibold">ATHER Administration</span>
+            <span className="font-semibold">AETHER Administration</span>
           </div>
         </div>
 

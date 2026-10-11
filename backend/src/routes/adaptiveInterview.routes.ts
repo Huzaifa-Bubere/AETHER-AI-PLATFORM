@@ -2,6 +2,7 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import multer from 'multer';
 import path from 'path';
+import mongoose from 'mongoose';
 import AdaptiveInterview, {
   IAdaptiveInterview, IAdaptiveQuestion, IProctorEvent, computeIntegrityScore,
 } from '../models/AdaptiveInterview';
@@ -137,6 +138,8 @@ router.post(
         sessionId: session._id, domain: session.domain, role: session.role, roleSlug: session.roleSlug,
         difficulty: session.difficulty,
         plannedQuestions: session.plannedQuestions, plan: session.plan,
+        // Recording consent is explicit and persisted; the room only records when true.
+        consentRecording: session.consent?.recording === true,
         question: toClientQuestion(firstQuestion),
       },
     });
@@ -158,6 +161,7 @@ router.get(
         plannedQuestions: session.plannedQuestions, plan: session.plan,
         status: session.status, proctorEvents: session.proctorEvents,
         integrityScore: session.integrityScore, report: session.report,
+        consentRecording: session.consent?.recording === true,
         startedAt: session.startedAt,
         question: session.status === 'in-progress' ? (pending ? toClientQuestion(pending) : null) : null,
         answeredCount: session.responses.length,
@@ -550,9 +554,28 @@ router.get(
     const page = Math.max(1, parseInt(String(req.query.page)) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit)) || 10));
     const query = { userId: req.user!.userId };
+    // Projected history: canonical AI Mock Interview metadata only, plus a
+    // computed answered count and recording availability so the History page can
+    // offer [View Report] and [View Recording] without loading full transcripts.
     const [items, total] = await Promise.all([
-      AdaptiveInterview.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit)
-        .select('domain role difficulty status plannedQuestions startedAt endedAt integrityScore report.overallScore report.domainReadiness'),
+      AdaptiveInterview.aggregate([
+        { $match: { userId: new mongoose.Types.ObjectId(String(req.user!.userId)) } },
+        { $sort: { createdAt: -1 } },
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+        {
+          $project: {
+            domain: 1, role: 1, roleSlug: 1, difficulty: 1, interviewType: 1, status: 1,
+            plannedQuestions: 1, startedAt: 1, endedAt: 1, createdAt: 1, integrityScore: 1,
+            overallScore: '$report.overallScore',
+            domainReadiness: '$report.domainReadiness',
+            answeredCount: { $size: { $ifNull: ['$responses', []] } },
+            hasRecording: { $cond: [{ $ifNull: ['$recording.publicId', false] }, true, false] },
+            recordingUploadedAt: '$recording.uploadedAt',
+            recordingDurationSeconds: '$recording.durationSeconds',
+          },
+        },
+      ]),
       AdaptiveInterview.countDocuments(query),
     ]);
     res.json({

@@ -163,25 +163,43 @@ export function VideoRecorder({
   }, [onVideoFrame, status, audioOnly]);
 
   // ── Drive recording from prop ─────────────────────────────────────────
+  //
+  // MediaRecorder lifecycle (spec §4B/§4C): start → collect dataavailable
+  // chunks → requestData() → stop() → WAIT for the final dataavailable/onstop
+  // → build the Blob → hand it to the caller. The blob is only emitted from
+  // `onstop`, which by definition runs after the last chunk has been delivered,
+  // so the caller never receives a truncated (or empty) recording.
   useEffect(() => {
     if (status !== 'ready' || !streamRef.current) return;
 
     if (isRecording) {
+      if (typeof MediaRecorder === 'undefined') return;
       chunksRef.current = [];
-      const mimes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
-      const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || '';
-      const mr = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined);
-      mr.ondataavailable = e => { if (e.data?.size > 0) chunksRef.current.push(e.data); };
+      // Pick the best MIME the browser actually supports; never hardcode a codec.
+      const candidates = ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm', 'video/mp4'];
+      const supported = typeof MediaRecorder.isTypeSupported === 'function' ? MediaRecorder.isTypeSupported.bind(MediaRecorder) : () => false;
+      const mime = candidates.find(m => supported(m)) || '';
+      let mr: MediaRecorder;
+      try {
+        mr = mime ? new MediaRecorder(streamRef.current, { mimeType: mime }) : new MediaRecorder(streamRef.current);
+      } catch {
+        try { mr = new MediaRecorder(streamRef.current); } catch { return; }
+      }
+      mr.ondataavailable = e => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mime || 'video/webm' });
+        const type = mr.mimeType || mime || 'video/webm';
+        const blob = new Blob(chunksRef.current, { type });
         onVideoData?.(blob);
       };
-      mr.start(1000);
+      try { mr.start(1000); } catch { return; }
       mediaRecorderRef.current = mr;
       onStartRecording();
     } else {
-      if (mediaRecorderRef.current?.state === 'recording') {
-        mediaRecorderRef.current.stop();
+      const mr = mediaRecorderRef.current;
+      if (mr && mr.state !== 'inactive') {
+        // Flush the tail of the stream before stopping so the final chunk is not lost.
+        if (mr.state === 'recording') { try { mr.requestData(); } catch { /* ignore */ } }
+        try { mr.stop(); } catch { /* ignore */ }
       }
       onStopRecording();
     }

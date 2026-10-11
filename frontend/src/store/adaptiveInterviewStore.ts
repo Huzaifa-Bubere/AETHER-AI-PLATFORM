@@ -21,6 +21,8 @@ interface AdaptiveState {
   error: string | null;
   startedAt: number | null;
   lastAdaptReason: string | null;
+  /** True only when the candidate explicitly consented to recording (spec §4E). */
+  consentRecording: boolean;
 
   createSession: (p: {
     domain: string; role: string; difficulty: string; questionCount: number;
@@ -37,7 +39,7 @@ const empty = {
   sessionId: null, domain: '', difficulty: 'medium', plannedQuestions: 0, plan: [],
   question: null, lastFeedback: null, answeredCount: 0, phase: 'idle' as Phase,
   creating: false, submitting: false, ending: false, error: null,
-  startedAt: null, lastAdaptReason: null,
+  startedAt: null, lastAdaptReason: null, consentRecording: false,
 };
 
 export const useAdaptiveInterviewStore = create<AdaptiveState>((set, get) => ({
@@ -52,6 +54,7 @@ export const useAdaptiveInterviewStore = create<AdaptiveState>((set, get) => ({
         plannedQuestions: data.plannedQuestions, plan: data.plan,
         question: data.question, phase: 'active', creating: false,
         startedAt: Date.now(), answeredCount: 0, error: null,
+        consentRecording: data.consentRecording === true || p.consentRecording === true,
       });
       return data.sessionId as string;
     } catch (e: any) {
@@ -79,6 +82,7 @@ export const useAdaptiveInterviewStore = create<AdaptiveState>((set, get) => ({
           : null,
         phase: data.status === 'in-progress' ? 'active' : 'ended',
         creating: false, startedAt: Date.now(), error: null,
+        consentRecording: data.consentRecording === true,
       });
     } catch (e: any) {
       set({ creating: false, phase: 'idle', error: e?.response?.data?.message || e.message || 'Failed to resume interview' });

@@ -27,7 +27,7 @@ export function AdaptiveInterviewRoomPage() {
 
   const {
     question, lastFeedback, answeredCount, plannedQuestions, phase, submitting, ending,
-    error, domain, difficulty, submitAnswer, endInterview, resumeSession, reset,
+    error, domain, difficulty, consentRecording, submitAnswer, endInterview, resumeSession, reset,
   } = useAdaptiveInterviewStore();
 
   const [answer, setAnswer] = useState('');
@@ -41,6 +41,7 @@ export function AdaptiveInterviewRoomPage() {
   const busy = useRef(false);
   const frameCount = useRef(0);
   const recordingBlobRef = useRef<Blob | null>(null);
+  const recordingStartedAt = useRef<number | null>(null);
   const faceMissingSince = useRef<number | null>(null);
   const multiFaceSince = useRef<number | null>(null);
 
@@ -95,13 +96,23 @@ export function AdaptiveInterviewRoomPage() {
       const fresh = useAdaptiveInterviewStore.getState();
       let id = fresh.sessionId;
       if (fresh.phase !== 'ended') id = (await endInterview(integrityTermination ? 'INTEGRITY_WARNING_LIMIT' : undefined)) || id;
-      if (blob && id) {
-        try {
-          toast.loading('Uploading your recording…', { id: 'recording-upload' });
-          await adaptiveInterviewApi.uploadRecording(id, blob).then(() =>
-            toast.success('Recording attached', { id: 'recording-upload' }));
-        } catch {
-          toast.error('Recording not uploaded — your report is still available', { id: 'recording-upload' });
+      if (id && blob) {
+        // Never upload a zero-byte Blob (spec §4D) — say exactly what happened.
+        if (blob.size <= 0) {
+          toast.error('Recording contains no media data. Your report is still available.', { id: 'recording-upload' });
+        } else {
+          const durationSeconds = recordingStartedAt.current
+            ? Math.round((Date.now() - recordingStartedAt.current) / 1000)
+            : undefined;
+          try {
+            toast.loading('Uploading your recording…', { id: 'recording-upload' });
+            await adaptiveInterviewApi.uploadRecording(id, blob, durationSeconds);
+            toast.success('Recording attached', { id: 'recording-upload' });
+          } catch (err: any) {
+            // Bounded retry already happened inside uploadRecording; surface the cause.
+            const reason = err?.response?.data?.error || err?.message || 'upload failed';
+            toast.error(`Recording not uploaded (${reason}) — your report is still available`, { id: 'recording-upload', duration: 6000 });
+          }
         }
       }
       if (id) navigate(`/interview/${id}/report${integrityTermination ? '?integrity=terminated' : ''}`, { replace: true });
@@ -143,9 +154,16 @@ export function AdaptiveInterviewRoomPage() {
   };
 
   // ── Recording + camera state ───────────────────────────────────────────
+  // Recording starts ONLY after explicit consent (spec §4E). If the candidate
+  // declined, the camera stream is never recorded and the report shows no
+  // recording without treating it as an error.
   useEffect(() => {
-    if (phase === 'active' || phase === 'evaluating') setStreamReady(true);
-  }, [phase]);
+    if (!consentRecording) { setStreamReady(false); return; }
+    if (phase === 'active' || phase === 'evaluating') {
+      if (recordingStartedAt.current == null) recordingStartedAt.current = Date.now();
+      setStreamReady(true);
+    }
+  }, [phase, consentRecording]);
 
   const handleVideoFrame = useCallback((frameData: string) => {
     frameCount.current += 1;
@@ -219,7 +237,7 @@ export function AdaptiveInterviewRoomPage() {
   // ── Loading gate ───────────────────────────────────────────────────────
   if (phase === 'idle' || (phase === 'creating' && !question)) {
     return (
-      <div className="min-h-screen pt-16 bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         {error ? (
           <div className="text-center space-y-3 p-6">
             <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" />
@@ -240,7 +258,7 @@ export function AdaptiveInterviewRoomPage() {
   }
 
   return (
-    <div className="h-screen pt-16 flex flex-col overflow-hidden bg-slate-50 text-slate-900">
+    <div className="h-screen flex flex-col overflow-hidden bg-slate-50 text-slate-900">
       {/* Header */}
       <header className="shrink-0 bg-white border-b border-border">
         <div className="max-w-[1400px] mx-auto px-4 h-14 flex items-center gap-3">

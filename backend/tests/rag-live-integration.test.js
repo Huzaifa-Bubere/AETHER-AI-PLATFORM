@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const request = require('supertest');
 const live = process.env.ATHER_LIVE_INTEGRATION === '1' ? describe : describe.skip;
 
-live('ATHER live retrieval-grounded assessment workflow', () => {
+live('AETHER live retrieval-grounded assessment workflow', () => {
   const databaseName = `ather_verify_${crypto.randomBytes(10).toString('hex')}`;
   let app, User, Source, Chunk, Question, Attempt, candidate, adminToken, candidateToken, candidateRefresh;
   let sourceId, testId, attemptId, key;

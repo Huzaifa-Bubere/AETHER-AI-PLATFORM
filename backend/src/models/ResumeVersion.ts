@@ -48,30 +48,50 @@ export interface IResumeVersion extends Document {
   updatedAt: Date;
 }
 
+// Every collection field carries an explicit default so a document written by
+// an older app version (or a partial update) always reads back as an array,
+// never `undefined`. This is what caused the builder's `undefined.length` crash
+// on legacy records (spec §5B).
 const resumeDataSchema = new Schema({
-  name: String,
-  title: String,
-  email: String,
-  phone: String,
-  location: String,
-  links: [String],
-  summary: String,
-  education: [Schema.Types.Mixed],
-  experience: [Schema.Types.Mixed],
-  projects: [Schema.Types.Mixed],
-  skills: [String],
-  certifications: [String],
-  achievements: [String],
-  languages: [{ name: String, level: String, _id: false }],
-  customSections: [{ title: String, items: [String], _id: false }],
-  sectionOrder: [String],
+  name: { type: String, default: '' },
+  title: { type: String, default: '' },
+  email: { type: String, default: '' },
+  phone: { type: String, default: '' },
+  location: { type: String, default: '' },
+  links: { type: [String], default: [] },
+  summary: { type: String, default: '' },
+  education: { type: [Schema.Types.Mixed], default: [] },
+  experience: { type: [Schema.Types.Mixed], default: [] },
+  projects: { type: [Schema.Types.Mixed], default: [] },
+  skills: { type: [String], default: [] },
+  certifications: { type: [String], default: [] },
+  achievements: { type: [String], default: [] },
+  languages: { type: [{ name: String, level: String, _id: false }], default: [] },
+  customSections: { type: [{ title: String, items: [String], _id: false }], default: [] },
+  sectionOrder: { type: [String], default: [] },
   pageSize: { type: String, enum: ['A4', 'LETTER'], default: 'A4' },
   typography: {
     type: { fontFamily: String, fontSize: Number, lineHeight: Number, margin: Number, _id: false },
     default: undefined,
   },
-  targetJobDescription: String,
+  targetJobDescription: { type: String, default: '' },
 }, { _id: false });
+
+/**
+ * Normalise a stored document in place on read (spec §5C) — fills ONLY missing
+ * structural defaults and never overwrites user text.
+ */
+export function normalizeStoredResumeData(data: any): any {
+  if (!data || typeof data !== 'object') return data;
+  const arrays = ['links', 'education', 'experience', 'projects', 'skills', 'certifications', 'achievements', 'languages', 'customSections', 'sectionOrder'] as const;
+  for (const key of arrays) {
+    if (!Array.isArray(data[key])) data[key] = [];
+  }
+  for (const key of ['name', 'title', 'email', 'phone', 'location', 'summary', 'targetJobDescription'] as const) {
+    if (typeof data[key] !== 'string') data[key] = '';
+  }
+  return data;
+}
 
 const resumeVersionSchema = new Schema<IResumeVersion>(
   {
@@ -84,7 +104,11 @@ const resumeVersionSchema = new Schema<IResumeVersion>(
       default: 'ats-classic',
     },
     isDefault: { type: Boolean, default: false, index: true },
-    data: { type: resumeDataSchema, required: true },
+    // `default: () => ({})` makes Mongoose materialize the subdocument even for a
+    // document created/found without `data` (legacy or hand-built records).
+    // Without it `doc.data` is undefined and reading `doc.data.experience.length`
+    // is exactly the crash this schema is meant to prevent.
+    data: { type: resumeDataSchema, required: true, default: () => ({}) },
     atsScore: { type: Number, min: 0, max: 100 },
     atsSnapshot: {
       type: {
@@ -99,6 +123,11 @@ const resumeVersionSchema = new Schema<IResumeVersion>(
 );
 
 resumeVersionSchema.index({ userId: 1, createdAt: -1 });
+
+// Legacy/incomplete records are repaired on load rather than rejected.
+resumeVersionSchema.post('init', function (doc: IResumeVersion) {
+  normalizeStoredResumeData(doc.data);
+});
 
 export interface IResumeVersionModel extends Model<IResumeVersion> {
   listByUser(userId: string): Promise<IResumeVersion[]>;

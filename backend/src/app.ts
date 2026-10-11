@@ -141,7 +141,7 @@ export function createApp(): Application {
   // Root route — confirms API is live
   app.get('/', (req, res) => {
     res.status(200).json({
-      name: 'ATHER — Backend API',
+      name: 'AETHER — Backend API',
       status: 'running',
       version: '1.0.0',
       health: '/health',

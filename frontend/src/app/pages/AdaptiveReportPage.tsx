@@ -85,6 +85,12 @@ export function AdaptiveReportPage() {
   } | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState(false);
+  // Report tabs (spec §4I). `?tab=recording` is the canonical deep link from
+  // interview history, so the recording opens directly.
+  const [tab, setTab] = useState<'overview' | 'performance' | 'transcript' | 'recording'>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return t === 'recording' || t === 'transcript' || t === 'performance' ? t : 'overview';
+  });
   const [behavior, setBehavior] = useState<BehaviorAnalysis | null>(null);
   const [behaviorLoading, setBehaviorLoading] = useState(false);
   const [behaviorFailed, setBehaviorFailed] = useState(false);
@@ -144,6 +150,21 @@ export function AdaptiveReportPage() {
 
   const retry = () => { setLoading(true); setError(null); window.location.reload(); };
 
+  // Scroll the selected tab into view once the report has rendered.
+  const goto = (next: typeof tab) => {
+    setTab(next);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`report-${next}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const TABS: Array<{ id: typeof tab; label: string }> = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'performance', label: 'Performance' },
+    { id: 'transcript', label: 'Transcript' },
+    { id: 'recording', label: 'Recording' },
+  ];
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', background: '#0b1020', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#94a3b8' }}>
@@ -193,9 +214,28 @@ export function AdaptiveReportPage() {
   const integrityEventCounts = integrity?.eventCounts ?? {};
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-16 pb-14 px-4 text-slate-900">
+    <div className="min-h-screen bg-slate-50 pb-14 px-4 text-slate-900">
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       <div style={{ maxWidth: 980, margin: '0 auto', display: 'grid', gap: 16 }}>
+
+        {/* ── Report tabs (spec §4I) ── */}
+        <div className="sticky top-0 z-10 -mx-4 px-4 py-3 bg-slate-50/95 backdrop-blur border-b border-border">
+          <div role="tablist" aria-label="Report sections" className="flex items-center gap-2 overflow-x-auto">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                onClick={() => goto(t.id)}
+                className={`px-4 py-2 rounded-xl text-[13px] font-semibold whitespace-nowrap border transition-colors ${
+                  tab === t.id ? 'bg-primary text-white border-primary' : 'bg-white text-slate-600 border-border hover:border-primary/40'
+                }`}
+              >
+                {t.label}{t.id === 'recording' && data.recording?.available ? ' ●' : ''}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* ── Integrity termination banner ── */}
         {integrityTerminated && (
@@ -209,7 +249,7 @@ export function AdaptiveReportPage() {
         )}
 
         {/* ── Header card ── */}
-        <div className="rounded-2xl bg-white border border-border p-7 flex flex-wrap items-center gap-6">
+        <div id="report-overview" className="scroll-mt-24 rounded-2xl bg-white border border-border p-7 flex flex-wrap items-center gap-6">
           <ScoreRing score={report.overallScore} />
           <div style={{ flex: 1, minWidth: 240 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -233,6 +273,7 @@ export function AdaptiveReportPage() {
         </div>
 
         {/* ── Topic performance ── */}
+        <div id="report-performance" className="scroll-mt-24 contents">
         <Section icon={Target} title="Topic-by-topic performance" color="#818cf8">
           <div style={{ display: 'grid', gap: 10 }}>
             {report.topicPerformance.map(t => {
@@ -252,17 +293,25 @@ export function AdaptiveReportPage() {
             {!report.topicPerformance.length && <p style={{ fontSize: 12.5, color: '#64748b', margin: 0 }}>No questions were answered.</p>}
           </div>
         </Section>
+        </div>
 
-        {/* ── Webcam recording ── */}
-        {data.recording?.available && (
+        {/* ── Webcam recording — always present so the Recording tab exists (spec §4I) ── */}
+        <div id="report-recording" className="scroll-mt-24 contents">
           <Section icon={Video} title="Webcam recording" color="#a78bfa">
-            {videoError ? (
+            {!data.recording?.available ? (
+              <p style={{ fontSize: 12.5, color: '#64748b', margin: 0 }}>
+                No recording is attached to this interview. A recording is only created when you give recording consent
+                before the interview starts.
+              </p>
+            ) : videoError ? (
               <p style={{ fontSize: 12.5, color: '#fbbf24', margin: 0 }}>Recording could not be loaded. It may have been archived or failed to upload.</p>
             ) : videoUrl ? (
               <div style={{ display: 'grid', gap: 8 }}>
                 <video src={videoUrl} controls playsInline style={{ width: '100%', maxHeight: 420, borderRadius: 12, background: '#000' }} />
                 <p style={{ fontSize: 11.5, color: '#64748b', margin: 0 }}>
-                  {fmtSize(data.recording.sizeBytes)}{data.recording.durationSeconds ? ` · ${fmtDur(data.recording.durationSeconds)}` : ''} · stored as {data.recording.storageType} · visible only to you
+                  {fmtSize(data.recording.sizeBytes)}{data.recording.durationSeconds ? ` · ${fmtDur(data.recording.durationSeconds)}` : ''}
+                  {data.recording.uploadedAt ? ` · recorded ${new Date(data.recording.uploadedAt).toLocaleString()}` : ''}
+                  {' · '}stored as {data.recording.storageType} · visible only to you
                 </p>
               </div>
             ) : (
@@ -272,7 +321,7 @@ export function AdaptiveReportPage() {
               </div>
               )}
           </Section>
-        )}
+        </div>
 
         {/* ── Body language & confidence (observable signals from the recording) ── */}
         {behavior?.available && (
@@ -518,6 +567,7 @@ export function AdaptiveReportPage() {
         </Section>
 
         {/* ── Transcript ── */}
+        <div id="report-transcript" className="scroll-mt-24 contents">
         <Section icon={MessageSquare} title="Full transcript" color="#94a3b8">
           <div style={{ display: 'grid', gap: 14 }}>
             {transcript.map((t, i) => (
@@ -536,6 +586,7 @@ export function AdaptiveReportPage() {
             {!transcript.length && <p style={{ fontSize: 12.5, color: '#64748b', margin: 0 }}>No answers were recorded in this session.</p>}
           </div>
         </Section>
+        </div>
 
         {/* ── Actions ── */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', paddingBottom: 20 }}>

@@ -64,7 +64,7 @@ export async function fetchDocument(value: string): Promise<string> {
       else callback(null, address, 4);
     }) as any });
     const config = { timeout: 15000, maxRedirects: 0, maxContentLength: 1024 * 1024, proxy: false as const, httpsAgent: agent,
-      responseType: 'text' as const, headers: { 'User-Agent': 'ATHER-KnowledgeIngestion/1.0', Accept: 'text/html,text/plain,text/markdown' } };
+      responseType: 'text' as const, headers: { 'User-Agent': 'AETHER-KnowledgeIngestion/1.0', Accept: 'text/html,text/plain,text/markdown' } };
     const robots = await axios.get(`${url.origin}/robots.txt`, { ...config, validateStatus: status => status === 200 || status === 404 });
     if (robots.status === 200 && robotsDisallows(String(robots.data), url.pathname + url.search)) {
       throw new Error('Source disallows automated retrieval.');

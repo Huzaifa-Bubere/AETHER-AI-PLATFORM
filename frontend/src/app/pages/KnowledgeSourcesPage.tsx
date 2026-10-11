@@ -60,7 +60,7 @@ export default function KnowledgeSourcesPage() {
     finally { setBusy(false); }
   };
   return <div className="mx-auto max-w-6xl space-y-6 px-5 py-24">
-    <div><p className="text-sm font-medium text-primary">ATHER Administration</p><h1 className="mt-2 text-3xl font-semibold">Knowledge sources</h1>
+    <div><p className="text-sm font-medium text-primary">AETHER Administration</p><h1 className="mt-2 text-3xl font-semibold">Knowledge sources</h1>
       <p className="mt-2 text-muted-foreground">Maintain the reference material used to generate original assessment questions.</p></div>
     {error && <div role="alert" className="rounded-lg border border-destructive/30 bg-red-50 p-4 text-destructive">{error} <button className="underline" onClick={() => void load()}>Retry loading</button></div>}
     {notice && <p role="status" className="rounded-lg bg-primary/10 p-4 text-primary">{notice}</p>}

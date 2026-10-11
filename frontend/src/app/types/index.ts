@@ -1,4 +1,4 @@
-// Core Types for ATHER Platform
+// Core Types for AETHER Platform
 
 export interface User {
   id: string;

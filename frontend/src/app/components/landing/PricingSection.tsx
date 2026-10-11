@@ -39,7 +39,22 @@ export function PricingSection({ isAuthenticated }: { isAuthenticated: boolean }
             : plans.map((plan: any, i: number) => {
                 const id = String(plan.id ?? plan.planId ?? '');
                 const featured = id === 'pro';
+                const isCampus = id === 'campus';
                 const features: string[] = plan.features ?? plan.included ?? [];
+                // The backend's single source of truth is `pricing`: either a map
+                // of interval → rupee amount, or the literal 'custom'. Reading a
+                // non-existent `price`/`amount` here once printed "₹ undefined".
+                const pricing = plan.pricing;
+                const isCustom = pricing === 'custom';
+                const monthly = pricing && typeof pricing === 'object' ? pricing.monthly : undefined;
+                const isFree = monthly === 0;
+                const priceLabel = isCustom ? 'Custom' : isFree ? 'Free' : `₹${monthly}`;
+                const priceNote = isCustom ? 'Institutional pricing' : isFree ? 'forever' : 'per month';
+                const cta = isCampus
+                  ? 'Contact / Request Access'
+                  : featured
+                    ? (isAuthenticated ? 'View Plans / Upgrade' : 'Start Preparing')
+                    : (isAuthenticated ? 'Manage plan' : 'Start Preparing Free');
                 return (
                   <Reveal key={id || i} delay={i * 0.05}>
                     <div
@@ -58,16 +73,17 @@ export function PricingSection({ isAuthenticated }: { isAuthenticated: boolean }
                         {plan.name ?? id}
                       </h3>
                       <p className="mt-3 text-3xl font-black tabular-nums text-slate-900">
-                        {plan.price === 0 || plan.amount === 0 ? (
-                          'Free'
+                        {isCustom ? (
+                          <span>{priceLabel}</span>
                         ) : (
                           <>
-                            <span className="align-top text-lg">₹</span>
-                            {plan.price ?? plan.amount}
-                            <span className="align-top text-base text-slate-400">/mo</span>
+                            {!isFree && <span className="align-top text-lg">₹</span>}
+                            {isFree ? 'Free' : monthly}
+                            {!isFree && <span className="align-top text-base text-slate-400"> /month</span>}
                           </>
                         )}
                       </p>
+                      <p className="mt-1 text-[11.5px] font-semibold text-slate-400">{priceNote}</p>
                       {features.length > 0 && (
                         <ul className="mt-5 flex-1 space-y-2">
                           {features.slice(0, 6).map((f: string) => (
@@ -84,7 +100,7 @@ export function PricingSection({ isAuthenticated }: { isAuthenticated: boolean }
                         variant={featured ? 'default' : 'outline'}
                       >
                         <Link to={isAuthenticated ? '/subscription' : '/signup'}>
-                          {isAuthenticated ? 'Manage plan' : 'Start Preparing Free'}
+                          {cta}
                         </Link>
                       </Button>
                     </div>

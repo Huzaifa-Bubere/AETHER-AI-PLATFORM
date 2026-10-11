@@ -162,7 +162,7 @@ export function InterviewSetupPage() {
   );
 
   return (
-    <div className="min-h-screen py-16 px-4 bg-background text-foreground font-sans">
+    <div className="min-h-screen px-4 bg-background text-foreground font-sans">
       <div className="max-w-4xl mx-auto space-y-10">
 
         {/* Header */}

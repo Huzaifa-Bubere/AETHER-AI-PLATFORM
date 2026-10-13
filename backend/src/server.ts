@@ -10,6 +10,7 @@ import { initializeRedis } from './services/redis';
 import { initializeCloudinary } from './services/cloudinary';
 import { setupSocketHandlers } from './services/socket';
 import { startJobRefreshScheduler } from './jobs/services/refreshScheduler';
+import { ensureGroupDiscussionTopics } from './groupDiscussion/seed/seedGroupDiscussionTopics';
 import logger from './utils/logger';
 import { ensureDnsFallback, forcePublicDns, isDnsError } from './utils/dnsFallback';
 
@@ -248,6 +249,12 @@ const startServer = async () => {
     logger.info(`MongoDB URI: ${process.env.MONGODB_URI ? 'Configured' : 'NOT CONFIGURED'}`);
 
     await connectDB();
+    // Database-backed default practice library. Existing admin-managed topics are
+    // never overwritten; this only inserts missing professional seed records.
+    if (mongoose.connection.readyState === 1) {
+      try { await ensureGroupDiscussionTopics(); logger.info('Group Discussion topic library ready'); }
+      catch (error) { logger.warn('Group Discussion topic seed failed; admin topics remain available'); }
+    }
     await initializeServices();
 
     server.listen(PORT, '0.0.0.0', () => {

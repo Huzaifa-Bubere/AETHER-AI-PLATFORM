@@ -299,7 +299,12 @@ export async function buildRankingContext(userId: string, now = new Date()): Pro
       ?? ResumeVersion.findOne({ userId }).sort({ updatedAt: -1 }).catch(() => null),
     // Active goals only — a PAUSED or ARCHIVED role must not pull postings into
     // the candidate's recommendations.
-    UserCareerGoal.findActiveByUser(userId).catch(() => []),
+    // findAllByUser (an ARRAY), not findActiveByUser (ONE goal or null): this
+    // context wants every role the candidate targets, and reading the singular
+    // helper as an array threw "Cannot read properties of null (reading 'find')"
+    // for a candidate with no goal and ".map is not a function" for one with a
+    // goal — so the whole Jobs page 500'd either way.
+    UserCareerGoal.findAllByUser(userId).catch(() => []),
     JobSearchPreference.find({ userId }).catch(() => []),
   ]);
 
@@ -316,8 +321,10 @@ export async function buildRankingContext(userId: string, now = new Date()): Pro
     for (const t of pref.jobTypes ?? []) if (t && t !== 'UNSPECIFIED') jobTypes.add(t);
   }
 
-  const targetRoleSlugs = ((goals as any[]) ?? []).map(g => String(g.roleSlug).toLowerCase());
-  const primary = (goals as any[]).find(g => g.isPrimary);
+  // Defensive: a driver/shape change must not take the Jobs page down again.
+  const goalList = Array.isArray(goals) ? (goals as any[]) : goals ? [goals as any] : [];
+  const targetRoleSlugs = goalList.map(g => String(g.roleSlug).toLowerCase());
+  const primary = goalList.find(g => g.isPrimary);
 
   return {
     targetRoleSlugs,

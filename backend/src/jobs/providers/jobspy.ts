@@ -144,6 +144,9 @@ interface JobspyServiceResponse {
 
 export class JobSpyProviderAdapter implements JobProviderAdapter {
   readonly name = 'jobspy';
+  // Forwards `country` to the service and stores a real country per record, so
+  // it can be scoped to India when enabled (it ships disabled).
+  readonly supportsCountry = true;
 
   isConfigured(): boolean {
     return jobspyAdapterEnabled() && enabledJobspySources().length > 0;

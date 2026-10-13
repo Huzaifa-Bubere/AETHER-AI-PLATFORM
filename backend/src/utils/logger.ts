@@ -30,12 +30,25 @@ const level = () => {
 };
 
 // Define different log formats
+/**
+ * Console format.
+ *
+ * Metadata passed to the logger is appended, not dropped. `logger.warn('x', {
+ * status: 503 })` used to print the bare message on the console — which is why a
+ * provider outage showed up as a context-free "ai.provider.failure" and the
+ * diagnosis (HTTP status) was only visible in the JSON file log.
+ */
 const logFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
   winston.format.colorize({ all: true }),
-  winston.format.printf(
-    (info) => `${info.timestamp} ${info.level}: ${info.message}`
-  )
+  winston.format.printf((info) => {
+    const { timestamp, level, message, ...meta } = info as Record<string, any>;
+    const keys = Object.keys(meta);
+    const extra = keys.length
+      ? ` ${JSON.stringify(meta, (_key, value) => (value instanceof Error ? value.message : value))}`
+      : '';
+    return `${timestamp} ${level}: ${message}${extra}`;
+  })
 );
 
 const fileLogFormat = winston.format.combine(

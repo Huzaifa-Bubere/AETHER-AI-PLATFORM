@@ -103,6 +103,9 @@ export function JobDetailPage() {
           <Button variant="outline" asChild={false}>
             <Link to={`/job-fit?jobId=${job.id}`}>Analyze fit</Link>
           </Button>
+          <Button variant="outline" asChild={false}>
+            <Link to={`/group-discussion?roleSlug=${encodeURIComponent(job.roleIds?.[0] || '')}`}>Prepare for Group Discussion</Link>
+          </Button>
           {/* Apply opens the ORIGINAL source; AETHER does not submit applications. */}
           <Button asChild={false}>
             <a href={job.sourceUrl} target="_blank" rel="noreferrer noopener">

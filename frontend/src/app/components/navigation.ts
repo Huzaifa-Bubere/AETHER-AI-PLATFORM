@@ -46,6 +46,7 @@ export const candidateNavigation: NavItem[] = [
   { name: 'Aptitude', path: '/aptitude', group: 'ASSESS', description: 'Aptitude test rounds' },
   { name: 'Technical Assessment', path: '/technical', group: 'ASSESS', description: 'Technical MCQ round' },
   { name: 'Coding Practice', path: '/coding', group: 'ASSESS', description: 'Problems, submissions and complexity analysis' },
+  { name: 'Group Discussion', path: '/group-discussion', group: 'ASSESS', description: 'Practice evidence-based group discussions with AI participants' },
   { name: 'AI Mock Interview', path: '/interview', group: 'ASSESS', description: 'Adaptive role-based mock interviews' },
 
   // CAREER
@@ -125,6 +126,7 @@ export const IMMERSIVE_ROUTE_PATTERNS: RegExp[] = [
   /^\/interview-room/,
   /^\/coding-interview/,
   /^\/interview\/.+/,
+  /^\/group-discussion\/.+$/,
   /^\/aptitude\/attempts\//,
 ];
 

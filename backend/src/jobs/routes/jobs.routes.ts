@@ -26,6 +26,7 @@ import { refreshJobsOnce, schedulerStatus } from '../services/refreshScheduler';
 import { getFreshness } from '../services/ingestion.service';
 import { describeProviders } from '../providers';
 import { isValidRoleSlug } from '../../career/services/roleProgress.service';
+import { INDIA_COUNTRY_CODE, indiaScopeFilter, isIndiaScope } from '../services/jobRegion.service';
 import logger from '../../utils/logger';
 
 /**
@@ -135,6 +136,15 @@ router.get(
       filter.datePosted = { $gte: new Date(Date.now() - postedWithinDays * 86_400_000) };
     }
 
+    // India scope (spec §54). The Jobs page DEFAULTS to `country=in`: RemoteOK —
+    // the only provider that works without credentials — is a global remote
+    // board with no country field, so an unfiltered list reads as a wall of
+    // foreign listings. `country=in` keeps only postings that demonstrably name
+    // India or an Indian city; `country=all` (or an absent/unknown value)
+    // applies no scope, so the API stays backward compatible.
+    const indiaScoped = isIndiaScope(req.query.country);
+    if (indiaScoped) Object.assign(filter, indiaScopeFilter());
+
     const [postings, total, freshness, rankingContext] = await Promise.all([
       JobPosting.find(filter)
         .sort({ datePosted: -1, fetchedAt: -1 })
@@ -184,6 +194,10 @@ router.get(
     );
 
     const providers = describeProviders();
+    // Configured providers that are even CAPABLE of returning country-specific
+    // results. When this is empty, an empty India list means "no India source is
+    // configured", not "no Indian jobs exist" — the UI must not conflate them.
+    const countryAwareProviders = providers.filter(p => p.configured && p.supportsCountry).map(p => p.name);
     res.json({
       success: true,
       data: {
@@ -199,6 +213,16 @@ router.get(
         },
         providers,
         noProviderConfigured: providers.every(p => !p.configured),
+        // How the location scope was applied, and why the list may be empty.
+        locationScope: {
+          country: indiaScoped ? INDIA_COUNTRY_CODE : null,
+          countryAwareProviders,
+          emptyReason: indiaScoped && jobs.length === 0
+            ? (countryAwareProviders.length
+              ? 'No India postings matched these filters.'
+              : 'No configured job provider can return India-specific postings yet. Adzuna searches India by default and needs ADZUNA_APP_ID and ADZUNA_APP_KEY; RemoteOK is a global board with no India listings.')
+            : null,
+        },
       },
     });
   }),

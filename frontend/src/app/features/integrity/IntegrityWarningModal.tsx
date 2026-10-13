@@ -15,6 +15,24 @@ const EVENT_MESSAGES: Record<IntegrityEventType, { title: string; description: s
   MULTIPLE_FACES: { title: 'Multiple faces detected', description: 'More than one face was detected in the camera frame.', icon: Camera },
   MICROPHONE_DISABLED: { title: 'Microphone disabled', description: 'Your microphone was disabled during an active response.', icon: Mic },
   PAGE_RELOAD_ATTEMPT: { title: 'Page reload recorded', description: 'A page reload was attempted during the assessment.', icon: RefreshCw },
+  // Camera-observation warnings (spec §8/§9/§12). The wording states what was
+  // OBSERVED ("you appear to have been looking away") and never asserts intent —
+  // gaze direction cannot prove cheating (spec §1/§41).
+  GAZE_AWAY: {
+    title: 'Interview Integrity Warning',
+    description: 'You appear to have been looking away from the interview screen for an extended period. Please keep your attention on the interview.',
+    icon: Eye,
+  },
+  HEAD_AWAY: {
+    title: 'Interview Integrity Warning',
+    description: 'You appear to have been looking away from the interview screen for an extended period. Please keep your attention on the interview.',
+    icon: Eye,
+  },
+  MEDIA_TRACK_ENDED: {
+    title: 'Camera Required',
+    description: 'Your camera feed has stopped. Please re-enable your camera to continue the interview.',
+    icon: Camera,
+  },
 };
 
 /** Visual escalation per warning number: amber → orange → red → full-red final. */

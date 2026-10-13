@@ -7,6 +7,7 @@
     "build": "npm run typecheck && node scripts/build.mjs",
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "test:integrity": "node scripts/run-integrity-tests.mjs",
     "resume:pdf-samples": "esbuild scripts/render-sample-resume.tsx --bundle --platform=node --format=cjs --outfile=tmp/render-sample-resume.cjs --external:@react-pdf/renderer && node tmp/render-sample-resume.cjs",
     "resume:pdf-verify": "node scripts/verify-resume-pdf.mjs"
   },

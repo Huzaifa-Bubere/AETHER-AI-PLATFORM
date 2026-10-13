@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Flame, Info } from 'lucide-react';
+import { Flame, Info, Users } from 'lucide-react';
 import type { MetricCard, RecommendedAction } from '../../services/dashboard';
 
 /**
@@ -173,6 +173,121 @@ export function RecentActivity({
               </ul>
             </div>
           ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Group Discussion dashboard card (spec §19).
+ *
+ * Shows REAL stored evidence only: sessions completed, latest score,
+ * participation trend, and a next recommended practice derived from the
+ * candidate's own recent sessions (no fake values).
+ */
+export function GroupDiscussionCard({
+  gd,
+}: {
+  gd: NonNullable<import('../../services/dashboard').DashboardSummary['gd']>;
+}) {
+  const recent = gd.recentSessions;
+  const sessionsCompleted = gd.sessionsCompleted;
+  const hasAny = sessionsCompleted > 0;
+
+  // Participation trend: compare the last 2 weeks with the prior 2 weeks using
+  // completed-session dates. With fewer than 4 sessions this is "Limited evidence".
+  const completedAtDates = recent
+    .map(s => (s.completedAt ? new Date(s.completedAt).getTime() : null))
+    .filter((t): t is number => t != null)
+    .sort((a, b) => a - b);
+  const now = Date.now();
+  const twoWeeks = 14 * 24 * 60 * 60 * 1000;
+  const recentHalf = completedAtDates.filter(t => now - t <= twoWeeks).length;
+  const olderHalf = completedAtDates.filter(t => t < now - twoWeeks).length;
+  const trend: 'up' | 'down' | 'flat' | null =
+    recentHalf === 0 && olderHalf === 0
+      ? null
+      : recentHalf > olderHalf
+        ? 'up'
+        : recentHalf < olderHalf
+          ? 'down'
+          : 'flat';
+
+  // Next recommended practice: when the candidate already has completed
+  // sessions, encourage broader practice rather than repeating the same lens.
+  const nextPractice =
+    recent.length === 0
+      ? { href: '/group-discussion', label: 'Choose a topic' }
+      : { href: '/group-discussion', label: 'Practice another topic' };
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <Users className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <h2 className="text-sm font-bold uppercase tracking-widest text-foreground">
+          Group Discussion
+        </h2>
+      </div>
+
+      {hasAny ? (
+        <>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-bold tabular-nums text-foreground">
+              {sessionsCompleted}
+            </span>
+            <span className="text-sm text-muted-foreground">
+              {sessionsCompleted === 1 ? 'discussion completed' : 'discussions completed'}
+            </span>
+          </div>
+
+          {gd.latestScore != null && (
+            <div className="mt-2 flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Latest score:</span>
+              <span className="font-bold text-primary">{gd.latestScore}/100</span>
+              <span className="text-muted-foreground text-xs">
+                {' '}
+                · {gd.latestTopic}
+              </span>
+            </div>
+          )}
+
+          <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="text-muted-foreground">Participation trend:</span>
+            {trend === null ? (
+              <span className="italic">Limited evidence</span>
+            ) : (
+              <span className="font-medium">
+                {trend === 'up' ? 'Increasing' : trend === 'down' ? 'Decreasing' : 'Steady'}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Next recommended practice
+            </p>
+            <Link
+              to={nextPractice.href}
+              className="mt-2 inline-flex items-center rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              {nextPractice.label}
+            </Link>
+          </div>
+        </>
+      ) : (
+        <div className="mt-3 space-y-1">
+          <p className="text-sm italic text-muted-foreground">No completed group discussion yet</p>
+          <p className="text-xs text-muted-foreground">
+            Practice role-relevant discussions with AI participants and receive evidence-based
+            feedback on your discussion performance.
+          </p>
+          <Link
+            to="/group-discussion"
+            className="mt-3 inline-flex items-center rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            Start a group discussion
+          </Link>
         </div>
       )}
     </section>

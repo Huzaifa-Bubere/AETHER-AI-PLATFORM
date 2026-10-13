@@ -36,6 +36,7 @@ import activityRoutes from './routes/activity';
 import dashboardRoutes from './routes/dashboard';
 import profileRoutes from './routes/profile';
 import jobsRoutes from './jobs/routes/jobs.routes';
+import groupDiscussionRoutes from './groupDiscussion/routes/groupDiscussion.routes';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -189,6 +190,7 @@ export function createApp(): Application {
   app.use('/api/profile', apiLimiter, profileRoutes);
   // AETHER Jobs + Job Fit (spec §49–§70).
   app.use('/api/jobs', apiLimiter, jobsRoutes);
+  app.use('/api/group-discussion', apiLimiter, groupDiscussionRoutes);
   app.use('/api/practice', apiLimiter, authenticateToken, requireCandidate, practiceRoutes);
   app.use('/api/scheduling', apiLimiter, authenticateToken, requireCandidate, schedulingRoutes);
   app.use('/api/health', healthRoutes); // no auth — public health check

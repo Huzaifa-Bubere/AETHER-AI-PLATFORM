@@ -5,6 +5,7 @@ import { fetchDashboardSummary, type DashboardSummary } from '../services/dashbo
 import { RoleSelector } from '../components/roles/RoleSelector';
 import {
   ChartFrame,
+  GroupDiscussionCard,
   MetricCardTile,
   NextRecommendedAction,
   RecentActivity,
@@ -161,7 +162,11 @@ export function DashboardPage() {
         <MetricCardTile title="Interview Score" card={metricCards.interviewScore} href="/interview" />
         <MetricCardTile title="Resume Quality" card={metricCards.resumeQuality} href="/resume-builder" />
         <MetricCardTile title="Learning" card={metricCards.learning} href="/career-learning" />
+        <MetricCardTile title="Group Discussion" card={metricCards.groupDiscussion} href="/group-discussion" />
       </div>
+
+      {/* ── Group Discussion detail card ─────────────────────────────────── */}
+      {summary.gd && <GroupDiscussionCard gd={summary.gd} />}
 
       {/* ── Streak ──────────────────────────────────────────────────────── */}
       <StreakSummaryTile streak={summary.streak} />

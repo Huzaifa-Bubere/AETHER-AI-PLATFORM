@@ -1,13 +1,14 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
-import bcrypt from 'bcryptjs';
+import dns from 'dns';
 import AptitudeQuestion, { OptionKey } from '../models/AptitudeQuestion';
 import AptitudeTest from '../models/AptitudeTest';
 import User from '../models/User';
 import { SEED_QUESTIONS } from './seedQuestionData';
 import { renderQuestionImage } from '../utils/questionImageRenderer';
 import { uploadQuestionImage } from '../utils/aptitudeImageUpload';
+import { ensureDnsFallback } from '../utils/dnsFallback';
 
 /**
  * AETHER — default question bank + published test seeder (admin-run, idempotent).
@@ -58,10 +59,11 @@ function shuffledOptions(seedId: string, options: [string, string, string, strin
 async function ensureAdmin(): Promise<mongoose.Types.ObjectId> {
   const existing = await User.findOne({ email: ADMIN_EMAIL });
   if (existing) return existing._id as mongoose.Types.ObjectId;
-  const hashed = await bcrypt.hash(ADMIN_PASSWORD, 10);
   const admin = await User.create({
     email: ADMIN_EMAIL,
-    password: hashed,
+    // PLAINTEXT on purpose — the User schema's pre('save') hook hashes it.
+    // Pre-hashing here caused a double hash and an admin that could never log in.
+    password: ADMIN_PASSWORD,
     profile: { firstName: 'AETHER', lastName: 'Administrator' },
     experienceLevel: 'mid',
     subscription: { plan: 'enterprise', status: 'active' },
@@ -127,6 +129,17 @@ async function main(): Promise<void> {
   if (!uri) {
     console.error('MONGODB_URI is required. Run from backend/ with the server .env present.');
     process.exit(1);
+  }
+
+  // Resolve DNS before connecting. On some Windows/campus networks Node's
+  // c-ares resolver cannot reach the router's DNS, so mongodb+srv:// SRV
+  // discovery fails with `querySrv ECONNREFUSED` — which is how the expanded
+  // bank silently never reached the database: the documented seed command could
+  // not connect at all. The server already handles this; the seeder did not.
+  if (process.env.DNS_SERVERS) {
+    dns.setServers(process.env.DNS_SERVERS.split(',').map(server => server.trim()));
+  } else {
+    await ensureDnsFallback();
   }
 
   try {

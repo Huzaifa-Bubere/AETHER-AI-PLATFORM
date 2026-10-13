@@ -60,7 +60,10 @@ export interface ProfessionalProfile {
 export async function fetchProfessionalProfile(): Promise<ProfessionalProfile> {
   const response = await apiService.get<ProfessionalProfile>('/profile/me');
   if (!response.success || !response.data) {
-    throw new Error(response.message || 'Could not load your profile.');
+    // `error` is the field apiService populates for a failed response; `message`
+    // is only present on some server errors. Reading `message` alone discarded
+    // the real reason (e.g. "Insufficient permissions") behind a generic string.
+    throw new Error(response.error || response.message || 'Could not load your profile.');
   }
   return response.data;
 }

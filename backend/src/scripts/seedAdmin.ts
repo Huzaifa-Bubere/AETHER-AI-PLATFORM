@@ -93,9 +93,12 @@ export async function runSeedAdmin(flags: Flags) {
 
     // ── Verify credentials from the CLI, without touching the browser ───────
     if (flags.verify) {
-      const target = existing ?? (await User.findOne({ email: normalizeEmailForLookup(flags.email ?? '') }));
+      // `password` is `select: false`, so it must be asked for explicitly —
+      // without `+password` the comparison below received `undefined` and threw
+      // "Illegal arguments: string, undefined" instead of reporting a result.
+      const target = await User.findOne({ email }).select('+password');
       if (!target) {
-        console.log(`✗ No account found for "${flags.email}".`);
+        console.log(`✗ No account found for "${email}".`);
         console.log('  Check the domain — this script normalizes case but not typos.');
         console.log('  Run --list to see the exact emails that exist.');
         return { created: 0, promoted: 0, reset: 0 };
@@ -190,7 +193,11 @@ export async function runSeedAdmin(flags: Flags) {
 
     await User.create({
       email,
-      password: await bcrypt.hash(password, 12),
+      // PLAINTEXT on purpose: the User schema's pre('save') hook hashes the
+      // password. Passing a bcrypt hash here made the hook hash it a SECOND
+      // time, so the stored value was bcrypt(bcrypt(password)) and no password
+      // could ever match — the account existed but login always failed.
+      password,
       profile: { firstName: 'AETHER', lastName: 'Administrator' },
       // experienceLevel belongs under preferences — the earlier admin seed put
       // it at the top level, where it was silently dropped.

@@ -9,16 +9,24 @@ const count = (roundType, difficulty) =>
 
 describe('seeded aptitude/technical question bank', () => {
   test('every level has enough distinct questions for repeated attempts', () => {
+    // 25 is five attempts' worth at 5 questions per attempt. A bucket of 14
+    // (technical hard used to be 14) passes a 12-question floor but still blocks
+    // a candidate on their third attempt inside the 30-day cooldown.
     for (const roundType of ['aptitude', 'technical']) {
       for (const difficulty of ['easy', 'medium', 'hard']) {
-        expect(count(roundType, difficulty)).toBeGreaterThanOrEqual(12);
+        expect(count(roundType, difficulty)).toBeGreaterThanOrEqual(25);
       }
     }
   });
 
-  test('the medium bucket (the level that ran short) is deep enough', () => {
-    // MEDIUM was the failing level: a test needs 5 and the cooldown excludes
-    // recent items, so the bank must hold several attempts' worth.
+  test('the hard bucket (the level that ran short last) is deep enough', () => {
+    expect(count('aptitude', 'hard')).toBeGreaterThanOrEqual(25);
+    expect(count('technical', 'hard')).toBeGreaterThanOrEqual(25);
+  });
+
+  test('the medium bucket (the first level that ran short) is deep enough', () => {
+    // MEDIUM was the first failing level: a test needs 5 and the cooldown
+    // excludes recent items, so the bank must hold several attempts' worth.
     expect(count('aptitude', 'medium')).toBeGreaterThanOrEqual(20);
     expect(count('technical', 'medium')).toBeGreaterThanOrEqual(20);
   });

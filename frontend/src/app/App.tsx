@@ -71,6 +71,9 @@ const JobsPage = lazy(() => import('./pages/JobsPage').then(m => ({ default: m.J
 const JobDetailPage = lazy(() => import('./pages/JobDetailPage').then(m => ({ default: m.JobDetailPage })));
 const SavedJobsPage = lazy(() => import('./pages/SavedJobsPage').then(m => ({ default: m.SavedJobsPage })));
 const JobFitPage = lazy(() => import('./pages/JobFitPage').then(m => ({ default: m.JobFitPage })));
+const GroupDiscussionPage = lazy(() => import('./pages/GroupDiscussionPage'));
+const GroupDiscussionRoomPage = lazy(() => import('./pages/GroupDiscussionRoomPage'));
+const GroupDiscussionReportPage = lazy(() => import('./pages/GroupDiscussionReportPage'));
 const AptitudeQuestionManager = lazy(() => import('../pages/admin/aptitude/QuestionManager'));
 const AptitudeTestManager = lazy(() => import('../pages/admin/aptitude/TestManager'));
 const AptitudeStudentManager = lazy(() => import('../pages/admin/aptitude/StudentManager'));
@@ -311,6 +314,9 @@ function AppContent() {
             </Suspense>
           </ProtectedRoute>
         } />
+        <Route path="/group-discussion" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><GroupDiscussionPage /></Suspense></ProtectedRoute>} />
+        <Route path="/group-discussion/:sessionId" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><GroupDiscussionRoomPage /></Suspense></ProtectedRoute>} />
+        <Route path="/group-discussion/:sessionId/report" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><GroupDiscussionReportPage /></Suspense></ProtectedRoute>} />
         {/* AETHER Coding module */}
         <Route path="/coding" element={
           <ProtectedRoute>

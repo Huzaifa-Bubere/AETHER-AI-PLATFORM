@@ -61,8 +61,30 @@ test('exact retrieval ranks actual stored vectors and returns source provenance'
 });
 test('provider failures expose a safe service error, never Axios credentials', async () => {
   const previous = process.env.GEMINI_API_KEY; process.env.GEMINI_API_KEY = 'test-key-only';
+  const previousAttempts = process.env.AI_REQUEST_ATTEMPTS;
+  // One attempt: this test is about ERROR SAFETY, not retry behaviour (covered by
+  // ai-provider-resilience.test.js). Retrying here would only add real backoff
+  // sleeps to a test that asserts what the thrown error contains.
+  process.env.AI_REQUEST_ATTEMPTS = '1';
   try {
     jest.spyOn(axios, 'post').mockRejectedValue({ response: { status: 429 }, config: { headers: { 'x-goog-api-key': 'test-key-only' } } });
-    await expect(provider.generateJson('test prompt')).rejects.toMatchObject({ statusCode: 503, message: 'AI service is unavailable. Please retry later.' });
-  } finally { if (previous === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previous; }
+    const error = await provider.generateJson('test prompt').then(
+      () => { throw new Error('expected generateJson to reject'); },
+      (e) => e,
+    );
+
+    // A safe, generic service status rather than a raw provider status.
+    expect(error).toMatchObject({ statusCode: 503 });
+    // A 429 is reported as a rate limit: the candidate-facing message must not
+    // claim the service is broken when the provider only asked us to slow down.
+    expect(error.message).toMatch(/rate-limited/i);
+    // The whole point: the Axios error (whose config holds the API key) must never
+    // be serialized into what the caller sees.
+    expect(error.message).not.toContain('test-key-only');
+    expect(JSON.stringify(error)).not.toContain('test-key-only');
+    expect(error.stack ?? '').not.toContain('test-key-only');
+  } finally {
+    if (previous === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previous;
+    if (previousAttempts === undefined) delete process.env.AI_REQUEST_ATTEMPTS; else process.env.AI_REQUEST_ATTEMPTS = previousAttempts;
+  }
 });

@@ -18,6 +18,7 @@ import { TopicProgress } from '../career/models/TopicProgress';
 import AptitudeAttempt from '../models/AptitudeAttempt';
 import CodingSubmission from '../coding/models/CodingSubmission';
 import User from '../models/User';
+import { GroupDiscussionSession } from '../groupDiscussion/models/GroupDiscussionSession';
 import logger from '../utils/logger';
 
 /**
@@ -83,7 +84,10 @@ export interface DashboardSummary {
     interviewScore: MetricCard;
     resumeQuality: MetricCard;
     learning: MetricCard;
+    groupDiscussion: MetricCard;
   };
+  /** Group discussion evidence behind the dashboard GD card (spec §19). */
+  gd?: GroupDiscussionEvidence;
   charts: {
     assessmentOverTime: { date: string; score: number }[];
     technicalByCategory: { category: string; correct: number; attempted: number; accuracy: number }[];
@@ -104,6 +108,87 @@ const notAssessed = (basis: string): MetricCard => ({
   confidence: 'LOW',
   status: 'NOT_ASSESSED',
 });
+
+export interface GroupDiscussionEvidence {
+  sessionsCompleted: number;
+  latestScore: number | null;
+  latestSessionId: string | null;
+  latestTopic: string | null;
+  latestDate: string | null;
+  recentSessions: Array<{
+    id: string;
+    topic: string;
+    roleSlug: string;
+    difficulty: string;
+    durationMinutes: number;
+    overallScore: number | null;
+    completedAt: string | null;
+  }>;
+}
+
+/**
+ * Group discussion evidence for the dashboard card (spec §19).
+ *
+ * Only sessions that already carry a numeric `overallScore` count as evidence:
+ * selecting a topic, joining a room or granting microphone consent is not
+ * assessment evidence, and an unscored COMPLETED row would otherwise inflate
+ * the "discussions completed" number while contributing no measurable result.
+ * Pure so the rule can be locked by a test instead of drifting per surface.
+ */
+/**
+ * Dates leave this service as ISO 8601 strings so the browser parses the same
+ * instant everywhere. `String(date)` would emit a locale-formatted value whose
+ * meaning changes with the server's timezone.
+ */
+function isoTimestamp(value: unknown): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+export function summarizeGroupDiscussion(sessions: unknown[]): {
+  card: MetricCard;
+  gd: GroupDiscussionEvidence;
+} {
+  const scored = (Array.isArray(sessions) ? sessions : []).filter(
+    (s: any) => typeof s?.overallScore === 'number',
+  );
+  const latest: any = scored[0] ?? null;
+  const count = scored.length;
+  const latestScore = latest ? latest.overallScore : null;
+
+  const card: MetricCard = count
+    ? {
+        value: count,
+        basis: `${count} completed discussion${count === 1 ? '' : 's'}`,
+        sampleSize: count,
+        confidence: confidenceFor(count),
+        status: 'OK',
+        detail: latestScore != null
+          ? `Latest score ${latestScore}/100`
+          : 'Score pending report generation',
+      }
+    : notAssessed('No completed group discussion yet');
+
+  const gd: GroupDiscussionEvidence = {
+    sessionsCompleted: count,
+    latestScore,
+    latestSessionId: latest?._id ? String(latest._id) : null,
+    latestTopic: latest ? (latest.topicSnapshot as any)?.title ?? null : null,
+    latestDate: isoTimestamp(latest?.endedAt),
+    recentSessions: scored.slice(0, 6).map((s: any) => ({
+      id: String(s._id),
+      topic: (s.topicSnapshot as any)?.title ?? 'Discussion',
+      roleSlug: String(s.roleSlug || ''),
+      difficulty: String(s.difficulty || ''),
+      durationMinutes: Number(s.durationMinutes || 0),
+      overallScore: typeof s.overallScore === 'number' ? s.overallScore : null,
+      completedAt: isoTimestamp(s.endedAt),
+    })),
+  };
+
+  return { card, gd };
+}
 
 /**
  * Build the whole dashboard payload.
@@ -133,6 +218,7 @@ export async function getDashboardSummary(
     topicProgress,
     attempts,
     submissions,
+    gdSessions,
   ] = await Promise.all([
     User.findById(oid).select('profile preferences.timezone').lean(),
     getUserRoleProgress(userId).catch(err => {
@@ -161,6 +247,11 @@ export async function getDashboardSummary(
       .catch(() => []),
     CodingSubmission.find({ user: userId })
       .select('status overallScore passedTests totalTests submittedAt')
+      .lean()
+      .catch(() => []),
+    GroupDiscussionSession.find({ userId: oid, status: 'COMPLETED' })
+      .select('topicSnapshot roleSlug difficulty durationMinutes overallScore endedAt createdAt')
+      .sort({ endedAt: -1 })
       .lean()
       .catch(() => []),
   ]);
@@ -243,6 +334,10 @@ export async function getDashboardSummary(
       }
     : notAssessed('No course progress yet');
 
+  // ── Group discussion evidence (spec §19) ────────────────────────────────────
+  const { card: gdCard, gd: gdEvidence } = summarizeGroupDiscussion(gdSessions);
+  const gdSessionsCompleted = gdEvidence.sessionsCompleted;
+
   // ── Charts ─────────────────────────────────────────────────────────────────
   const interviewByRole: Record<string, { date: string; score: number }[]> = {};
   for (const interview of interviewDocs) {
@@ -294,7 +389,9 @@ export async function getDashboardSummary(
       interviewScore: interviewCard,
       resumeQuality: resumeCard,
       learning: learningCard,
+      groupDiscussion: gdCard,
     },
+    gd: gdEvidence,
     charts: {
       assessmentOverTime: assessmentOverTime.data.map(d => ({ date: d.date, score: d.score })),
       technicalByCategory: technical.data.map(d => ({
@@ -325,6 +422,8 @@ export async function getDashboardSummary(
       codingCard,
       completedTopics,
       attempts,
+      gdCard,
+      gdSessionsCompleted,
     }),
   };
 }
@@ -343,6 +442,8 @@ function buildRecommendations(input: {
   codingCard: MetricCard;
   completedTopics: number;
   attempts: unknown[];
+  gdCard: MetricCard;
+  gdSessionsCompleted: number;
 }): RecommendedAction[] {
   const actions: RecommendedAction[] = [];
 
@@ -402,6 +503,18 @@ function buildRecommendations(input: {
       href: '/career-learning',
       cta: 'Browse topics',
       source: 'learning',
+    });
+  }
+
+  // 6. No group discussion evidence yet — GD is a first-class AETHER assessment
+  //    that contributes communication evidence without inflating technical skill.
+  if (input.gdCard.status === 'NOT_ASSESSED') {
+    actions.push({
+      title: 'Practice a group discussion',
+      reason: 'No completed group discussion yet, so communication and discussion-reasoning evidence is missing.',
+      href: '/group-discussion',
+      cta: 'Choose a topic',
+      source: 'assessment',
     });
   }
 

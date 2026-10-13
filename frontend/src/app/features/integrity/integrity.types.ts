@@ -18,7 +18,15 @@ export type IntegrityEventType =
   | 'FACE_NOT_VISIBLE'
   | 'MULTIPLE_FACES'
   | 'MICROPHONE_DISABLED'
-  | 'PAGE_RELOAD_ATTEMPT';
+  | 'PAGE_RELOAD_ATTEMPT'
+  // Interview camera integrity (spec §15). Sustained screen-attention deviation —
+  // an observable event, never an inference about honesty.
+  | 'GAZE_AWAY'
+  | 'HEAD_AWAY'
+  | 'MEDIA_TRACK_ENDED';
+
+/** Severity of an observable event (spec §16). Only WARNING/CRITICAL count. */
+export type IntegritySeverity = 'OBSERVATION' | 'WARNING' | 'CRITICAL';
 
 export interface IntegrityState {
   warningCount: number;
@@ -26,6 +34,7 @@ export interface IntegrityState {
   shouldAutoSubmit: boolean;
   deduped?: boolean;
   status?: string;
+  severity?: IntegritySeverity;
 }
 
 /**
@@ -59,6 +68,21 @@ export interface IntegritySummary {
   status: 'clean' | 'warning' | 'terminated';
   autoSubmitted: boolean;
   events: Array<{ type: IntegrityEventType; timestamp: string; warningNumber: number }>;
+  /** Informational events that were shown but never counted (spec §21). */
+  observationCount?: number;
+  /**
+   * Observable evidence grouped for the report (spec §27). Deliberately named
+   * "observed" — these are assessment events, not proof of misconduct.
+   */
+  observed?: {
+    attentionDeviations?: number;
+    faceNotVisible?: number;
+    multipleFaces?: number;
+    cameraInterruptions?: number;
+    tabSwitches?: number;
+    windowBlur?: number;
+    fullscreenExits?: number;
+  };
 }
 
 /** Coerce an untrusted summary payload; used by report pages. */
@@ -87,6 +111,13 @@ export function sanitizeIntegritySummary(raw: any, fallbackMax = 5): IntegritySu
   return { warningCount, maximumWarnings: max, status, autoSubmitted: raw?.autoSubmitted === true || warningCount >= max, events };
 }
 
+export interface IntegrityEventPayload {
+  severity?: IntegritySeverity;
+  startedAt?: string | Date;
+  endedAt?: string | Date | null;
+  durationMs?: number;
+}
+
 export interface IntegrityPolicy {
   module: IntegrityModule;
   maxWarnings: number;
@@ -97,6 +128,8 @@ export interface IntegrityPolicy {
   monitorTabSwitch: boolean;
   monitorWindowBlur: boolean;
   monitorFullscreenExit: boolean;
+  /** Camera-based observation monitoring (face presence/gaze/multiple faces). */
+  monitorCameraIntegrity: boolean;
 }
 
 const API_BASE = '/api/integrity';
@@ -117,10 +150,29 @@ async function authedFetch(path: string, init?: RequestInit): Promise<any> {
 }
 
 export const integrityApi = {
-  async recordEvent(module: IntegrityModule, attemptId: string, type: IntegrityEventType, metadata?: Record<string, unknown>): Promise<IntegrityState> {
+  /**
+   * Record one observable event. `payload` carries the incident timing/severity
+   * so the backend can store the real duration of a sustained event instead of
+   * treating every report as an instantaneous point (spec §16).
+   */
+  async recordEvent(
+    module: IntegrityModule,
+    attemptId: string,
+    type: IntegrityEventType,
+    metadata?: Record<string, unknown>,
+    payload?: IntegrityEventPayload,
+  ): Promise<IntegrityState> {
+    const startedAt = payload?.startedAt instanceof Date ? payload.startedAt.toISOString() : payload?.startedAt;
+    const endedAt = payload?.endedAt instanceof Date ? payload.endedAt.toISOString() : payload?.endedAt;
     return authedFetch('/event', {
       method: 'POST',
-      body: JSON.stringify({ module, attemptId, type, metadata }),
+      body: JSON.stringify({
+        module, attemptId, type, metadata,
+        severity: payload?.severity,
+        startedAt,
+        endedAt: endedAt ?? undefined,
+        durationMs: payload?.durationMs,
+      }),
     });
   },
   async getSummary(module: IntegrityModule, attemptId: string): Promise<IntegritySummary> {
@@ -133,23 +185,26 @@ export const DEFAULT_POLICIES: Record<IntegrityModule, IntegrityPolicy> = {
   APTITUDE: {
     module: 'APTITUDE', maxWarnings: 5, requireFullscreen: true, cameraRequired: false,
     microphoneRequired: false, blockCopyPaste: true, monitorTabSwitch: true,
-    monitorWindowBlur: true, monitorFullscreenExit: true,
+    monitorWindowBlur: true, monitorFullscreenExit: true, monitorCameraIntegrity: false,
   },
   TECHNICAL_MCQ: {
     module: 'TECHNICAL_MCQ', maxWarnings: 5, requireFullscreen: true, cameraRequired: false,
     microphoneRequired: false, blockCopyPaste: true, monitorTabSwitch: true,
-    monitorWindowBlur: true, monitorFullscreenExit: true,
+    monitorWindowBlur: true, monitorFullscreenExit: true, monitorCameraIntegrity: false,
   },
   CODING: {
     module: 'CODING', maxWarnings: 5, requireFullscreen: false, cameraRequired: false,
     microphoneRequired: false,
     // Monaco copy/cut/paste stays allowed; only leaving the page is monitored.
     blockCopyPaste: false, monitorTabSwitch: true, monitorWindowBlur: true,
-    monitorFullscreenExit: false,
+    monitorFullscreenExit: false, monitorCameraIntegrity: false,
   },
   INTERVIEW: {
     module: 'INTERVIEW', maxWarnings: 5, requireFullscreen: true, cameraRequired: true,
-    microphoneRequired: true, blockCopyPaste: true, monitorTabSwitch: true,
+    microphoneRequired: true,    blockCopyPaste: true, monitorTabSwitch: true,
     monitorWindowBlur: true, monitorFullscreenExit: true,
+    // Interview-only camera integrity (spec §1–§12). Called out explicitly so the
+    // interview policy self-documents what is monitored and nothing else picks it up.
+    monitorCameraIntegrity: true,
   },
 };

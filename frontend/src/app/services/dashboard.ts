@@ -55,6 +55,24 @@ export interface DashboardSummary {
     interviewScore: MetricCard;
     resumeQuality: MetricCard;
     learning: MetricCard;
+    groupDiscussion: MetricCard;
+  };
+  /** Group discussion evidence behind the dashboard GD card (spec §19). */
+  gd?: {
+    sessionsCompleted: number;
+    latestScore: number | null;
+    latestSessionId: string | null;
+    latestTopic: string | null;
+    latestDate: string | null;
+    recentSessions: Array<{
+      id: string;
+      topic: string;
+      roleSlug: string;
+      difficulty: string;
+      durationMinutes: number;
+      overallScore: number | null;
+      completedAt: string | null;
+    }>;
   };
   charts: {
     assessmentOverTime: Array<{ date: string; score: number }>;
@@ -82,6 +100,7 @@ function asArray<T>(value: unknown): T[] {
 function normalizeSummary(raw: DashboardSummary): DashboardSummary {
   const source = raw as any;
   const roleProgress = source.roleProgress ?? {};
+  const gd = source.gd ?? {};
   return {
     ...source,
     recommendations: asArray(source.recommendations),
@@ -92,6 +111,10 @@ function normalizeSummary(raw: DashboardSummary): DashboardSummary {
     roleProgress: {
       ...roleProgress,
       roles: asArray(roleProgress.roles),
+    },
+    gd: {
+      ...(gd as object),
+      recentSessions: asArray(gd.recentSessions),
     },
   } as DashboardSummary;
 }

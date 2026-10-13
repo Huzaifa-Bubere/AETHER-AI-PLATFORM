@@ -38,6 +38,12 @@ export function JobsPage() {
   // `q` is the DEBOUNCED value that actually triggers a request.
   const [q, setQ] = useState(qInput);
   const [location, setLocation] = useState(() => searchParams.get('location') ?? '');
+  // Location scope (spec §54). DEFAULTS TO INDIA: the only provider that works
+  // without credentials is a global remote board with no country data, so an
+  // unscoped list reads as a wall of foreign listings. 'all' is stored
+  // explicitly, so choosing "All locations" survives a refresh instead of
+  // snapping back to India.
+  const [country, setCountry] = useState(() => searchParams.get('country') ?? 'in');
   const [workMode, setWorkMode] = useState<WorkMode | ''>(() => (searchParams.get('workMode') as WorkMode) ?? '');
   const [jobType, setJobType] = useState<JobType | ''>(() => (searchParams.get('jobType') as JobType) ?? '');
   const [experience, setExperience] = useState<ExperienceLevel | ''>(
@@ -86,13 +92,14 @@ export function JobsPage() {
     if (role) next.role = role;
     if (q) next.q = q;
     if (location) next.location = location;
+    next.country = country;
     if (workMode) next.workMode = workMode;
     if (jobType) next.jobType = jobType;
     if (experience) next.experience = experience;
     if (postedWithinDays) next.postedWithinDays = postedWithinDays;
     if (page > 1) next.page = String(page);
     setSearchParams(next, { replace: true });
-  }, [role, q, location, workMode, jobType, experience, postedWithinDays, page, setSearchParams]);
+  }, [role, q, location, country, workMode, jobType, experience, postedWithinDays, page, setSearchParams]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -102,6 +109,7 @@ export function JobsPage() {
         role: role || undefined,
         q: q || undefined,
         location: location || undefined,
+        country,
         workMode: workMode || undefined,
         jobType: jobType || undefined,
         experience: experience || undefined,
@@ -114,7 +122,7 @@ export function JobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [role, q, location, workMode, jobType, experience, postedWithinDays, page]);
+  }, [role, q, location, country, workMode, jobType, experience, postedWithinDays, page]);
 
   useEffect(() => {
     void load();
@@ -216,6 +224,21 @@ export function JobsPage() {
                   {r.roleName}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="space-y-1 text-xs font-medium text-muted-foreground">
+            Location scope
+            {/*
+              Defaults to India. "All locations" is a deliberate opt-in, not a
+              fallback, so the page never silently mixes markets.
+            */}
+            <select
+              className={`${inputClass} w-full`}
+              value={country}
+              onChange={e => { setCountry(e.target.value); setPage(1); }}
+            >
+              <option value="in">India</option>
+              <option value="all">All locations</option>
             </select>
           </label>
           <label className="space-y-1 text-xs font-medium text-muted-foreground">
@@ -328,12 +351,29 @@ export function JobsPage() {
       ) : data && data.jobs.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center">
           <Search className="mx-auto h-8 w-8 text-muted-foreground" />
-          <p className="mt-3 font-medium text-foreground">No jobs matched these filters</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {data.noProviderConfigured
-              ? 'Configure a job provider to start receiving current postings.'
-              : 'Try widening your filters or clearing the search term.'}
+          <p className="mt-3 font-medium text-foreground">
+            {data.locationScope.country
+              ? 'No India postings matched these filters'
+              : 'No jobs matched these filters'}
           </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {/* The server's reason explains WHY (e.g. no India-capable provider
+                is configured) rather than leaving a bare empty list. */}
+            {data.locationScope.emptyReason
+              ?? (data.noProviderConfigured
+                ? 'Configure a job provider to start receiving current postings.'
+                : 'Try widening your filters or clearing the search term.')}
+          </p>
+          {data.locationScope.country && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={() => { setCountry('all'); setPage(1); }}
+            >
+              Show all locations
+            </Button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

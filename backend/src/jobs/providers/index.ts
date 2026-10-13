@@ -51,6 +51,16 @@ export interface JobProviderAdapter {
   isConfigured(): boolean;
   /** Human-readable reason shown in the UI when isConfigured() is false. */
   configurationHint(): string;
+  /**
+   * True when this adapter can be scoped to ONE country's market (spec §54).
+   *
+   * The Jobs page defaults to India, so the UI needs to know whether any
+   * CONFIGURED provider is even capable of returning India-specific postings —
+   * otherwise it would show an empty page with no honest explanation. RemoteOK
+   * is a global board with no country input; Adzuna searches one country's
+   * index; JobSpy forwards the country to its service.
+   */
+  readonly supportsCountry: boolean;
   fetchJobs(query: FetchJobsQuery): Promise<NormalizedJob[]>;
 }
 
@@ -313,6 +323,9 @@ export function htmlToText(html: string): string {
  */
 class RemoteOkAdapter implements JobProviderAdapter {
   readonly name = 'remoteok';
+  // A global remote board: it accepts no country input, so it can never be
+  // asked for India specifically. Its postings have country = null.
+  readonly supportsCountry = false;
 
   isConfigured(): boolean {
     // RemoteOK needs no credentials, but can be switched off explicitly.
@@ -436,6 +449,9 @@ export function adzunaSearchPath(country: string): string {
  */
 class AdzunaAdapter implements JobProviderAdapter {
   readonly name = 'adzuna';
+  // Searches one country's index and defaults to India (see
+  // resolveAdzunaCountry) — this is the configured source of India postings.
+  readonly supportsCountry = true;
 
   isConfigured(): boolean {
     return Boolean(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY);
@@ -507,9 +523,32 @@ class AdzunaAdapter implements JobProviderAdapter {
   }
 }
 
+/** Jooble's documented API. It is ingestion-only: never called by a page load. */
+class JoobleAdapter implements JobProviderAdapter {
+  readonly name = 'jooble';
+  readonly supportsCountry = true;
+  isConfigured() { return String(process.env.JOOBLE_ENABLED).toLowerCase() === 'true' && Boolean(process.env.JOOBLE_API_KEY); }
+  configurationHint() { return this.isConfigured() ? 'Official Jooble API configured.' : 'NOT CONFIGURED — set JOOBLE_ENABLED=true and a regional JOOBLE_API_KEY.'; }
+  async fetchJobs(query: FetchJobsQuery): Promise<NormalizedJob[]> {
+    const base = (process.env.JOOBLE_API_BASE_URL || 'https://jooble.org/api/').replace(/\/?$/, '/');
+    const location = query.location || (String(query.country || 'in').toLowerCase() === 'in' ? 'India' : '');
+    const response = await withResilience(this.name, () => axios.post(`${base}${encodeURIComponent(process.env.JOOBLE_API_KEY!)}`, { keywords: query.query || 'software developer', location, page: Math.max(1, query.page || 1) }, { timeout: providerTimeoutMs(this.name) }));
+    const rows = Array.isArray(response.data?.jobs) ? response.data.jobs : [];
+    return rows.slice(0, Math.min(query.limit || 20, 50)).map((job: any) => {
+      const description = htmlToText(job.snippet || job.description || ''); const rawUrl = String(job.link || '');
+      return { provider: this.name, externalId: String(job.id || rawUrl), sourceUrl: isSafeSourceUrl(rawUrl) ? cleanSourceUrl(rawUrl) : rawUrl,
+        title: cleanText(job.title) || 'Untitled role', company: cleanText(job.company) || 'Unknown company', description, rawDescription: job.snippet || job.description || '',
+        location: normalizeIndianLocation(job.location), city: normalizeIndianLocation(job.location), country: location ? (String(query.country || 'in').toUpperCase()) : null, region: null,
+        workMode: detectWorkMode(job.location, description), jobType: detectJobType(job.type, description), experienceLevel: detectExperienceLevel(job.title || '', description),
+        salary: { min: null, max: null, currency: null, raw: cleanText(job.salary) || null, period: null }, datePosted: job.updated ? new Date(job.updated) : null, requirements: extractRequirements(description) } satisfies NormalizedJob;
+    }).filter(isStorableJob);
+  }
+}
+
 export const jobProviders: JobProviderAdapter[] = [
   new RemoteOkAdapter(),
   new AdzunaAdapter(),
+  new JoobleAdapter(),
   // Optional, disabled by default. Registered last so an outage can never
   // affect the official-API sources ahead of it (spec §6, §13, §69).
   new JobSpyProviderAdapter(),
@@ -525,5 +564,8 @@ export function describeProviders() {
     name: p.name,
     configured: p.isConfigured(),
     hint: p.configurationHint(),
+    // Lets the Jobs page explain an empty India-scoped list honestly instead of
+    // implying there are simply no Indian jobs in existence.
+    supportsCountry: p.supportsCountry,
   }));
 }

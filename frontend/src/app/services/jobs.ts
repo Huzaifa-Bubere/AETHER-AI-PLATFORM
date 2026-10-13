@@ -88,15 +88,37 @@ export interface JobSummary {
   fit: JobFitBadge | null;
 }
 
+export interface JobProviderStatus {
+  name: string;
+  configured: boolean;
+  hint: string;
+  /** True when this provider can be restricted to one country's market (spec §54). */
+  supportsCountry: boolean;
+}
+
+/**
+ * How the location scope was applied to this response (spec §54).
+ *
+ * `emptyReason` is present ONLY when a scope was applied and matched nothing,
+ * so the page can explain WHY instead of showing a bare empty list.
+ */
+export interface JobLocationScope {
+  country: string | null;
+  /** Configured providers capable of returning country-specific postings. */
+  countryAwareProviders: string[];
+  emptyReason: string | null;
+}
+
 export interface JobListResponse {
   jobs: JobSummary[];
   page: number;
   pages: number;
   total: number;
   freshness: { lastFetchedAt: string | null; lastFetchedRelative: string | null; totalActive: number };
-  providers: Array<{ name: string; configured: boolean; hint: string }>;
+  providers: JobProviderStatus[];
   /** True when no live provider is configured — the UI must say so plainly. */
   noProviderConfigured: boolean;
+  locationScope: JobLocationScope;
 }
 
 export interface JobDetail extends JobSummary {
@@ -110,6 +132,11 @@ export interface JobsQuery {
   role?: string;
   q?: string;
   location?: string;
+  /**
+   * Location scope. 'in' restricts to India; 'all' (or undefined) applies no
+   * scope. The Jobs page defaults to 'in' (spec §54).
+   */
+  country?: string;
   workMode?: WorkMode;
   jobType?: JobType;
   experience?: ExperienceLevel;
@@ -145,7 +172,16 @@ function normalizeJobSummary(job: any): JobSummary {
 
 /** Normalize the list envelope — arrays default to `[]`, never `null`. */
 export function normalizeJobListResponse(raw: any): JobListResponse {
-  const providers = Array.isArray(raw?.providers) ? raw.providers : [];
+  const providers: JobProviderStatus[] = Array.isArray(raw?.providers)
+    ? raw.providers.map((p: any) => ({
+        name: String(p?.name ?? ''),
+        configured: !!p?.configured,
+        hint: String(p?.hint ?? ''),
+        // Absent means "cannot be country-scoped" — the honest default, since
+        // assuming otherwise would promise India results we cannot deliver.
+        supportsCountry: !!p?.supportsCountry,
+      }))
+    : [];
   return {
     jobs: Array.isArray(raw?.jobs) ? raw.jobs.map(normalizeJobSummary) : [],
     page: Number(raw?.page) || 1,
@@ -158,6 +194,13 @@ export function normalizeJobListResponse(raw: any): JobListResponse {
     },
     providers,
     noProviderConfigured: !!raw?.noProviderConfigured,
+    locationScope: {
+      country: raw?.locationScope?.country ?? null,
+      countryAwareProviders: Array.isArray(raw?.locationScope?.countryAwareProviders)
+        ? raw.locationScope.countryAwareProviders.map((n: unknown) => String(n))
+        : [],
+      emptyReason: raw?.locationScope?.emptyReason ?? null,
+    },
   };
 }
 

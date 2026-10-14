@@ -10,6 +10,7 @@ import adaptiveInterviewApi, {
   BehaviorAnalysis,
 } from '../../lib/adaptiveInterviewApi';
 import { integrityApi, IntegritySummary, sanitizeIntegritySummary } from '../features/integrity/integrity.types';
+import { IntegrityReportSection } from '../features/integrity/IntegrityReportSection';
 
 const READINESS_STYLES: Record<string, { color: string; bg: string; border: string; label: string }> = {
   'placement-ready': { color: '#10b981', bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.3)', label: 'Placement Ready 🎯' },
@@ -87,9 +88,9 @@ export function AdaptiveReportPage() {
   const [videoError, setVideoError] = useState(false);
   // Report tabs (spec §4I). `?tab=recording` is the canonical deep link from
   // interview history, so the recording opens directly.
-  const [tab, setTab] = useState<'overview' | 'performance' | 'transcript' | 'recording'>(() => {
+  const [tab, setTab] = useState<'overview' | 'performance' | 'transcript' | 'integrity' | 'recording'>(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
-    return t === 'recording' || t === 'transcript' || t === 'performance' ? t : 'overview';
+    return t === 'recording' || t === 'transcript' || t === 'performance' || t === 'integrity' ? t : 'overview';
   });
   const [behavior, setBehavior] = useState<BehaviorAnalysis | null>(null);
   const [behaviorLoading, setBehaviorLoading] = useState(false);
@@ -162,8 +163,15 @@ export function AdaptiveReportPage() {
     { id: 'overview', label: 'Overview' },
     { id: 'performance', label: 'Performance' },
     { id: 'transcript', label: 'Transcript' },
+    // Interview Integrity is a first-class report dimension (spec Part AE) and
+    // deliberately separate from answer quality (spec Part AD).
+    { id: 'integrity', label: 'Integrity' },
     { id: 'recording', label: 'Recording' },
   ];
+
+  const integrityTabSuffix = integritySummary && integritySummary.warningCount > 0
+    ? ` (${integritySummary.warningCount})`
+    : '';
 
   if (loading) {
     return (
@@ -231,7 +239,7 @@ export function AdaptiveReportPage() {
                   tab === t.id ? 'bg-primary text-white border-primary' : 'bg-white text-slate-600 border-border hover:border-primary/40'
                 }`}
               >
-                {t.label}{t.id === 'recording' && data.recording?.available ? ' ●' : ''}
+                {t.label}{t.id === 'integrity' ? integrityTabSuffix : ''}{t.id === 'recording' && data.recording?.available ? ' ●' : ''}
               </button>
             ))}
           </div>
@@ -530,7 +538,15 @@ export function AdaptiveReportPage() {
           </Section>
         )}
 
-        {/* ── Integrity ── */}
+        {/* ── Interview integrity tab (spec Part AE) ── */}
+        <IntegrityReportSection
+          summary={integritySummary}
+          legacyScore={integrity?.score ?? 100}
+          legacyNote={integrity?.note ?? 'Integrity data not available for this session.'}
+          terminated={integrityTerminated}
+        />
+
+        {/* ── Integrity (overview summary) ── */}
         <Section icon={integrityTerminated ? ShieldAlert : integrityGood ? ShieldCheck : ShieldAlert} title={`Assessment integrity — ${integrity.score}/100`} color={integrityTerminated ? '#DC2626' : integrityGood ? '#16A34A' : '#D97706'}>
           <p className="text-sm text-slate-600 leading-relaxed mb-3">{integrity.note}</p>
           {integrityTerminated && (
@@ -561,7 +577,7 @@ export function AdaptiveReportPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-emerald-600">No suspicious activity was recorded. Clean interview.</p>
+              <p className="text-sm text-emerald-600">No integrity events were recorded during this interview.</p>
             )
           )}
         </Section>

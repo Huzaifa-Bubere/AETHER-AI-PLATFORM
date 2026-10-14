@@ -44,6 +44,7 @@ import { notFound } from './middleware/notFound';
 import { authenticateToken, requireAdmin, requireCandidate } from './middleware/auth';
 import { apiLimiter, authLimiter, assessmentLimiter } from './middleware/rateLimiter';
 import { validateInput } from './middleware/sanitizer';
+import { recordRequest } from './services/systemMetrics.service';
 import logger from './utils/logger';
 
 /**
@@ -130,6 +131,13 @@ export function createApp(): Application {
   // Compression middleware
   app.use(compression());
 
+  // Real request counter for the admin System Metrics panel. One in-memory
+  // increment per request — no external metrics backend required.
+  app.use((_req, _res, next) => {
+    recordRequest();
+    next();
+  });
+
   // Logging middleware (skip in test environment)
   if (process.env.NODE_ENV !== 'test') {
     app.use(morgan('combined', {
@@ -172,9 +180,16 @@ export function createApp(): Application {
   // API routes - EXACT paths that tests expect
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/user', apiLimiter, authenticateToken, userRoutes);
-  app.use('/api/resume', apiLimiter, authenticateToken, requireCandidate, resumeRoutes);
-  // Deterministic ATS + Resume Builder (versions, JD match, PDF data)
+  // Deterministic ATS + Resume Builder (versions, JD match, PDF data).
+  //
+  // Mounted BEFORE the legacy router: `resumeRoutes` declares `GET /:id`, which
+  // matched the literal path `/api/resume/versions` first and ran
+  // `Resume.findById('versions')` — a CastError on every version-list request,
+  // logged as "Error fetching resume: Cast to ObjectId failed for value
+  // \"versions\"". The builder router declares only literal paths (/ats/*,
+  // /versions/*), so mounting it first cannot shadow a legacy route.
   app.use('/api/resume', apiLimiter, authenticateToken, requireCandidate, resumeBuilderRoutes);
+  app.use('/api/resume', apiLimiter, authenticateToken, requireCandidate, resumeRoutes);
   app.use('/api/interview', authenticateToken, requireCandidate, assessmentLimiter, interviewRoutes);
   // Restore the legacy media-analysis routes c8e9e64 unmounted (they extend the
   // same /:id paths with /analyze/* subroutes; mounted AFTER the agent router).

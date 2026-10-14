@@ -26,6 +26,9 @@ export type IntegrityEventType =
   // sustained screen-attention deviation — never an inference about honesty.
   | 'GAZE_AWAY'
   | 'HEAD_AWAY'
+  // Both eyes remained confidently closed past the closure threshold. Recorded
+  // as an observable condition — never as "cheating".
+  | 'EYES_CLOSED_LONG'
   | 'MEDIA_TRACK_ENDED';
 
 /**
@@ -58,13 +61,24 @@ export interface IIntegrityEvent extends Document {
   warningIssued?: boolean;
 }
 
-const MAX_WARNINGS = 5;
+/**
+ * Authoritative warning limit. Configurable server-side via
+ * INTEGRITY_MAX_WARNINGS so the limit is a deployment policy rather than a
+ * constant baked into the bundle the candidate runs. The per-EVENT thresholds
+ * (3 s eye closure, 4 s attention deviation, …) live in the client rules engine,
+ * which is their single source of truth; the backend independently enforces the
+ * limit and a per-event cooldown so a buggy or hostile client cannot spam.
+ */
+const MAX_WARNINGS = (() => {
+  const raw = Number.parseInt(String(process.env.INTEGRITY_MAX_WARNINGS ?? ''), 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 5;
+})();
 
 const EVENT_TYPE_VALUES = [
   'TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'COPY_ATTEMPT', 'PASTE_ATTEMPT',
   'CONTEXT_MENU', 'CAMERA_DISABLED', 'CAMERA_PERMISSION_REVOKED', 'FACE_NOT_VISIBLE',
   'MULTIPLE_FACES', 'MICROPHONE_DISABLED', 'PAGE_RELOAD_ATTEMPT',
-  'GAZE_AWAY', 'HEAD_AWAY', 'MEDIA_TRACK_ENDED',
+  'GAZE_AWAY', 'HEAD_AWAY', 'EYES_CLOSED_LONG', 'MEDIA_TRACK_ENDED',
 ];
 
 const integrityEventSchema = new Schema<IIntegrityEvent>(

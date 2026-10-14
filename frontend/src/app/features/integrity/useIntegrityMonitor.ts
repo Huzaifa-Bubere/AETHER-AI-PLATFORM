@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  integrityApi, IntegrityEventType, IntegrityModule, IntegrityPolicy, IntegrityState,
-  sanitizeIntegrityState,
+  integrityApi, IntegrityEventPayload, IntegrityEventType, IntegrityModule, IntegrityPolicy,
+  IntegrityState, sanitizeIntegrityState,
 } from './integrity.types';
 
 /**
@@ -44,7 +44,16 @@ export function useIntegrityMonitor({ policy, attemptId, active, onAutoSubmit }:
    * just because an event request failed. The backend remains authoritative
    * whenever it responds; restoreState() reconciles counts after a reload.
    */
-  const report = useCallback(async (type: IntegrityEventType, metadata?: Record<string, unknown>) => {
+  const report = useCallback(async (
+    type: IntegrityEventType,
+    metadata?: Record<string, unknown>,
+    /**
+     * Incident timing/severity. Supplied by the interview camera engine so the
+     * backend stores a sustained event's REAL duration and its severity, rather
+     * than treating every observation as an instantaneous point (spec §16).
+     */
+    payload?: IntegrityEventPayload,
+  ) => {
     if (!active || !attemptId || autoSubmitFired.current) return;
     // Local dedup for leave-style events (backend dedups too — this avoids double modals).
     if (['TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT'].includes(type)) {
@@ -53,7 +62,7 @@ export function useIntegrityMonitor({ policy, attemptId, active, onAutoSubmit }:
       lastLeaveAt.current = now;
     }
     try {
-      const raw = await integrityApi.recordEvent(policy.module, attemptId, type, metadata);
+      const raw = await integrityApi.recordEvent(policy.module, attemptId, type, metadata, payload);
       const next = sanitizeIntegrityState(raw, policy.maxWarnings);
       setState(next);
       if (next.deduped) return; // backend saw this as a duplicate of an in-flight action

@@ -16,7 +16,7 @@ const EVENT_TYPES: IntegrityEventType[] = [
   'TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'COPY_ATTEMPT', 'PASTE_ATTEMPT',
   'CONTEXT_MENU', 'CAMERA_DISABLED', 'CAMERA_PERMISSION_REVOKED', 'FACE_NOT_VISIBLE',
   'MULTIPLE_FACES', 'MICROPHONE_DISABLED', 'PAGE_RELOAD_ATTEMPT',
-  'GAZE_AWAY', 'HEAD_AWAY', 'MEDIA_TRACK_ENDED',
+  'GAZE_AWAY', 'HEAD_AWAY', 'EYES_CLOSED_LONG', 'MEDIA_TRACK_ENDED',
 ];
 
 /** Events that together represent "the candidate left the assessment view". */
@@ -33,7 +33,7 @@ const DEDUP_WINDOW_MS = 1500;
  * warning, and it matches the engine's own 10s gaze cooldown.
  */
 const CAMERA_OBSERVATION_EVENTS: IntegrityEventType[] = [
-  'FACE_NOT_VISIBLE', 'MULTIPLE_FACES', 'GAZE_AWAY', 'HEAD_AWAY',
+  'FACE_NOT_VISIBLE', 'MULTIPLE_FACES', 'GAZE_AWAY', 'HEAD_AWAY', 'EYES_CLOSED_LONG',
 ];
 const CAMERA_OBSERVATION_COOLDOWN_MS = 10_000;
 
@@ -176,6 +176,9 @@ class IntegrityService {
         attentionDeviations: countOf(['GAZE_AWAY', 'HEAD_AWAY']),
         faceNotVisible: countOf(['FACE_NOT_VISIBLE']),
         multipleFaces: countOf(['MULTIPLE_FACES']),
+        // Reported separately from gaze: prolonged eye closure and a sustained
+        // attention deviation are different observations (spec §AE).
+        eyeClosures: countOf(['EYES_CLOSED_LONG']),
         cameraInterruptions: countOf(['CAMERA_DISABLED', 'CAMERA_PERMISSION_REVOKED', 'MEDIA_TRACK_ENDED']),
         tabSwitches: countOf(['TAB_SWITCH']),
         windowBlur: countOf(['WINDOW_BLUR']),

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Brain, Mic, MicOff, AlertTriangle, Loader2, Square, ChevronLeft, CheckCircle2,
-  Sparkles, Volume2, VolumeX, RotateCcw, Send, Eye, ShieldCheck, ShieldAlert,
+  Sparkles, Volume2, VolumeX, RotateCcw, Send, ShieldAlert,
 } from 'lucide-react';
 import { VideoRecorder } from '../components/interview/VideoRecorder';
 import { SpeechRecognition } from '../components/interview/SpeechRecognition';
@@ -11,6 +11,11 @@ import { IntegrityIndicator } from '../features/integrity/IntegrityIndicator';
 import { IntegrityWarningModal } from '../features/integrity/IntegrityWarningModal';
 import { useIntegrityMonitor } from '../features/integrity/useIntegrityMonitor';
 import { DEFAULT_POLICIES } from '../features/integrity/integrity.types';
+import { toIntegrityEventType } from '../features/integrity/rules/integrityRules';
+import { useEyeTracking } from '../features/integrity/eyeTracking/useEyeTracking';
+import { EyeTrackingOverlay } from '../features/integrity/eyeTracking/EyeTrackingOverlay';
+import { CameraStatusPanel } from '../features/integrity/eyeTracking/CameraStatusPanel';
+import { CalibrationPanel, CameraRequiredModal } from '../features/integrity/eyeTracking/CalibrationPanel';
 import { useInterviewVoice } from '../features/interview/useInterviewVoice';
 import { useAdaptiveInterviewStore } from '../../store/adaptiveInterviewStore';
 import adaptiveInterviewApi from '../../lib/adaptiveInterviewApi';
@@ -39,11 +44,14 @@ export function AdaptiveInterviewRoomPage() {
   const [finishing, setFinishing] = useState(false);
   const [micDenied, setMicDenied] = useState(false);
   const busy = useRef(false);
-  const frameCount = useRef(0);
   const recordingBlobRef = useRef<Blob | null>(null);
   const recordingStartedAt = useRef<number | null>(null);
-  const faceMissingSince = useRef<number | null>(null);
-  const multiFaceSince = useRef<number | null>(null);
+  // Shared with VideoRecorder: the landmark overlay and the <video> must occupy
+  // EXACTLY the same box, and MediaPipe must read the same live stream.
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const [showOverlay, setShowOverlay] = useState(false);
+  const [cameraLost, setCameraLost] = useState(false);
+  const [cameraRetryToken, setCameraRetryToken] = useState(0);
 
   const voice = useInterviewVoice();
 
@@ -133,6 +141,38 @@ export function AdaptiveInterviewRoomPage() {
   useEffect(() => { integrity.requestFullscreen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (sessionId && phase === 'active') void integrity.restoreState(); }, [sessionId, phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── MediaPipe eye tracking (spec Parts C–T) ────────────────────────────
+  // ONE observation stream → ONE rules engine → the ONE existing backend event
+  // log. No second proctoring system, no local warning counter: the engine
+  // coalesces each incident into a single event and `integrity.report` remains
+  // the only thing that talks to the backend.
+  const eyeTracking = useEyeTracking({
+    videoRef: cameraVideoRef,
+    active: integrityActive,
+    enabled: Boolean(sessionId),
+    onEvent: (event, decision) => {
+      // The engine's timestamps are monotonic (performance.now) so a whole
+      // interview can be replayed in tests; the backend needs wall-clock, so the
+      // incident's start is reconstructed from its real measured duration.
+      void integrity.report(
+        toIntegrityEventType(event.type),
+        {
+          ...event.metadata,
+          trackingState: decision.trackingState,
+          eyeState: decision.eyeState,
+          gaze: decision.debug.gaze,
+        },
+        {
+          severity: event.severity,
+          startedAt: new Date(Date.now() - event.durationMs),
+          endedAt: null,
+          durationMs: event.durationMs,
+        },
+      );
+    },
+    onMediaTrackEnded: () => setCameraLost(true),
+  });
+
   // ── AI speaks every new question (real TTS events drive the orb) ───────
   const spokenQuestionId = useRef<string | null>(null);
   useEffect(() => {
@@ -164,41 +204,6 @@ export function AdaptiveInterviewRoomPage() {
       setStreamReady(true);
     }
   }, [phase, consentRecording]);
-
-  const handleVideoFrame = useCallback((frameData: string) => {
-    frameCount.current += 1;
-    // Face-presence checks run on the Shape Detection API when available (best effort).
-    // Sustained absence (5s) / multiple faces (2.5s) report ONE integrity event each.
-    const FD = (window as any).FaceDetector;
-    if (!FD || frameCount.current % 4 !== 0) return;
-    void (async () => {
-      try {
-        const detector = new FD({ fastMode: true, maxDetectedFaces: 5 });
-        const bitmap = await createImageBitmap(await (await fetch(frameData)).blob());
-        const faces = await detector.detect(bitmap);
-        const now = Date.now();
-        if (faces.length === 0) {
-          if (faceMissingSince.current == null) faceMissingSince.current = now;
-          else if (now - faceMissingSince.current > 5000) {
-            integrity.reportFaceAbsent(Math.round((now - faceMissingSince.current) / 1000));
-            faceMissingSince.current = now; // re-arm: only re-warn after another sustained gap
-          }
-        } else {
-          faceMissingSince.current = null;
-          if (faces.length > 1) {
-            if (multiFaceSince.current == null) multiFaceSince.current = now;
-            else if (now - multiFaceSince.current > 2500) {
-              integrity.reportMultipleFaces(Math.round((now - multiFaceSince.current) / 1000));
-              multiFaceSince.current = now;
-            }
-          } else {
-            multiFaceSince.current = null;
-          }
-        }
-      } catch { /* detection best-effort; camera-off events still cover the basics */ }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [integrity.reportFaceAbsent, integrity.reportMultipleFaces]);
 
   // ── Submit answer ──────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -301,31 +306,66 @@ export function AdaptiveInterviewRoomPage() {
             </div>
           </div>
 
-          {/* camera */}
-          <div className="rounded-2xl overflow-hidden border border-border bg-slate-900 h-[240px] lg:h-[220px] shrink-0">
+          {/* camera — live video with the real landmark overlay on top */}
+          <div className="relative rounded-2xl overflow-hidden border border-border bg-slate-900 h-[240px] lg:h-[220px] shrink-0">
             <VideoRecorder
               isRecording={streamReady}
               onStartRecording={() => setStreamReady(true)}
               onStopRecording={() => setStreamReady(false)}
               onVideoData={blob => { recordingBlobRef.current = blob; }}
-              onVideoFrame={handleVideoFrame}
-            />
+              videoRef={cameraVideoRef}
+              mirror={false}
+              retryToken={cameraRetryToken}
+              onVideoEnabledChange={enabled => { if (!enabled) integrity.reportCameraDisabled(); }}
+            >
+              {/* Every stroke below is drawn from the current frame's REAL
+                  MediaPipe landmarks — never a decorative shape. */}
+              <EyeTrackingOverlay
+                videoRef={cameraVideoRef}
+                frameRef={eyeTracking.frameRef}
+                active={integrityActive}
+                showOverlay={showOverlay}
+                mirrored={false}
+                eyeState={eyeTracking.status.eyeState}
+              />
+            </VideoRecorder>
           </div>
 
-          {/* status panel */}
-          <div className="rounded-2xl bg-white border border-border p-4 space-y-2.5 shrink-0">
-            {[
-              { label: 'Camera', value: streamReady ? 'Active' : 'Off', ok: streamReady, icon: Eye },
-              { label: 'Face', value: faceMissingSince.current == null ? 'Detected' : 'Not visible', ok: faceMissingSince.current == null, icon: ShieldCheck },
-              { label: 'Microphone', value: micDenied ? 'Blocked' : isListening ? 'Recording' : 'Ready', ok: !micDenied, icon: isListening ? Mic : MicOff },
-              { label: 'Integrity', value: integrity.warningCount === 0 ? 'Active' : `${integrity.warningCount} warning(s)`, ok: integrity.warningCount === 0, icon: ShieldCheck },
-            ].map(row => (
-              <div key={row.label} className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-2 text-slate-500"><row.icon className="w-3.5 h-3.5" /> {row.label}</span>
-                <span className={`font-semibold ${row.ok ? 'text-emerald-600' : 'text-amber-600'}`}>{row.value}</span>
-              </div>
-            ))}
-          </div>
+          {/* Assessment integrity card (spec Part Z) — text always accompanies colour */}
+          <CameraStatusPanel
+            cameraActive={streamReady && !cameraLost}
+            facePresent={eyeTracking.status.facePresent}
+            faceCount={eyeTracking.status.faceCount}
+            eyeState={eyeTracking.status.eyeState}
+            trackingState={cameraLost ? 'CAMERA_LOST' : eyeTracking.status.trackingState}
+            gaze={eyeTracking.status.gaze}
+            warningCount={integrity.warningCount}
+            maximumWarnings={integrity.maximumWarnings}
+            trackingError={eyeTracking.status.error}
+          />
+
+          {/* Calibration (spec Part H) — offered until a neutral baseline exists */}
+          {eyeTracking.calibrationPhase !== 'READY' && (
+            <CalibrationPanel
+              phase={eyeTracking.calibrationPhase}
+              progress={eyeTracking.calibrationProgress}
+              hasBaseline={Boolean(eyeTracking.baseline)}
+              cameraReady={streamReady && !cameraLost}
+              onStart={eyeTracking.startCalibration}
+              onCancel={eyeTracking.cancelCalibration}
+              onSkip={eyeTracking.cancelCalibration}
+            />
+          )}
+
+          <label className="flex items-center gap-2 px-1 text-[11px] text-slate-500">
+            <input
+              type="checkbox"
+              checked={showOverlay}
+              onChange={e => setShowOverlay(e.target.checked)}
+              className="accent-blue-600"
+            />
+            Show tracking overlay (eye landmarks)
+          </label>
         </div>
 
         {/* Right: question + answer */}
@@ -401,6 +441,15 @@ export function AdaptiveInterviewRoomPage() {
           </div>
         </div>
       </main>
+
+      {/* Camera required (spec Part AA) — blocking, because a protected
+          interview cannot continue without a live feed. */}
+      {cameraLost && !locked && (
+        <CameraRequiredModal
+          onRetry={() => { setCameraLost(false); setCameraRetryToken(t => t + 1); }}
+          onEnd={() => void finishAndNavigate(true)}
+        />
+      )}
 
       {/* integrity warning modal (warnings 1–4) */}
       {integrity.modalEvent && !locked && (

@@ -17,12 +17,18 @@
  * authoritative (spec §29) and this engine never trusts itself as the record.
  */
 
+import type { IntegrityEventType as ApiIntegrityEventType } from '../integrity.types';
+
 /** Every integrity event type in one place — never a string literal at a call site (spec §15). */
 export const INTEGRITY_EVENT_TYPES = [
   'FACE_MISSING',
   'MULTIPLE_FACES',
   'GAZE_AWAY',
   'HEAD_AWAY',
+  // Both eyes remained confidently closed past the closure threshold (spec
+  // Part K). An OBSERVABLE condition, never "cheating": a candidate can be
+  // tired, thinking with eyes shut, or briefly unwell.
+  'EYES_CLOSED_LONG',
   'CAMERA_DISABLED',
   'MEDIA_TRACK_ENDED',
   'TAB_SWITCH',
@@ -46,6 +52,36 @@ export type IntegrityClass =
 
 /** Internal gaze classification, relative to the calibrated baseline (spec §6). */
 export type GazeDirection = 'CENTER' | 'LEFT' | 'RIGHT' | 'UP' | 'DOWN' | 'UNKNOWN';
+
+/**
+ * Eyelid state derived from the MediaPipe blendshape (preferred) or the Eye
+ * Aspect Ratio fallback (spec Part I). A natural blink is BLINKING, never
+ * EYES_CLOSED, so blinking can never accumulate towards a warning.
+ */
+export type EyeState =
+  | 'EYES_OPEN'
+  | 'BLINKING'
+  | 'EYES_CLOSED'
+  | 'ONE_EYE_CLOSED'
+  | 'UNKNOWN';
+
+/**
+ * The deterministic tracking state machine (spec Part T). Computed inside the
+ * engine — never from setTimeout scattered through React components.
+ *
+ * CAMERA_LOST is an addition to the eight states the spec lists: a dead media
+ * track is not "uncertain tracking", it is the unambiguous absence of any feed.
+ */
+export type TrackingState =
+  | 'CALIBRATING'
+  | 'TRACKING_NORMAL'
+  | 'EYES_CLOSED'
+  | 'GAZE_AWAY'
+  | 'HEAD_AWAY'
+  | 'FACE_MISSING'
+  | 'MULTIPLE_FACES'
+  | 'CAMERA_LOST'
+  | 'TRACKING_UNCERTAIN';
 
 export interface IntegrityConfig {
   /** Sampling rate the caller is expected to drive this at (spec §24: 5–10 FPS). */
@@ -86,6 +122,23 @@ export interface IntegrityConfig {
   multipleFacesWarningMs: number;
   /** Warning budget; the backend owns the canonical count (spec §21/§29). */
   maxWarnings: number;
+  /**
+   * Eye openness (0..1, 1 = wide open) at or below which an eye is CLOSED
+   * (spec Part I). Independently configurable for each state so hysteresis
+   * prevents flapping right at the boundary.
+   */
+  eyeOpenThreshold: number;
+  /** Openness at or above which an eyelid is confidently re-open. */
+  eyeOpenReopenThreshold: number;
+  /**
+   * Longer than any natural blink (spec Part J: 100–500 ms, ignore < 1 s).
+   * A closure this short is a blink and produces no event at all.
+   */
+  eyesClosedIgnoreMs: number;
+  /** BOTH eyes continuously closed at or beyond this ⇒ one EYES_CLOSED_LONG (spec Part K). */
+  eyesClosedWarningMs: number;
+  /** Minimum gap before a NEW sustained closure can warn again (spec Part L). */
+  eyesClosedCooldownMs: number;
 }
 
 export const DEFAULT_INTEGRITY_CONFIG: IntegrityConfig = {
@@ -105,6 +158,13 @@ export const DEFAULT_INTEGRITY_CONFIG: IntegrityConfig = {
   multipleFacesIgnoreMs: 1500,
   multipleFacesWarningMs: 2000,
   maxWarnings: 5,
+  eyeOpenThreshold: 0.4,
+  eyeOpenReopenThreshold: 0.55,
+  // 1.2 s clears the longest natural blink (500 ms) with margin, so a blink can
+  // never even start accumulating towards the 3 s rule.
+  eyesClosedIgnoreMs: 1200,
+  eyesClosedWarningMs: 3000,
+  eyesClosedCooldownMs: 10000,
 };
 
 /** One MediaPipe observation for one sampled frame. */
@@ -124,6 +184,14 @@ export interface FaceObservation {
    */
   eyeOffsetX?: number | null;
   eyeOffsetY?: number | null;
+  /**
+   * Per-eye openness from MediaPipe (1 = wide open, 0 = fully closed) — the
+   * `eyeBlinkLeft`/`eyeBlinkRight` blendshape when the model provides it, else
+   * the Eye Aspect Ratio scaled against the calibrated open-eye value.
+   * Null/absent means UNKNOWN: the engine then refuses to judge eyelid state.
+   */
+  leftEyeOpen?: number | null;
+  rightEyeOpen?: number | null;
   /** Camera may be gone entirely. */
   mediaTrackEnded?: boolean;
 }
@@ -142,6 +210,11 @@ export interface CalibrationBaseline {
   eyeOffsetX: number;
   eyeOffsetY: number;
   sampleCount: number;
+}
+
+/** Round to 3 decimals — metadata is stored, so it stays small and readable. */
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 export function median(values: number[]): number {
@@ -183,6 +256,9 @@ export interface EmittedIntegrityEvent {
     relativeYaw?: number;
     relativePitch?: number;
     confidence?: number;
+    /** Per-eye openness at emission, so the report can show what was observed. */
+    leftEyeOpen?: number;
+    rightEyeOpen?: number;
   };
 }
 
@@ -193,6 +269,10 @@ export interface IntegrityDecision {
   event: EmittedIntegrityEvent | null;
   /** Incident currently in progress, if any. */
   activeIncidentType: IntegrityEventType | null;
+  /** Current deterministic camera-monitoring state (spec Part T). */
+  trackingState: TrackingState;
+  /** Current eyelid state, for the overlay status pill. */
+  eyeState: EyeState;
   /** Subtle indicator copy for the candidate, e.g. "Face visibility lost" (spec §10). */
   indicator: string | null;
   /** Why nothing was emitted. Useful for the debug overlay and for tests. */
@@ -212,6 +292,8 @@ export interface IntegrityDecision {
     awayMs: number;
     faceMissingMs: number;
     multipleFacesMs: number;
+    /** How long BOTH eyes have been continuously closed in this incident. */
+    eyesClosedMs: number;
     incidentsEmitted: number;
   };
 }
@@ -367,7 +449,19 @@ export class IntegrityRulesEngine {
       const { event, durationMs } = this.advanceIncident(
         'MEDIA_TRACK_ENDED', at, 'CRITICAL', 0, 0, {},
       );
-      return this.decision('SESSION_REVIEW_REQUIRED', event, 'MEDIA_TRACK_ENDED', null, durationMs, 0, 0, 'UNKNOWN', null, null, null, null);
+      return this.decision({
+        classification: 'SESSION_REVIEW_REQUIRED',
+        event,
+        activeIncidentType: 'MEDIA_TRACK_ENDED',
+        indicator: 'Camera feed stopped',
+        gaze: 'UNKNOWN',
+        relYaw: null,
+        relPitch: null,
+        smoothedYaw: null,
+        smoothedPitch: null,
+        trackingState: 'CAMERA_LOST',
+        faceMissingMs: durationMs,
+      });
     }
 
     const multipleFaces = obs.facePresent && obs.faceCount > 1;
@@ -415,6 +509,63 @@ export class IntegrityRulesEngine {
       this.closeIncident('FACE_MISSING');
     }
 
+    // ── Eye closure (spec Parts I–M) ─────────────────────────────────────────
+    // Driven by per-eye openness, which the caller derives from the MediaPipe
+    // blink blendshape or, failing that, the Eye Aspect Ratio. The whole rule
+    // lives HERE, in the pure engine: one closure = at most one event, and the
+    // 3-second threshold, blink immunity and cooldown are all configuration.
+    const leftOpen = Number.isFinite(obs.leftEyeOpen) ? Number(obs.leftEyeOpen) : null;
+    const rightOpen = Number.isFinite(obs.rightEyeOpen) ? Number(obs.rightEyeOpen) : null;
+    let eyeState: EyeState = 'UNKNOWN';
+    let eyesClosedMs = 0;
+
+    if (obs.facePresent && !multipleFaces && leftOpen !== null && rightOpen !== null) {
+      const leftClosed = leftOpen <= cfg.eyeOpenThreshold;
+      const rightClosed = rightOpen <= cfg.eyeOpenThreshold;
+      const bothReopened = leftOpen >= cfg.eyeOpenReopenThreshold && rightOpen >= cfg.eyeOpenReopenThreshold;
+
+      if (leftClosed && rightClosed) {
+        const r = this.advanceIncident(
+          'EYES_CLOSED_LONG', at, 'WARNING', cfg.eyesClosedWarningMs, cfg.eyesClosedCooldownMs,
+          { leftEyeOpen: round3(leftOpen), rightEyeOpen: round3(rightOpen) },
+        );
+        eyesClosedMs = r.durationMs;
+        activeIncidentType = activeIncidentType ?? 'EYES_CLOSED_LONG';
+        if (r.durationMs < cfg.eyesClosedIgnoreMs) {
+          // A natural blink (spec Part J). Say nothing; it cannot accumulate.
+          eyeState = 'BLINKING';
+          suppressed = suppressed ?? 'WITHIN_IGNORE_WINDOW';
+        } else {
+          eyeState = 'EYES_CLOSED';
+          if (r.event) {
+            event = r.event;
+            classification = 'WARNING';
+          } else if (classification !== 'WARNING') {
+            // Between the blink window and the 3-second mark: shown as an
+            // observation, NOT counted (spec Part AC).
+            classification = 'OBSERVATION';
+            indicator = indicator ?? 'Eyes appear closed';
+            suppressed = suppressed ?? r.suppressed ?? 'BELOW_DURATION';
+          }
+        }
+      } else if (leftClosed || rightClosed) {
+        // ONE eye closed is a wink, a face angle or a tracking artefact — it is
+        // classified as an OBSERVATION and never issues the closure warning
+        // (spec Part M). The primary 3-second rule requires BOTH eyes.
+        this.closeIncident('EYES_CLOSED_LONG');
+        eyeState = 'ONE_EYE_CLOSED';
+        indicator = indicator ?? 'One eye not clearly visible';
+        if (classification === 'NORMAL') classification = 'OBSERVATION';
+      } else {
+        this.closeIncident('EYES_CLOSED_LONG');
+        eyeState = bothReopened ? 'EYES_OPEN' : 'UNKNOWN';
+      }
+    } else {
+      // No eyelid signal (blendshapes absent AND landmarks unusable) or no face:
+      // UNKNOWN, and the closure incident ends rather than staying armed.
+      this.closeIncident('EYES_CLOSED_LONG');
+    }
+
     // ── Gaze / head away (spec §6–§9, §22) ───────────────────────────────────
     let gaze: GazeDirection = 'UNKNOWN';
     let relYaw: number | null = null;
@@ -423,7 +574,16 @@ export class IntegrityRulesEngine {
     let smoothedPitch: number | null = null;
     let awayMs = 0;
 
-    if (obs.facePresent && !multipleFaces) {
+    // Eyes genuinely shut make gaze direction meaningless: with the eyelids
+    // closed the iris reading is not a statement about where the candidate is
+    // looking, so a closure must never also produce a GAZE_AWAY/HEAD_AWAY.
+    const eyesShut = eyeState === 'EYES_CLOSED' || eyeState === 'BLINKING';
+
+    if (eyesShut) {
+      this.closeIncident('GAZE_AWAY');
+      this.closeIncident('HEAD_AWAY');
+      if (activeIncidentType === null) activeIncidentType = 'EYES_CLOSED_LONG';
+    } else if (obs.facePresent && !multipleFaces) {
       const confident = Number.isFinite(obs.confidence) && obs.confidence >= cfg.minConfidence;
       const hasPose = Number.isFinite(obs.yawDeg) && Number.isFinite(obs.pitchDeg);
       const hasEyes = Number.isFinite(obs.eyeOffsetX);
@@ -503,10 +663,26 @@ export class IntegrityRulesEngine {
       classification = suppressed === 'COOLDOWN' ? 'NORMAL' : classification;
     }
 
+    // ── Deterministic tracking state (spec Part T) ───────────────────────────
+    // Priority order matters and is fixed here, once: the most severe and most
+    // unambiguous condition wins, and "we do not know" always outranks a guess.
+    const trackingState: TrackingState = (() => {
+      if (multipleFaces) return 'MULTIPLE_FACES';
+      if (faceMissing) return 'FACE_MISSING';
+      if (eyeState === 'EYES_CLOSED') return 'EYES_CLOSED';
+      if (activeIncidentType === 'HEAD_AWAY') return 'HEAD_AWAY';
+      if (activeIncidentType === 'GAZE_AWAY') return 'GAZE_AWAY';
+      if (!this.baseline) return 'CALIBRATING';
+      if (suppressed === 'LOW_CONFIDENCE' || eyeState === 'UNKNOWN' || gaze === 'UNKNOWN') return 'TRACKING_UNCERTAIN';
+      return 'TRACKING_NORMAL';
+    })();
+
     return {
       classification,
       event,
       activeIncidentType,
+      trackingState,
+      eyeState,
       indicator,
       suppressed,
       debug: {
@@ -518,40 +694,47 @@ export class IntegrityRulesEngine {
         awayMs,
         faceMissingMs,
         multipleFacesMs,
+        eyesClosedMs,
         incidentsEmitted: this.emittedCount,
       },
     };
   }
 
-  private decision(
-    classification: IntegrityClass,
-    event: EmittedIntegrityEvent | null,
-    activeIncidentType: IntegrityEventType | null,
-    indicator: string | null,
-    awayMs: number,
-    faceMissingMs: number,
-    multipleFacesMs: number,
-    gaze: GazeDirection,
-    relYaw: number | null,
-    relPitch: number | null,
-    smoothYaw: number | null,
-    smoothPitch: number | null,
-  ): IntegrityDecision {
+  private decision(input: {
+    classification: IntegrityClass;
+    event: EmittedIntegrityEvent | null;
+    activeIncidentType: IntegrityEventType | null;
+    indicator: string | null;
+    gaze: GazeDirection;
+    relYaw: number | null;
+    relPitch: number | null;
+    smoothedYaw: number | null;
+    smoothedPitch: number | null;
+    trackingState: TrackingState;
+    eyeState?: EyeState;
+    awayMs?: number;
+    faceMissingMs?: number;
+    multipleFacesMs?: number;
+    eyesClosedMs?: number;
+  }): IntegrityDecision {
     return {
-      classification,
-      event,
-      activeIncidentType,
-      indicator,
+      classification: input.classification,
+      event: input.event,
+      activeIncidentType: input.activeIncidentType,
+      trackingState: input.trackingState,
+      eyeState: input.eyeState ?? 'UNKNOWN',
+      indicator: input.indicator,
       suppressed: null,
       debug: {
-        gaze,
-        relativeYaw: relYaw,
-        relativePitch: relPitch,
-        smoothedYaw: smoothYaw,
-        smoothedPitch: smoothPitch,
-        awayMs,
-        faceMissingMs,
-        multipleFacesMs,
+        gaze: input.gaze,
+        relativeYaw: input.relYaw,
+        relativePitch: input.relPitch,
+        smoothedYaw: input.smoothedYaw,
+        smoothedPitch: input.smoothedPitch,
+        awayMs: input.awayMs ?? 0,
+        faceMissingMs: input.faceMissingMs ?? 0,
+        multipleFacesMs: input.multipleFacesMs ?? 0,
+        eyesClosedMs: input.eyesClosedMs ?? 0,
         incidentsEmitted: this.emittedCount,
       },
     };
@@ -572,6 +755,31 @@ export function classifySession(warningCount: number, maxWarnings: number = DEFA
   if (count >= 2) return 'REPEATED_WARNING';
   if (count === 1) return 'WARNING';
   return 'NORMAL';
+}
+
+/**
+ * Map an engine event type onto the API/backend event type.
+ *
+ * The engine names the observable condition (`FACE_MISSING` — "no face in the
+ * frame"), while the persisted schema names the reported event
+ * (`FACE_NOT_VISIBLE`). Keeping the translation in ONE exported function means
+ * neither vocabulary leaks string literals into a component.
+ */
+const ENGINE_TO_API_EVENT: Record<IntegrityEventType, ApiIntegrityEventType> = {
+  FACE_MISSING: 'FACE_NOT_VISIBLE',
+  MULTIPLE_FACES: 'MULTIPLE_FACES',
+  GAZE_AWAY: 'GAZE_AWAY',
+  HEAD_AWAY: 'HEAD_AWAY',
+  EYES_CLOSED_LONG: 'EYES_CLOSED_LONG',
+  CAMERA_DISABLED: 'CAMERA_DISABLED',
+  MEDIA_TRACK_ENDED: 'MEDIA_TRACK_ENDED',
+  TAB_SWITCH: 'TAB_SWITCH',
+  WINDOW_BLUR: 'WINDOW_BLUR',
+  FULLSCREEN_EXIT: 'FULLSCREEN_EXIT',
+};
+
+export function toIntegrityEventType(type: IntegrityEventType): ApiIntegrityEventType {
+  return ENGINE_TO_API_EVENT[type];
 }
 
 /** Whether a severity consumes one of the limited warnings (spec §21). */
@@ -599,6 +807,13 @@ export const INTEGRITY_EVENT_COPY: Record<IntegrityEventType, { title: string; m
   HEAD_AWAY: {
     title: 'Interview Integrity Warning',
     message: 'You appear to have been looking away from the interview screen for an extended period. Please keep your attention on the interview.',
+  },
+  // Wording is deliberate (spec Part K): "appear to have remained closed".
+  // Long eye closure is an observably recorded condition, not proof of
+  // anything, so the copy never accuses the candidate.
+  EYES_CLOSED_LONG: {
+    title: 'Attention Monitoring Warning',
+    message: 'Your eyes appear to have remained closed for more than 3 seconds. Please keep your attention on the interview screen.',
   },
   CAMERA_DISABLED: {
     title: 'Camera Required',

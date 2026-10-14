@@ -85,3 +85,15 @@ html { color-scheme: light; scroll-padding-top: var(--app-header-height); }
     @apply inline-block w-2 h-2 rounded-full;
   }
 }
+
+/* Settings → Appearance: reduced motion (spec Part AN).
+   Applied by a data attribute on <html> so the preference has a real effect
+   rather than being a stored value nothing reads. */
+[data-reduced-motion="true"] *,
+[data-reduced-motion="true"] *::before,
+[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}

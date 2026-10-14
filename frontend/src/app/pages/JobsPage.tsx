@@ -18,6 +18,7 @@ import {
   type ExperienceLevel,
 } from '../services/jobs';
 import { fetchRoleGoals } from '../services/roleProgress';
+import { useAuthStore } from '../stores/authStore';
 import toast from 'react-hot-toast';
 
 /**
@@ -181,6 +182,18 @@ export function JobsPage() {
 
   const inputClass = 'rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
 
+  const isAdmin = (useAuthStore.getState().user?.auth as { role?: string } | undefined)?.role === 'admin';
+  // India scope is selected but NO configured provider can even return
+  // country-specific postings. That is an infrastructure fact, not an empty
+  // search result, and the two must never be presented as the same thing
+  // (spec Part BB).
+  const indiaSourceMissing = country === 'in' && (data?.locationScope.countryAwareProviders?.length ?? 0) === 0;
+  const emptyHeadline = indiaSourceMissing
+    ? 'Live India job data is temporarily unavailable'
+    : data?.locationScope.country
+      ? 'No India postings matched these filters'
+      : 'No jobs matched these filters';
+
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5 px-4 py-8 sm:px-6 lg:px-8">
       <header>
@@ -316,6 +329,46 @@ export function JobsPage() {
             </select>
           </label>
         </div>
+
+        {/*
+          Quick chips (spec Part BC). Each one only sets filters that already
+          exist, so a chip is exactly a shortcut and never a hidden query mode.
+        */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Quick filters</span>
+          {([
+            { label: 'Internships', active: jobType === 'INTERNSHIP', apply: () => { setJobType('INTERNSHIP'); setExperience(''); setPage(1); } },
+            { label: 'Fresher', active: experience === 'ENTRY', apply: () => { setExperience('ENTRY'); setJobType(''); setPage(1); } },
+            { label: 'Remote', active: workMode === 'REMOTE', apply: () => { setWorkMode('REMOTE'); setPage(1); } },
+            { label: 'Posted today', active: postedWithinDays === '1', apply: () => { setPostedWithinDays('1'); setPage(1); } },
+            { label: 'Posted this week', active: postedWithinDays === '7', apply: () => { setPostedWithinDays('7'); setPage(1); } },
+          ] as const).map(chip => (
+            <button
+              key={chip.label}
+              type="button"
+              aria-pressed={chip.active}
+              onClick={() => {
+                if (chip.active) {
+                  // Toggling the chip off clears only the filter it owns.
+                  if (chip.label === 'Internships') setJobType('');
+                  if (chip.label === 'Fresher') setExperience('');
+                  if (chip.label === 'Remote') setWorkMode('');
+                  if (chip.label.startsWith('Posted')) setPostedWithinDays('');
+                  setPage(1);
+                } else {
+                  chip.apply();
+                }
+              }}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                chip.active
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:border-primary/40'
+              }`}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
       </section>
 
       {error && (
@@ -351,19 +404,26 @@ export function JobsPage() {
       ) : data && data.jobs.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center">
           <Search className="mx-auto h-8 w-8 text-muted-foreground" />
-          <p className="mt-3 font-medium text-foreground">
-            {data.locationScope.country
-              ? 'No India postings matched these filters'
-              : 'No jobs matched these filters'}
-          </p>
+          <p className="mt-3 font-medium text-foreground">{emptyHeadline}</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {/* The server's reason explains WHY (e.g. no India-capable provider
                 is configured) rather than leaving a bare empty list. */}
-            {data.locationScope.emptyReason
-              ?? (data.noProviderConfigured
-                ? 'Configure a job provider to start receiving current postings.'
-                : 'Try widening your filters or clearing the search term.')}
+            {indiaSourceMissing
+              ? 'No configured source currently returns India-specific postings. Your filters are unchanged — this is a data-availability issue, not an empty search. Showing all locations will include global remote postings.'
+              : data.locationScope.emptyReason
+                ?? (data.noProviderConfigured
+                  ? 'Configure a job provider to start receiving current postings.'
+                  : 'Try widening your filters or clearing the search term.')}
           </p>
+          {/* Configuration guidance is for ADMIN eyes only: a candidate must never
+              see environment variable names or internal setup state. */}
+          {isAdmin && indiaSourceMissing && (
+            <p className="mx-auto mt-3 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Admin: configure ADZUNA_APP_ID, ADZUNA_APP_KEY and ADZUNA_COUNTRY=in in the backend
+              environment, then run Refresh Now from the admin dashboard. RemoteOK is a global remote
+              board and cannot supply India-specific postings.
+            </p>
+          )}
           {data.locationScope.country && (
             <Button
               variant="outline"

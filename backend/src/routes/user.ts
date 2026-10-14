@@ -1,6 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import multer from 'multer';
+import bcrypt from 'bcryptjs';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User';
 import Interview from '../models/Interview';
@@ -361,11 +362,52 @@ router.get('/stats', asyncHandler(async (req, res) => {
 }));
 
 // Update user preferences
+/**
+ * Copy only the keys we actually persist, from a nested preferences group.
+ *
+ * Assigning `user.preferences = { ...user.preferences, ...body }` would let a
+ * client overwrite whole sub-documents (or inject unknown paths); copying per
+ * key keeps every write inside the shape the schema declares, so a Settings tab
+ * can save ONLY its own group without clobbering the others.
+ */
+function applyGroup<T extends Record<string, unknown>>(
+  target: T,
+  incoming: unknown,
+  allowedKeys: readonly (keyof T & string)[],
+): void {
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return;
+  const source = incoming as Record<string, unknown>;
+  for (const key of allowedKeys) {
+    if (source[key] !== undefined) (target as Record<string, unknown>)[key] = source[key];
+  }
+}
+
+// Update user preferences. Each section of the Settings page saves only its own
+// group; a missing group is left untouched rather than reset to defaults.
 router.put('/preferences', [
   body('role').optional().trim().isLength({ min: 1 }),
   body('experienceLevel').optional().isIn(['entry', 'mid', 'senior', 'executive']),
   body('industries').optional().isArray(),
   body('interviewTypes').optional().isArray(),
+  body('timezone').optional().trim().isLength({ min: 1, max: 64 }),
+  body('interview').optional().isObject(),
+  body('interview.defaultDifficulty').optional().isIn(['easy', 'medium', 'hard']),
+  body('interview.captions').optional().isBoolean(),
+  body('interview.autoPlayVoice').optional().isBoolean(),
+  body('interview.voiceOutput').optional().isBoolean(),
+  body('notifications').optional().isObject(),
+  body('appearance').optional().isObject(),
+  body('appearance.theme').optional().isIn(['system', 'light', 'dark']),
+  body('appearance.reducedMotion').optional().isBoolean(),
+  body('appearance.compactNav').optional().isBoolean(),
+  body('jobs').optional().isObject(),
+  body('jobs.defaultCountry').optional().trim().isLength({ max: 8 }),
+  body('jobs.remoteOnly').optional().isBoolean(),
+  body('jobs.internshipPreferred').optional().isBoolean(),
+  body('jobs.fresherFriendly').optional().isBoolean(),
+  body('jobs.salaryMin').optional({ nullable: true }).isInt({ min: 0, max: 100000000 }),
+  body('jobs.datePostedWindow').optional({ nullable: true }).isInt({ min: 1, max: 365 }),
+  body('jobs.providers').optional().isArray({ max: 20 }),
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -376,8 +418,8 @@ router.put('/preferences', [
     });
   }
 
-  const preferences = req.body;
-  
+  const preferences = req.body ?? {};
+
   const user = await User.findById(req.user!.userId);
   if (!user) {
     return res.status(404).json({
@@ -386,13 +428,81 @@ router.put('/preferences', [
     });
   }
 
-  user.preferences = { ...user.preferences, ...preferences };
+  // Scalars / arrays live on the root of `preferences`.
+  applyGroup(user.preferences as unknown as Record<string, unknown>, preferences, [
+    'role', 'experienceLevel', 'industries', 'interviewTypes', 'timezone',
+  ]);
+  // Nested groups are merged key-by-key, never replaced wholesale.
+  applyGroup(user.preferences.interview as unknown as Record<string, unknown>, preferences.interview, [
+    'defaultType', 'defaultDifficulty', 'speechLanguage', 'captions', 'autoPlayVoice', 'voiceOutput',
+  ]);
+  applyGroup(user.preferences.notifications as unknown as Record<string, unknown>, preferences.notifications, [
+    'newMatchingJob', 'jobAlert', 'interviewReminder', 'learningRecommendation', 'applicationReminder',
+  ]);
+  applyGroup(user.preferences.appearance as unknown as Record<string, unknown>, preferences.appearance, [
+    'theme', 'reducedMotion', 'compactNav',
+  ]);
+  applyGroup(user.preferences.jobs as unknown as Record<string, unknown>, preferences.jobs, [
+    'defaultCountry', 'remoteOnly', 'internshipPreferred', 'fresherFriendly', 'salaryMin', 'datePostedWindow', 'providers',
+  ]);
+
   await user.save();
 
   res.json({
     success: true,
     data: user.preferences,
     message: 'Preferences updated successfully',
+  });
+}));
+
+/**
+ * POST /api/user/change-password
+ *
+ * A real, self-service password change — not a rendered button with nothing
+ * behind it. The current password is re-verified before the change, and
+ * `auth.tokenVersion` is incremented so every EXISTING session (this one
+ * included) is invalidated: a password change that leaves a stolen token alive
+ * would not be a security control. The response says so explicitly so the UI can
+ * force a fresh sign-in rather than leaving the candidate on a dead session.
+ */
+router.post('/change-password', [
+  body('currentPassword').isString().isLength({ min: 1, max: 200 }),
+  body('newPassword').isString().isLength({ min: 8, max: 200 })
+    .matches(/[A-Za-z]/).withMessage('Password must contain at least one letter')
+    .matches(/[0-9]/).withMessage('Password must contain at least one number'),
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, error: errors.array()[0].msg, details: errors.array() });
+  }
+
+  const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ success: false, error: 'The new password must be different from the current one.' });
+  }
+
+  // `password` is `select: false`, so it must be requested explicitly.
+  const user = await User.findById(req.user!.userId).select('+password');
+  if (!user) {
+    return res.status(404).json({ success: false, error: 'User not found' });
+  }
+
+  const matches = await user.comparePassword(currentPassword);
+  if (!matches) {
+    // Deliberately vague: never confirm which part of the credential was wrong.
+    return res.status(401).json({ success: false, error: 'The current password is incorrect.' });
+  }
+
+  user.password = newPassword;              // hashed by the pre-save hook
+  user.auth.tokenVersion = (user.auth.tokenVersion ?? 0) + 1;
+  await user.save();
+
+  logger.info(`Password changed for user ${user._id}`);
+
+  res.json({
+    success: true,
+    data: { requiresReauth: true },
+    message: 'Password changed. Please sign in again — all previous sessions have been signed out.',
   });
 }));
 

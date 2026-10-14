@@ -1,102 +1,11 @@
 services:
-  # Frontend (React + Vite)
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-    ports:
-      - "5174:80"
-    depends_on:
-      - backend
-    networks:
-      - smart-interview-network
-
-  # Backend (Node.js + Express)
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "5001:5001"
-    environment:
-      - NODE_ENV=development
-      - PORT=5001
-      - MONGODB_URI=${MONGODB_URI}
-      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
-      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
-      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
-      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
-      - REDIS_URL=redis://redis:6379
-      - PYTHON_AI_SERVER_URL=http://ai-server:8000
-      - PYTHON_AI_SERVER_API_KEY=${PYTHON_AI_SERVER_API_KEY}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
-      - ALLOW_UNSAFE_LOCAL_CODE_EXECUTION=${ALLOW_UNSAFE_LOCAL_CODE_EXECUTION:-true}
-      # Optional JobSpy source (spec §66, §67). Inside Docker the backend must
-      # reach the service by NAME, never localhost. Disabled by default.
-      - JOBSPY_ENABLED=${JOBSPY_ENABLED:-false}
-      - JOBSPY_SERVICE_URL=http://job-provider-service:8010
-      - JOBSPY_SOURCES=${JOBSPY_SOURCES:-}
-      - JOBSPY_RESULTS_PER_SOURCE=${JOBSPY_RESULTS_PER_SOURCE:-25}
-      - JOBSPY_TIMEOUT_MS=${JOBSPY_TIMEOUT_MS:-30000}
-      # Adzuna market. Previously hardcoded to the UK endpoint for every user.
-      - ADZUNA_COUNTRY=${ADZUNA_COUNTRY:-in}
-    # Persist locally-stored interview recordings and logs across container restarts
-    volumes:
-      - backend_uploads:/app/uploads
-      - backend_logs:/app/logs
-    depends_on:
-      - mongodb
-      - redis
-      - ai-server
-      - job-provider-service
-    networks:
-      - smart-interview-network
-
-  # Optional JobSpy-backed provider service (spec §6–§9, §66).
-  # Isolated from ai-server so JobSpy's scraping dependencies can never affect
-  # MediaPipe / ML. Disabled by default: it starts, reports DISABLED on
-  # /health, and queries nothing until JOBSPY_SOURCES is set.
-  job-provider-service:
-    build:
-      context: ./job-provider-service
-      dockerfile: Dockerfile
-    ports:
-      - "8010:8010"
-    environment:
-      - JOBSPY_ENABLED=${JOBSPY_ENABLED:-false}
-      - JOBSPY_SOURCES=${JOBSPY_SOURCES:-}
-      - JOBSPY_TIMEOUT_SECONDS=${JOBSPY_TIMEOUT_SECONDS:-30}
-    networks:
-      - smart-interview-network
-
-  # AI/ML Server (Python + FastAPI)
-  ai-server:
-    build:
-      context: ./ai-server
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      - ENVIRONMENT=development
-      - PORT=8000
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
-      - PYTHON_AI_SERVER_API_KEY=${PYTHON_AI_SERVER_API_KEY}
-      - REDIS_URL=redis://redis:6379
-    volumes:
-      - ai-models:/app/models
-    depends_on:
-      - redis
-    networks:
-      - smart-interview-network
-
+  # ─────────────────────────────────────────────────────────────────
   # MongoDB Database
+  # ─────────────────────────────────────────────────────────────────
   mongodb:
     image: mongo:7.0
+    container_name: aether-mongodb
+    restart: unless-stopped
     ports:
       - "27017:27017"
     environment:
@@ -107,22 +16,170 @@ services:
       - mongodb-data:/data/db
       - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     networks:
-      - smart-interview-network
+      - aether-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
+  # ─────────────────────────────────────────────────────────────────
   # Redis Cache
+  # ─────────────────────────────────────────────────────────────────
   redis:
     image: redis:7.2-alpine
+    container_name: aether-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data
     networks:
-      - smart-interview-network
+      - aether-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  # Nginx Reverse Proxy (Production)
+  # ─────────────────────────────────────────────────────────────────
+  # AI / ML Server  (Python + FastAPI)
+  # ─────────────────────────────────────────────────────────────────
+  ai-server:
+    build:
+      context: ./ai-server
+      dockerfile: Dockerfile
+    container_name: aether-ai-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - PORT=8000
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - PYTHON_AI_SERVER_API_KEY=${PYTHON_AI_SERVER_API_KEY}
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ai-models:/app/models
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - aether-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  # ─────────────────────────────────────────────────────────────────
+  # Optional JobSpy Provider Service
+  # ─────────────────────────────────────────────────────────────────
+  job-provider-service:
+    build:
+      context: ./job-provider-service
+      dockerfile: Dockerfile
+    container_name: aether-job-provider
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    environment:
+      - JOBSPY_ENABLED=${JOBSPY_ENABLED:-false}
+      - JOBSPY_SOURCES=${JOBSPY_SOURCES:-}
+      - JOBSPY_TIMEOUT_SECONDS=${JOBSPY_TIMEOUT_SECONDS:-30}
+    networks:
+      - aether-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─────────────────────────────────────────────────────────────────
+  # Backend  (Node.js + Express + TypeScript)
+  # ─────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aether-backend
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:password123@mongodb:27017/interview-platform?authSource=admin}
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      - REDIS_URL=redis://redis:6379
+      - PYTHON_AI_SERVER_URL=http://ai-server:8000
+      - PYTHON_AI_SERVER_API_KEY=${PYTHON_AI_SERVER_API_KEY}
+      - ALLOW_UNSAFE_LOCAL_CODE_EXECUTION=${ALLOW_UNSAFE_LOCAL_CODE_EXECUTION:-false}
+      - JOBSPY_ENABLED=${JOBSPY_ENABLED:-false}
+      - JOBSPY_SERVICE_URL=http://job-provider-service:8010
+      - JOBSPY_SOURCES=${JOBSPY_SOURCES:-}
+      - JOBSPY_RESULTS_PER_SOURCE=${JOBSPY_RESULTS_PER_SOURCE:-25}
+      - JOBSPY_TIMEOUT_MS=${JOBSPY_TIMEOUT_MS:-30000}
+      - ADZUNA_COUNTRY=${ADZUNA_COUNTRY:-in}
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_logs:/app/logs
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-server:
+        condition: service_healthy
+      job-provider-service:
+        condition: service_healthy
+    networks:
+      - aether-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────
+  # Frontend  (React + Vite → served via Nginx)
+  # ─────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    container_name: aether-frontend
+    restart: unless-stopped
+    ports:
+      - "5174:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - aether-network
+
+  # ─────────────────────────────────────────────────────────────────
+  # Nginx Reverse Proxy  — single entry-point for everything
+  # ─────────────────────────────────────────────────────────────────
   nginx:
-    image: nginx:alpine
+    image: nginx:1.25-alpine
+    container_name: aether-nginx
+    restart: unless-stopped
     ports:
       - "80:80"
     volumes:
@@ -132,10 +189,11 @@ services:
       - backend
       - ai-server
     networks:
-      - smart-interview-network
-    profiles:
-      - production
+      - aether-network
 
+# ─────────────────────────────────────────────────────────────────
+# Named Volumes
+# ─────────────────────────────────────────────────────────────────
 volumes:
   mongodb-data:
   redis-data:
@@ -143,6 +201,9 @@ volumes:
   backend_uploads:
   backend_logs:
 
+# ─────────────────────────────────────────────────────────────────
+# Network
+# ─────────────────────────────────────────────────────────────────
 networks:
-  smart-interview-network:
+  aether-network:
     driver: bridge

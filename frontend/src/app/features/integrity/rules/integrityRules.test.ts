@@ -375,3 +375,112 @@ test('reset clears in-progress incidents', () => {
   const { events } = run(e, range(3000, 3200, at => ({ ...center(at), yawDeg: 45 })));
   assert.equal(events.length, 0, 'after a reset the incident timer starts over');
 });
+
+// ── Eye closure (spec Parts I-M) ────────────────────────────────────────────
+
+/** Both eyes wide open (blendshape-style openness, 1 = wide open). */
+const eyesOpen = (at: number): FaceObservation => ({ ...center(at), leftEyeOpen: 0.95, rightEyeOpen: 0.95 });
+
+/** Both eyes confidently shut. */
+const eyesShut = (at: number): FaceObservation => ({ ...center(at), leftEyeOpen: 0.02, rightEyeOpen: 0.02 });
+
+test('a natural blink never produces an event (spec Part J)', () => {
+  const sequence: FaceObservation[] = [];
+  // Three blinks of 200 ms each, well inside the 100-500 ms human range.
+  for (const start of [0, 1000, 2000]) {
+    sequence.push(...range(start, start + 700, eyesOpen));
+    sequence.push(...range(start + 800, start + 1000, eyesShut));
+  }
+  // End on clearly open eyes: the final blink must have closed and released.
+  sequence.push(...range(3100, 3500, eyesOpen));
+
+  const { events, last } = run(engine(), sequence);
+  assert.equal(events.length, 0, 'blinking is human and must never be counted');
+  assert.equal(last.eyeState, 'EYES_OPEN', 'after a blink the eyes are reported open again');
+  assert.equal(last.activeIncidentType, null, 'a blink must not leave an incident open');
+});
+
+test('closing both eyes for one second is ignored entirely (spec Part J)', () => {
+  const { events } = run(engine(), [
+    ...range(0, 400, eyesOpen),
+    ...range(500, 1500, eyesShut),
+    ...range(1600, 2000, eyesOpen),
+  ]);
+  assert.equal(events.length, 0, 'a short closure must not be suspicious');
+});
+
+test('both eyes closed for 3 continuous seconds emits exactly ONE event (spec Part K)', () => {
+  const sequence = [...range(0, 500, eyesOpen), ...range(600, 4000, eyesShut)];
+  const { events, last } = run(engine(), sequence);
+  assert.equal(events.length, 1, 'one continuous closure is one incident');
+  assert.equal(events[0].type, 'EYES_CLOSED_LONG');
+  assert.equal(events[0].severity, 'WARNING');
+  assert.ok(events[0].durationMs >= 3000, `the incident must record its real duration, got ${events[0].durationMs}`);
+  assert.equal(events[0].startedAt, 600, 'the incident starts when the eyes closed, not when the warning fired');
+  assert.equal(last.trackingState, 'EYES_CLOSED');
+  assert.ok(last.debug.eyesClosedMs >= 3000);
+});
+
+test('staying closed for another 6 seconds does NOT re-warn (spec Parts L/AC)', () => {
+  const { events } = run(engine(), [...range(0, 500, eyesOpen), ...range(600, 10_000, eyesShut)]);
+  assert.equal(events.length, 1, '3s + 4s + 5s + 6s must be ONE warning, not four');
+});
+
+test('a closure between the blink window and 3 seconds is an observation, not a warning', () => {
+  const sequence = [...range(0, 400, eyesOpen), ...range(500, 2000, eyesShut)];
+  const { events, last } = run(engine(), sequence);
+  assert.equal(events.length, 0, 'below the 3s threshold nothing is counted');
+  assert.equal(last.classification, 'OBSERVATION');
+  assert.equal(last.activeIncidentType, 'EYES_CLOSED_LONG');
+});
+
+test('reopening ends the incident and a later closure after the cooldown warns again (spec Part L)', () => {
+  const e = engine();
+  const first = run(e, [...range(0, 4000, eyesShut), ...range(4100, 4200, eyesOpen)]);
+  assert.equal(first.events.length, 1, 'first sustained closure warns once');
+
+  // Re-closing inside the 10 s cooldown must NOT create a second warning.
+  const duringCooldown = run(e, [...range(5000, 9500, eyesShut), ...range(9600, 9700, eyesOpen)]);
+  assert.equal(duringCooldown.events.length, 0, 'a repeat inside the cooldown is suppressed');
+
+  // Past the cooldown the next sustained closure is a genuinely new incident.
+  const afterCooldown = run(e, [...range(14_000, 18_000, eyesShut)]);
+  assert.equal(afterCooldown.events.length, 1, 'a new closure after the cooldown warns again');
+  assert.equal(afterCooldown.events[0].type, 'EYES_CLOSED_LONG');
+});
+
+test('one eye closed is an observation and never the 3-second warning (spec Part M)', () => {
+  const oneEye = (at: number): FaceObservation => ({ ...center(at), leftEyeOpen: 0.95, rightEyeOpen: 0.05 });
+  const { events, last } = run(engine(), [...range(0, 400, eyesOpen), ...range(500, 6000, oneEye)]);
+  assert.equal(events.length, 0, 'a wink, a head angle or a tracking gap must not warn');
+  assert.equal(last.classification, 'OBSERVATION');
+  assert.equal(last.eyeState, 'ONE_EYE_CLOSED');
+  assert.equal(last.trackingState, 'TRACKING_NORMAL', 'a one-sided closure is not "eyes closed"');
+});
+
+test('without any eyelid signal the state is UNKNOWN and nothing is emitted (spec Part R)', () => {
+  const { events, last } = run(engine(), range(0, 5000, center));
+  assert.equal(events.length, 0, 'absent eye landmarks mean "we do not know", not "eyes closed"');
+  assert.equal(last.eyeState, 'UNKNOWN');
+  assert.equal(last.trackingState, 'TRACKING_UNCERTAIN');
+});
+
+test('closed eyes suppress gaze/head warnings instead of double-counting (spec Part N)', () => {
+  const shutWithHeadTurn = (at: number): FaceObservation => ({ ...eyesShut(at), yawDeg: 45 });
+  const { events } = run(engine(), [...range(0, 9000, shutWithHeadTurn)]);
+  assert.equal(events.length, 1, 'only the closure is counted, never also a gaze/head event');
+  assert.equal(events[0].type, 'EYES_CLOSED_LONG');
+});
+
+test('eye-closure thresholds stay configurable and self-consistent', () => {
+  const c = DEFAULT_INTEGRITY_CONFIG;
+  assert.ok(c.eyesClosedIgnoreMs < c.eyesClosedWarningMs, 'the blink window must precede the warning threshold');
+  assert.equal(c.eyesClosedWarningMs, 3000, 'the required rule is 3 continuous seconds');
+  assert.ok(c.eyeOpenThreshold < c.eyeOpenReopenThreshold, 'hysteresis prevents flapping at the boundary');
+
+  // A custom threshold is honoured, proving nothing is hardcoded in the engine.
+  const strict = new IntegrityRulesEngine({ eyesClosedWarningMs: 1500, eyesClosedIgnoreMs: 800 }, BASELINE);
+  const { events } = run(strict, [...range(0, 300, eyesOpen), ...range(400, 2500, eyesShut)]);
+  assert.equal(events.length, 1);
+  assert.ok(events[0].durationMs >= 1500);
+});

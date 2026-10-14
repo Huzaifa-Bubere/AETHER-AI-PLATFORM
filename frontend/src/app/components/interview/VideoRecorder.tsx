@@ -8,6 +8,27 @@ interface VideoRecorderProps {
   onVideoData?: (data: Blob) => void;
   onVideoFrame?: (frameData: string) => void;
   className?: string;
+  /**
+   * Shared control of the <video> element.
+   *
+   * The interview room needs this so that (a) the eye-tracking overlay can be
+   * positioned over EXACTLY the same box as the video, and (b) the MediaPipe
+   * loop can read the live MediaStream. Without one ref shared by both, the
+   * overlay drifts away from the video on any resize.
+   */
+  videoRef?: React.RefObject<HTMLVideoElement>;
+  /** Horizontal selfie flip. The overlay MUST be told the same value. */
+  mirror?: boolean;
+  /** Rendered on top of the video (status pill, landmark overlay). */
+  children?: React.ReactNode;
+  /** Fires when the candidate's own camera toggle changes. */
+  onVideoEnabledChange?: (enabled: boolean) => void;
+  /**
+   * Bump this to re-acquire the camera (e.g. "Re-enable Camera" after the
+   * track ended). A counter rather than a callback because re-initialising
+   * media is an effect, not an event handler.
+   */
+  retryToken?: number;
 }
 
 export function VideoRecorder({
@@ -17,8 +38,14 @@ export function VideoRecorder({
   onVideoData,
   onVideoFrame,
   className = '',
+  videoRef: externalVideoRef,
+  mirror = false,
+  children,
+  onVideoEnabledChange,
+  retryToken = 0,
 }: VideoRecorderProps) {
-  const videoRef         = useRef<HTMLVideoElement>(null);
+  const internalVideoRef = useRef<HTMLVideoElement>(null);
+  const videoRef         = externalVideoRef ?? internalVideoRef;
   const streamRef        = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef        = useRef<Blob[]>([]);
@@ -131,7 +158,9 @@ export function VideoRecorder({
     setStatus('ready');
   }, [stopStream]);
 
-  useEffect(() => { initMedia(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Re-acquire media on mount, and again whenever the caller asks for a retry
+  // (camera track ended, device switched, permission re-granted).
+  useEffect(() => { initMedia(); }, [retryToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Emit low-frequency preview frames for backend AI analysis
   useEffect(() => {
@@ -208,7 +237,7 @@ export function VideoRecorder({
   // ── Toggle helpers ────────────────────────────────────────────────────
   const toggleVideo = () => {
     const t = streamRef.current?.getVideoTracks()[0];
-    if (t) { t.enabled = !t.enabled; setHasVideo(t.enabled); }
+    if (t) { t.enabled = !t.enabled; setHasVideo(t.enabled); onVideoEnabledChange?.(t.enabled); }
   };
   const toggleAudio = () => {
     const t = streamRef.current?.getAudioTracks()[0];
@@ -306,8 +335,14 @@ export function VideoRecorder({
           height: '100%',
           objectFit: 'cover',
           display: audioOnly ? 'none' : 'block',
+          // Mirrored selfie view. The overlay receives the SAME flag, so the
+          // landmarks are mirrored by exactly the same transform as the pixels.
+          transform: mirror ? 'scaleX(-1)' : undefined,
         }}
       />
+
+      {/* Overlay slot: landmark canvas + status pill, sharing the video box. */}
+      {children}
 
       {/* Audio-only placeholder */}
       {audioOnly && (

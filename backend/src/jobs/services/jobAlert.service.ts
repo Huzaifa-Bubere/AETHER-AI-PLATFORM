@@ -1,5 +1,6 @@
 import { JobAlert, alertMinRelevance } from '../models/JobAlert';
 import { UserCareerGoal } from '../../career/models/UserCareerGoal';
+import User from '../../models/User';
 import { SavedJobSearch } from '../models/SavedJobSearch';
 import { buildRankingContext, scoreJobForCandidate, type RankingContext } from './jobRecommendation.service';
 import logger from '../../utils/logger';
@@ -53,7 +54,24 @@ export async function generateAlertsForPostings(
     return report;
   }
 
+  // Honour the candidate's own in-app notification preference. Without this the
+  // Settings → Notifications toggle would be decorative, and AETHER does not ship
+  // switches that do not switch anything.
+  const users = await User.find({ _id: { $in: candidates } })
+    .select('_id preferences.notifications')
+    .lean()
+    .catch(() => []);
+  const alertsDisabled = new Set(
+    (users as any[])
+      .filter(u => u?.preferences?.notifications?.jobAlert === false)
+      .map(u => String(u._id)),
+  );
+
   for (const candidateId of candidates) {
+    if (alertsDisabled.has(String(candidateId))) {
+      report.skipped += 1;
+      continue;
+    }
     // Saved searches widen the role scope but never replace career goals.
     const savedSearches = await SavedJobSearch.find({ userId: candidateId }).lean().catch(() => []);
     const context: RankingContext = await buildRankingContext(candidateId);

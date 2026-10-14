@@ -4,43 +4,97 @@ import { asyncHandler } from '../middleware/errorHandler';
 import User from '../models/User';
 import Interview from '../models/Interview';
 import Resume from '../models/Resume';
+import IntegrityEvent, { MAX_INTEGRITY_WARNINGS } from '../models/IntegrityEvent';
 import logger from '../utils/logger';
-import os from 'os';
 import { billingOverview, recentPayments } from '../services/billingAnalytics.service';
+import { systemSnapshot } from '../services/systemMetrics.service';
+import { readRecentErrors } from '../services/errorLog.service';
+import path from 'path';
 
 const router = express.Router();
+
+/**
+ * % change against the previous comparable period.
+ *
+ * Returns null when there is no prior period, so the dashboard can render
+ * "no prior data" instead of an invented percentage — the old stat cards shipped
+ * literal strings like '+23%' that had no relationship to any query.
+ */
+function percentChange(current: number, previous: number): number | null {
+  if (!previous) return null;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+/** Percentage-point change between two averages; null when either is missing. */
+function percentPoints(previous: number | null, current: number | null): number | null {
+  if (previous === null || current === null) return null;
+  return current - previous;
+}
 
 // NOTE: requireAdmin middleware is applied when mounting this router in app.ts
 // This allows for easier testing
 
 // Get platform statistics
-router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
-  console.log('=== ADMIN: Getting platform stats ===');
-
+router.get('/stats', asyncHandler(async (_req: Request, res: Response) => {
   try {
+    const now = new Date();
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const staleCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
     // Get user statistics
     const totalUsers = await User.countDocuments();
     const activeUsers = await User.countDocuments({
-      'auth.lastLogin': { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+      'auth.lastLogin': { $gte: thirtyDaysAgo }
     });
-    const newUsersThisMonth = await User.countDocuments({
-      createdAt: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) }
+    const newUsersThisMonth = await User.countDocuments({ createdAt: { $gte: startOfThisMonth } });
+    const newUsersLastMonth = await User.countDocuments({
+      createdAt: { $gte: startOfLastMonth, $lt: startOfThisMonth }
     });
 
     // Get interview statistics
     const totalInterviews = await Interview.countDocuments();
     const completedInterviews = await Interview.countDocuments({ status: 'completed' });
     const inProgressInterviews = await Interview.countDocuments({ status: 'in-progress' });
-    
-    // Calculate average success rate
-    const interviewsWithScores = await Interview.find({
-      status: 'completed',
-      'analysis.overallScore': { $exists: true }
-    }).select('analysis.overallScore');
-    
-    const avgSuccessRate = interviewsWithScores.length > 0
-      ? Math.round(interviewsWithScores.reduce((sum, i) => sum + (i.analysis?.overallScore || 0), 0) / interviewsWithScores.length)
-      : 0;
+    const interviewsLast30 = await Interview.countDocuments({ createdAt: { $gte: thirtyDaysAgo } });
+    const interviewsPrev30 = await Interview.countDocuments({
+      createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo }
+    });
+    // An interview still 'in-progress' a day later is abandoned, not active.
+    const staleInProgress = await Interview.countDocuments({
+      status: 'in-progress', createdAt: { $lt: staleCutoff }
+    });
+
+    /** Mean overall score over a window, with the number of interviews behind it. */
+    const averageScore = async (from?: Date, to?: Date) => {
+      const match: Record<string, unknown> = {
+        status: 'completed',
+        'analysis.overallScore': { $exists: true, $gt: 0 },
+      };
+      if (from || to) {
+        match.createdAt = {
+          ...(from ? { $gte: from } : {}),
+          ...(to ? { $lt: to } : {}),
+        };
+      }
+      const rows = await Interview.aggregate([
+        { $match: match },
+        { $group: { _id: null, average: { $avg: '$analysis.overallScore' }, sample: { $sum: 1 } } },
+      ]);
+      const row = rows[0];
+      if (!row || !row.sample) return { average: null as number | null, sample: 0 };
+      return { average: Math.round(row.average) as number | null, sample: row.sample as number };
+    };
+
+    const [allTimeScore, last30Score, prev30Score] = await Promise.all([
+      averageScore(),
+      averageScore(thirtyDaysAgo),
+      averageScore(sixtyDaysAgo, thirtyDaysAgo),
+    ]);
+
+    const avgSuccessRate = allTimeScore.average ?? 0;
 
     // Get interview type breakdown
     const interviewTypes = await Interview.aggregate([
@@ -71,6 +125,15 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
       { $group: { _id: '$subscription.plan', count: { $sum: 1 } } }
     ]);
 
+    // Sessions a human should look at: attempts that reached the warning limit,
+    // counted as distinct (module, attempt) pairs rather than raw event rows.
+    const flagged = await IntegrityEvent.aggregate([
+      { $match: { warningNumber: { $gte: MAX_INTEGRITY_WARNINGS } } },
+      { $group: { _id: { module: '$module', attemptId: '$attemptId' } } },
+      { $count: 'count' },
+    ]);
+    const reviewRequiredSessions = flagged[0]?.count ?? 0;
+
     res.json({
       success: true,
       data: {
@@ -78,6 +141,7 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
           total: totalUsers,
           active: activeUsers,
           newThisMonth: newUsersThisMonth,
+          newLastMonth: newUsersLastMonth,
           growth: userGrowth,
           subscriptions: subscriptionStats
         },
@@ -86,7 +150,24 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
           completed: completedInterviews,
           inProgress: inProgressInterviews,
           avgSuccessRate,
+          avgSuccessRateSample: allTimeScore.sample,
+          successRateLast30Days: last30Score.average,
+          last30Days: interviewsLast30,
+          previous30Days: interviewsPrev30,
           byType: interviewTypes
+        },
+        needsReview: {
+          total: reviewRequiredSessions + staleInProgress,
+          integritySessions: reviewRequiredSessions,
+          staleInProgress,
+          warningLimit: MAX_INTEGRITY_WARNINGS,
+        },
+        // Real movement between comparable periods. A null means there is nothing
+        // to compare against, and the UI prints that instead of a made-up number.
+        deltas: {
+          usersPercent: percentChange(newUsersThisMonth, newUsersLastMonth),
+          interviewsPercent: percentChange(interviewsLast30, interviewsPrev30),
+          successRatePoints: percentPoints(prev30Score.average, last30Score.average),
         },
         timestamp: new Date()
       }
@@ -278,60 +359,77 @@ router.get('/interviews', asyncHandler(async (req: Request, res: Response) => {
   });
 }));
 
-// Get system metrics
+/**
+ * Get system metrics.
+ *
+ * All measured: CPU from `os.cpus()` tick deltas (loadavg — the previous source —
+ * is permanently 0 on Windows), memory from the OS, request counts from the
+ * counter middleware, and a bounded history buffer the sampler fills in. When
+ * the database is unreachable the endpoint still answers with `database: null`
+ * rather than failing the whole panel.
+ */
 router.get('/system-metrics', asyncHandler(async (_req: Request, res: Response) => {
-  const cpuUsage = os.loadavg()[0] / os.cpus().length * 100;
-  const totalMemory = os.totalmem();
-  const freeMemory = os.freemem();
-  const memoryUsage = ((totalMemory - freeMemory) / totalMemory) * 100;
+  const snapshot = systemSnapshot();
 
-  // Get database stats
-  const dbStats = await mongoose.connection.db.stats();
+  let database: { size: number; collections: number; indexes: number } | null = null;
+  try {
+    const dbStats = await mongoose.connection.db.stats();
+    database = {
+      size: dbStats.dataSize,
+      collections: dbStats.collections,
+      indexes: dbStats.indexes,
+    };
+  } catch (error: any) {
+    logger.warn('System metrics: database stats unavailable', { err: error?.message });
+  }
 
   res.json({
     success: true,
     data: {
-      cpu: Math.round(cpuUsage),
-      memory: Math.round(memoryUsage),
-      uptime: process.uptime(),
-      platform: os.platform(),
-      nodeVersion: process.version,
-      database: {
-        size: dbStats.dataSize,
-        collections: dbStats.collections,
-        indexes: dbStats.indexes
-      },
-      timestamp: new Date()
+      cpu: snapshot.cpu,
+      cpuMeasured: snapshot.cpuMeasured,
+      memory: snapshot.memory,
+      uptime: snapshot.uptimeSeconds,
+      platform: snapshot.platform,
+      nodeVersion: snapshot.nodeVersion,
+      cores: snapshot.cores,
+      totalMemoryBytes: snapshot.totalMemoryBytes,
+      freeMemoryBytes: snapshot.freeMemoryBytes,
+      samplingIntervalMs: snapshot.samplingIntervalMs,
+      maxSamples: snapshot.maxSamples,
+      requests: snapshot.requests,
+      history: snapshot.history,
+      database,
+      timestamp: new Date(),
     }
   });
 }));
 
-// Get error logs — reads from real Winston log file
+/**
+ * Get error logs — every rotated Winston file, newest first, grouped.
+ *
+ * The first version read only `logs/error.log` and parsed its `timestamp` with
+ * `new Date()`. Both were wrong for this logger (see errorLog.service.ts): the
+ * file had been rotated so the live file was `error1.log`, and the timestamp
+ * shape `YYYY-MM-DD HH:mm:ss:ms` is not parseable by `new Date`, so every row
+ * rendered "unknown".
+ */
 router.get('/error-logs', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-  const logFile = require('path').join(process.cwd(), 'logs', 'error.log');
-  const fs = require('fs');
-
-  if (!fs.existsSync(logFile)) {
-    res.json({ success: true, data: [], message: 'No error log file found yet' });
-    return;
-  }
+  const dir = path.join(process.cwd(), 'logs');
 
   try {
-    const content = fs.readFileSync(logFile, 'utf8');
-    const lines = content
-      .split('\n')
-      .filter((l: string) => l.trim())
-      .map((l: string) => {
-        try { return JSON.parse(l); } catch { return null; }
-      })
-      .filter(Boolean)
-      .reverse()
-      .slice(0, limit);
-
-    res.json({ success: true, data: lines, total: lines.length });
+    const report = readRecentErrors({ dir, limit });
+    res.json({
+      success: true,
+      data: { entries: report.entries, meta: report.meta },
+      total: report.entries.length,
+      message: report.meta.files.length === 0
+        ? 'No error log file found yet — nothing has been logged at error level'
+        : undefined,
+    });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Failed to read log file', message: err.message });
+    res.status(500).json({ success: false, error: 'Failed to read log files', message: err.message });
   }
 }));
 
@@ -359,54 +457,67 @@ router.get('/activity', asyncHandler(async (req: Request, res: Response) => {
   });
 }));
 
-// Get AI performance metrics — real DB aggregations
+/**
+ * Get AI performance metrics — real DB aggregations only.
+ *
+ * The dashboard previously asked for `responseTime`, `questionQuality` and
+ * `feedbackAccuracy`, none of which this endpoint ever returned: the rings drew
+ * `undefined%`. Every metric below is a real average over stored interviews, or
+ * is reported with `sampleSize: 0` and rendered as "no data".
+ */
 router.get('/ai-metrics', asyncHandler(async (_req: Request, res: Response) => {
-  const completedInterviews = await Interview.find({
-    status: 'completed',
-    'analysis.overallScore': { $exists: true, $gt: 0 },
-  }).select('analysis createdAt feedback');
+  const rows = await Interview.aggregate([
+    { $match: { status: 'completed', 'analysis.overallScore': { $exists: true, $gt: 0 } } },
+    {
+      $group: {
+        _id: null,
+        sampleSize: { $sum: 1 },
+        overallScore: { $avg: '$analysis.overallScore' },
+        relevance: { $avg: '$analysis.contentMetrics.relevanceScore' },
+        clarity: { $avg: '$analysis.contentMetrics.communicationClarity' },
+        structure: { $avg: '$analysis.contentMetrics.structureScore' },
+        // Each sub-metric needs its own denominator: not every stored analysis
+        // filled every content metric.
+        relevanceSample: { $sum: { $cond: [{ $ne: [{ $type: '$analysis.contentMetrics.relevanceScore' }, 'missing'] }, 1, 0] } },
+        claritySample: { $sum: { $cond: [{ $ne: [{ $type: '$analysis.contentMetrics.communicationClarity' }, 'missing'] }, 1, 0] } },
+        structureSample: { $sum: { $cond: [{ $ne: [{ $type: '$analysis.contentMetrics.structureScore' }, 'missing'] }, 1, 0] } },
+      },
+    },
+  ]);
 
-  const totalAnalyzed = completedInterviews.length;
+  const agg = rows[0] ?? null;
+  const round = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null;
 
-  // Average overall score as accuracy proxy
-  const accuracy = totalAnalyzed > 0
-    ? Math.round(
-        completedInterviews.reduce((sum, i) => sum + (i.analysis?.overallScore ?? 0), 0) / totalAnalyzed
-      )
-    : 0;
+  /** A value is published only when the metric has its own sample behind it. */
+  const withSample = (value: number | null, sample: number): number | null => (sample > 0 ? value : null);
 
-  // Average content metrics
-  const avgRelevance = totalAnalyzed > 0
-    ? Math.round(
-        completedInterviews.reduce((sum, i) => sum + (i.analysis?.contentMetrics?.relevanceScore ?? 0), 0) / totalAnalyzed
-      )
-    : 0;
-
-  const avgClarity = totalAnalyzed > 0
-    ? Math.round(
-        completedInterviews.reduce((sum, i) => sum + (i.analysis?.contentMetrics?.communicationClarity ?? 0), 0) / totalAnalyzed
-      )
-    : 0;
-
-  // Interviews with feedback = user satisfaction proxy
-  const withFeedback = completedInterviews.filter(i => i.feedback?.overallRating).length;
-  const userSatisfaction = withFeedback > 0
-    ? Math.round(
-        completedInterviews
-          .filter(i => i.feedback?.overallRating)
-          .reduce((sum, i) => sum + (i.feedback?.overallRating ?? 0), 0) / withFeedback
-      )
-    : 0;
+  const sampleSize = agg?.sampleSize ?? 0;
+  const overallScore = withSample(agg ? round(agg.overallScore) : null, sampleSize);
+  const relevanceSample = agg?.relevanceSample ?? 0;
+  const claritySample = agg?.claritySample ?? 0;
+  const structureSample = agg?.structureSample ?? 0;
+  const relevance = withSample(agg ? round(agg.relevance) : null, relevanceSample);
+  const clarity = withSample(agg ? round(agg.clarity) : null, claritySample);
+  const structure = withSample(agg ? round(agg.structure) : null, structureSample);
 
   res.json({
     success: true,
     data: {
-      accuracy,
-      avgRelevanceScore: avgRelevance,
-      avgClarityScore: avgClarity,
-      userSatisfaction,
-      totalAnalyzed,
-      note: 'All values derived from real interview data',
+      totalAnalyzed: sampleSize,
+      // Scalar fields kept for older consumers of this endpoint.
+      accuracy: overallScore ?? 0,
+      avgRelevanceScore: relevance ?? 0,
+      avgClarityScore: clarity ?? 0,
+      // The panel renders THIS list: label, value, scale and sample size travel
+      // together, so the client never has to guess a range or print a fake 0.
+      metrics: [
+        { key: 'overallScore', label: 'Average overall score', value: overallScore, unit: '%', max: 100, sampleSize },
+        { key: 'relevance', label: 'Content relevance', value: relevance, unit: '%', max: 100, sampleSize: relevanceSample },
+        { key: 'clarity', label: 'Communication clarity', value: clarity, unit: '%', max: 100, sampleSize: claritySample },
+        { key: 'structure', label: 'Answer structure', value: structure, unit: '%', max: 100, sampleSize: structureSample },
+      ],
+      note: 'Averages over stored interview analyses; metrics with no sample are shown as “no data”.',
     },
   });
 }));

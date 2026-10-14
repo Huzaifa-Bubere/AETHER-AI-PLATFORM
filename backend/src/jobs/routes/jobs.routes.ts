@@ -76,6 +76,32 @@ router.post(
   }),
 );
 
+/**
+ * GET /api/jobs/providers — per-provider status for the admin UI.
+ *
+ * Registered BEFORE the candidate guard below: this is an ADMIN surface, and an
+ * admin account is not a candidate. While it sat after `requireCandidate`, every
+ * request from the admin dashboard was rejected with 403 and the card showed
+ * "Could not read provider health" instead of the provider table.
+ * Contains no API keys: hints name the missing variables, never their values.
+ */
+router.get(
+  '/providers',
+  authenticateToken,
+  requireAdmin,
+  asyncHandler(async (_req: Request, res: Response) => {
+    await probeExternalServices();
+    res.json({
+      success: true,
+      data: {
+        providers: providerHealthTable(),
+        overall: overallProviderStatus(),
+        scheduler: schedulerStatus(),
+      },
+    });
+  }),
+);
+
 router.use(authenticateToken, requireCandidate);
 
 const userId = (req: Request): string => (req as any).user.userId;
@@ -643,27 +669,6 @@ router.get(
           label: f.label,
           computedAt: f.computedAt,
         })),
-      },
-    });
-  }),
-);
-
-// ── Provider health (spec §14, §49) ─────────────────────────────────────────
-
-/**
- * GET /api/jobs/providers — per-provider status for the admin UI.
- * Contains no API keys: hints name the missing variables, never their values.
- */
-router.get(
-  '/providers',
-  asyncHandler(async (_req: Request, res: Response) => {
-    await probeExternalServices();
-    res.json({
-      success: true,
-      data: {
-        providers: providerHealthTable(),
-        overall: overallProviderStatus(),
-        scheduler: schedulerStatus(),
       },
     });
   }),

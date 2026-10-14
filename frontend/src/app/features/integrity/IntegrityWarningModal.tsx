@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldAlert, Ban, Eye, Clipboard, Camera, Monitor, Mic, Maximize, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ShieldAlert, Ban, Eye, EyeOff as EyeOffIcon, Clipboard, Camera, Monitor, Mic, Maximize, RefreshCw } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { IntegrityEventType } from './integrity.types';
 
@@ -27,6 +27,13 @@ const EVENT_MESSAGES: Record<IntegrityEventType, { title: string; description: s
     title: 'Interview Integrity Warning',
     description: 'You appear to have been looking away from the interview screen for an extended period. Please keep your attention on the interview.',
     icon: Eye,
+  },
+  // Required copy (spec Part W / Part K): "appear to have remained closed".
+  // Nothing here asserts what the candidate was doing or why.
+  EYES_CLOSED_LONG: {
+    title: 'Attention Monitoring Warning',
+    description: 'Your eyes appear to have remained closed for more than 3 seconds. Please remain attentive to the interview.',
+    icon: EyeOffIcon,
   },
   MEDIA_TRACK_ENDED: {
     title: 'Camera Required',
@@ -160,9 +167,11 @@ export function IntegrityWarningModal({ event, warningNumber, maximumWarnings, o
             </p>
           </div>
 
-          {/* Rules reminder */}
+          {/* Rules reminder. Renamed from "Assessment rules" because not every
+              event shown here is a policy violation: a long eye closure is an
+              observed attention signal first and foremost. */}
           <div className="mt-4 rounded-xl bg-slate-50 border border-border p-3.5">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Assessment rules</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">What was observed</p>
             <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
               <li>Stay on this page and in fullscreen until submission.</li>
               <li>Do not switch tabs, minimize the window, or open other tools.</li>

@@ -9,7 +9,8 @@ import { createApp } from './app';
 import { initializeRedis } from './services/redis';
 import { initializeCloudinary } from './services/cloudinary';
 import { setupSocketHandlers } from './services/socket';
-import { startJobRefreshScheduler } from './jobs/services/refreshScheduler';
+import { startJobRefreshScheduler, runStartupIngestionIfEmpty } from './jobs/services/refreshScheduler';
+import { startSystemMetricsSampler } from './services/systemMetrics.service';
 import { ensureGroupDiscussionTopics } from './groupDiscussion/seed/seedGroupDiscussionTopics';
 import logger from './utils/logger';
 import { ensureDnsFallback, forcePublicDns, isDnsError } from './utils/dnsFallback';
@@ -185,6 +186,11 @@ const initializeServices = async () => {
     setupSocketHandlers(io);
     logger.info('Socket.IO handlers initialized successfully');
 
+    // Real system telemetry for the admin dashboard: a bounded in-process
+    // sample ring (CPU from os.cpus() tick deltas, memory, request count).
+    startSystemMetricsSampler();
+    logger.info('System metrics sampler started');
+
     // Scheduled job refresh (spec §63). Runs on an interval, never on a page
     // load, so opening /jobs does not call every external provider.
     try {
@@ -192,6 +198,13 @@ const initializeServices = async () => {
     } catch (error) {
       logger.warn('[jobs] scheduler failed to start - job listings will use stored data only');
     }
+
+    // First-startup ingestion (spec Part AY). Fire-and-forget and BOUNDED: a
+    // fresh database with a configured provider would otherwise show an empty
+    // Jobs page for a full refresh interval. Startup is never blocked by it.
+    void runStartupIngestionIfEmpty()
+      .then(result => logger.info(`[jobs] startup ingestion ${result.ran ? 'ran' : 'skipped'}: ${result.reason}`))
+      .catch(error => logger.warn('[jobs] startup ingestion failed to run', { err: (error as Error).message }));
 
   } catch (error) {
     logger.error('Service initialization error:', error);

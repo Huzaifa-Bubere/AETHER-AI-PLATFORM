@@ -32,6 +32,51 @@ export interface UserPreferences {
   interviewTypes: InterviewType[];
   /** IANA zone used to bucket activity into calendar days for the AETHER streak. */
   timezone: string;
+  /** Settings → Interview. Device selections stay on-device by design. */
+  interview?: InterviewPreferences;
+  /** Settings → Notifications. In-app only: AETHER has no email delivery. */
+  notifications?: NotificationPreferences;
+  /** Settings → Appearance. */
+  appearance?: AppearancePreferences;
+  /** Settings → Jobs. Global defaults; per-role filters live in JobSearchPreference. */
+  jobs?: JobPreferences;
+}
+
+export interface InterviewPreferences {
+  defaultType: string;
+  defaultDifficulty: 'easy' | 'medium' | 'hard';
+  /** BCP-47 tag for speech recognition, e.g. 'en-IN'. */
+  speechLanguage: string;
+  captions: boolean;
+  autoPlayVoice: boolean;
+  voiceOutput: boolean;
+  /** Part AK: separate from camera integrity consent. */
+  askBeforeRecording?: boolean;
+}
+
+export interface NotificationPreferences {
+  newMatchingJob: boolean;
+  jobAlert: boolean;
+  interviewReminder: boolean;
+  learningRecommendation: boolean;
+  applicationReminder: boolean;
+}
+
+export interface AppearancePreferences {
+  theme: 'system' | 'light' | 'dark';
+  reducedMotion: boolean;
+  compactNav: boolean;
+}
+
+export interface JobPreferences {
+  defaultCountry: string;
+  remoteOnly: boolean;
+  internshipPreferred: boolean;
+  fresherFriendly: boolean;
+  /** Null means "no minimum stated" — never the same as zero. */
+  salaryMin: number | null;
+  datePostedWindow: number | null;
+  providers: string[];
 }
 
 export interface Subscription {

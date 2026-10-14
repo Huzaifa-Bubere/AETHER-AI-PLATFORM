@@ -12,6 +12,7 @@
     "resume:pdf-verify": "node scripts/verify-resume-pdf.mjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.17",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-accordion": "1.2.3",
     "@radix-ui/react-dialog": "1.1.6",

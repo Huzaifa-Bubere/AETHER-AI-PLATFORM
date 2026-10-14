@@ -1,5 +1,6 @@
 import { runIngestion, sweepExpiredPostings, getFreshness, takeNewlyCreatedPostings } from './ingestion.service';
 import { generateAlertsForPostings } from './jobAlert.service';
+import { configuredProviders } from '../providers';
 import logger from '../../utils/logger';
 
 /**
@@ -79,6 +80,53 @@ export function stopJobRefreshScheduler(): void {
   if (!timer) return;
   clearInterval(timer);
   timer = null;
+}
+
+/** How long the FIRST-STARTUP ingest may take before it is left running in the background. */
+export function startupIngestionBudgetMs(): number {
+  const raw = Number.parseInt(String(process.env.JOB_STARTUP_INGESTION_BUDGET_MS ?? ''), 10);
+  return Number.isFinite(raw) && raw >= 1000 ? raw : 25000;
+}
+
+/**
+ * First-startup ingestion (spec Part AY).
+ *
+ * A brand-new deployment has an empty job store and, with only an interval
+ * timer, would show "no jobs" for up to six hours. This closes that gap without
+ * either of the two things the spec forbids:
+ *
+ *   - it does NOT delay server startup indefinitely: the work is raced against
+ *     JOB_STARTUP_INGESTION_BUDGET_MS and startup proceeds either way;
+ *   - it does NOT run on candidate page loads — it runs once, at boot, and only
+ *     when there is genuinely nothing stored yet.
+ *
+ * A refresh that outlives the budget keeps running in the background; the
+ * caller is simply told that it did not wait for it.
+ */
+export async function runStartupIngestionIfEmpty(): Promise<{ ran: boolean; reason: string }> {
+  const { totalActive } = await getFreshness();
+  if (totalActive > 0) {
+    return { ran: false, reason: `job store already has ${totalActive} active posting(s)` };
+  }
+
+  const configured = configuredProviders();
+  if (configured.length === 0) {
+    return { ran: false, reason: 'no provider is configured, so there is nothing to ingest' };
+  }
+
+  const budgetMs = startupIngestionBudgetMs();
+  const refresh = refreshJobsOnce();
+  // Never reject unhandled if the budget wins the race.
+  refresh.catch(error => logger.warn('[jobs] background startup refresh failed', { err: (error as Error).message }));
+
+  const finished = await Promise.race([
+    refresh.then(() => true).catch(() => true),
+    new Promise<boolean>(resolve => setTimeout(() => resolve(false), budgetMs)),
+  ]);
+
+  return finished
+    ? { ran: true, reason: `completed within ${budgetMs} ms using: ${configured.map(p => p.name).join(', ')}` }
+    : { ran: true, reason: `still running after the ${budgetMs} ms startup budget; continuing in the background` };
 }
 
 export function schedulerStatus() {

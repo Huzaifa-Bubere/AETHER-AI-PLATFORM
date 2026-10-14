@@ -214,10 +214,13 @@ class CodeExecutionService {
 
   // ── Piston API ──────────────────────────────────────────────────────────────
   async executeWithPiston(request: CodeExecutionRequest): Promise<CodeExecutionResult> {
+    // `piston.rs` used to be a third candidate. It is retired: the host now serves
+    // GitHub's certificate, so every attempt ended in the admin error log as
+    // "Hostname/IP does not match certificate's altnames: Host: piston.rs". A dead
+    // endpoint that can only fail is not a fallback.
     const baseCandidates = Array.from(new Set([
       this.pistonUrl.replace(/\/+$/, ''),
       'https://emkc.org/api/v2/piston',
-      'https://piston.rs/api/v2',
     ]));
     const payload = {
       language: LANGUAGE_MAP[request.language] || request.language,
@@ -407,6 +410,27 @@ class CodeExecutionService {
     functionName?: string
   ): string {
     return this.wrapCodeWithTestCase(language, userCode, testInput, functionName);
+  }
+
+  /**
+   * Rename a submitted Java entry class so it cannot collide with the harness'.
+   *
+   * The generated file is `Main.java` and the harness declares `public class Main`;
+   * a candidate who writes their own `public class Main` (the usual habit for a
+   * full program) made javac report "duplicate class: Main". Renaming the submitted
+   * class to `Solution` — the class the harness already resolves reflectively — also
+   * means `public` must be dropped, because Java requires the public top-level class
+   * to match the file name. Source without its own `Main` is returned untouched.
+   */
+  private renameSubmittedJavaEntryClass(source: string): string {
+    if (!/(^|\s)class\s+Main\b/.test(source)) return source;
+    return source
+      // Declaration: every modifier is dropped, because only the harness class may
+      // be public in Main.java and an `abstract` class cannot be instantiated by
+      // the harness' `new Solution()`.
+      .replace(/^[ \t]*(?:(?:public|final|abstract|strictfp)\s+)*class\s+Main\b/gm, 'class Solution')
+      .replace(/(^|[^\w.])new\s+Main\s*\(/g, '$1new Solution(')
+      .replace(/(^|[^\w.])Main\s*\./g, '$1Solution.');
   }
 
   private wrapCodeWithTestCase(
@@ -664,10 +688,19 @@ else:
           .join(', ');
         const preferredFn = (functionName || '').replace(/[^a-zA-Z0-9_]/g, '');
 
+        // The harness below OWNS `public class Main`. A submission that declares
+        // its own `class Main` therefore produced javac's opaque
+        // "duplicate class: Main" and every Java test case failed to compile:
+        //   Main.java:8: error: duplicate class: Main
+        // The harness already grades a `Solution` class reflectively, so a
+        // submitted Main is renamed to Solution (and loses `public`, since only
+        // the harness class may be public in Main.java) before it is appended.
+        const harnessedCode = this.renameSubmittedJavaEntryClass(userCode);
+
         return `import java.util.*;
 import java.lang.reflect.*;
 
-${userCode}
+${harnessedCode}
 
 public class Main {
     static int[] parseIntArray(String s) {

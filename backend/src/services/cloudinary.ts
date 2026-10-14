@@ -91,7 +91,10 @@ class CloudinaryService {
           uploadOptions,
           (error, result) => {
             if (error) {
-              logger.error('❌ Cloudinary upload error:', error.message);
+              // Interpolate the cause: passing it as winston metadata left the
+              // admin log panel with a bare "❌ Cloudinary upload error:" and no
+              // reason to act on.
+              logger.error(`❌ Cloudinary upload error: ${error.message || 'unknown upload error'}`);
               
               // Provide specific error messages
               if (error.message?.includes('Invalid cloud_name')) {

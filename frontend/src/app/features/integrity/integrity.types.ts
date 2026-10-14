@@ -23,6 +23,9 @@ export type IntegrityEventType =
   // an observable event, never an inference about honesty.
   | 'GAZE_AWAY'
   | 'HEAD_AWAY'
+  // Both eyes remained confidently closed past the closure threshold (spec
+  // Part K). Observable and reportable; never proof of misconduct.
+  | 'EYES_CLOSED_LONG'
   | 'MEDIA_TRACK_ENDED';
 
 /** Severity of an observable event (spec §16). Only WARNING/CRITICAL count. */
@@ -67,7 +70,15 @@ export interface IntegritySummary {
   maximumWarnings: number;
   status: 'clean' | 'warning' | 'terminated';
   autoSubmitted: boolean;
-  events: Array<{ type: IntegrityEventType; timestamp: string; warningNumber: number }>;
+  events: Array<{
+    type: IntegrityEventType;
+    timestamp: string;
+    warningNumber: number;
+    /** Severity as recorded by the backend; absent on legacy rows. */
+    severity?: IntegritySeverity;
+    /** Measured length of a sustained incident (0 for a point event). */
+    durationMs?: number;
+  }>;
   /** Informational events that were shown but never counted (spec §21). */
   observationCount?: number;
   /**
@@ -78,6 +89,8 @@ export interface IntegritySummary {
     attentionDeviations?: number;
     faceNotVisible?: number;
     multipleFaces?: number;
+    /** Sustained eye closures (spec Part K) — reported separately from gaze. */
+    eyeClosures?: number;
     cameraInterruptions?: number;
     tabSwitches?: number;
     windowBlur?: number;
@@ -103,12 +116,39 @@ export function sanitizeIntegritySummary(raw: any, fallbackMax = 5): IntegritySu
           type: e.type as IntegrityEventType,
           timestamp: typeof e.timestamp === 'string' || e.timestamp instanceof Date ? String(e.timestamp) : '',
           warningNumber: toCount(e.warningNumber) || 1,
+          severity: (e.severity === 'OBSERVATION' || e.severity === 'CRITICAL' || e.severity === 'WARNING'
+            ? e.severity
+            : undefined) as IntegritySeverity | undefined,
+          durationMs: toCount(e.durationMs),
         }))
     : [];
   const status: IntegritySummary['status'] =
     raw?.status === 'terminated' || warningCount >= max ? 'terminated'
     : raw?.status === 'warning' || warningCount > 0 ? 'warning' : 'clean';
-  return { warningCount, maximumWarnings: max, status, autoSubmitted: raw?.autoSubmitted === true || warningCount >= max, events };
+  // Grouped evidence is preserved (spec §27/§AE): the report groups observations
+  // by behaviour, so dropping this would force it to re-derive counts from rows
+  // or, worse, to display nothing at all.
+  const observed = raw?.observed && typeof raw.observed === 'object'
+    ? {
+        attentionDeviations: toCount(raw.observed.attentionDeviations),
+        faceNotVisible: toCount(raw.observed.faceNotVisible),
+        multipleFaces: toCount(raw.observed.multipleFaces),
+        eyeClosures: toCount(raw.observed.eyeClosures),
+        cameraInterruptions: toCount(raw.observed.cameraInterruptions),
+        tabSwitches: toCount(raw.observed.tabSwitches),
+        windowBlur: toCount(raw.observed.windowBlur),
+        fullscreenExits: toCount(raw.observed.fullscreenExits),
+      }
+    : undefined;
+  return {
+    warningCount,
+    maximumWarnings: max,
+    status,
+    autoSubmitted: raw?.autoSubmitted === true || warningCount >= max,
+    events,
+    observationCount: toCount(raw?.observationCount),
+    observed,
+  };
 }
 
 export interface IntegrityEventPayload {

@@ -58,6 +58,51 @@ export interface IUser extends Document {
      * while timestamps stay in UTC, so a streak never breaks at UTC midnight.
      */
     timezone: string;
+    /**
+     * Interview preferences (settings → Interview). Device selections are NOT
+     * stored here: a device id is meaningless on another machine, so only the
+     * candidate's genuine choices are persisted.
+     */
+    interview: {
+      defaultType: string;
+      defaultDifficulty: 'easy' | 'medium' | 'hard';
+      /** BCP-47 tag for speech recognition, e.g. 'en-IN'. */
+      speechLanguage: string;
+      captions: boolean;
+      autoPlayVoice: boolean;
+      voiceOutput: boolean;
+    };
+    /** In-app notification preferences. Email delivery does not exist, so no
+     *  email toggle is offered anywhere in the UI. */
+    notifications: {
+      newMatchingJob: boolean;
+      jobAlert: boolean;
+      interviewReminder: boolean;
+      learningRecommendation: boolean;
+      applicationReminder: boolean;
+    };
+    appearance: {
+      theme: 'system' | 'light' | 'dark';
+      reducedMotion: boolean;
+      compactNav: boolean;
+    };
+    /**
+     * Global JOB SEARCH defaults. Per-role filters live in JobSearchPreference
+     * (the existing model) — this only holds the cross-role defaults, so the
+     * Settings page never creates a competing source of job-filter truth.
+     */
+    jobs: {
+      defaultCountry: string;
+      remoteOnly: boolean;
+      internshipPreferred: boolean;
+      fresherFriendly: boolean;
+      /** Null = "no minimum stated", which is not the same as zero. */
+      salaryMin: number | null;
+      datePostedWindow: number | null;
+      /** Provider names the candidate is happy to see, intersected with what is
+       *  actually configured on the server. */
+      providers: string[];
+    };
   };
   subscription: {
     plan: 'free' | 'pro' | 'enterprise';
@@ -207,6 +252,38 @@ const userSchema = new Schema<IUser>({
       default: 'UTC',
       trim: true,
       maxlength: 64,
+    },
+    // Nested groups are declared explicitly: Mongoose strict mode silently drops
+    // undeclared paths, so without these the Settings page would appear to save
+    // and then lose every value on reload.
+    interview: {
+      defaultType: { type: String, default: 'technical', trim: true, maxlength: 40 },
+      defaultDifficulty: { type: String, enum: ['easy', 'medium', 'hard'], default: 'medium' },
+      speechLanguage: { type: String, default: 'en-IN', trim: true, maxlength: 20 },
+      captions: { type: Boolean, default: true },
+      autoPlayVoice: { type: Boolean, default: true },
+      voiceOutput: { type: Boolean, default: true },
+    },
+    notifications: {
+      newMatchingJob: { type: Boolean, default: true },
+      jobAlert: { type: Boolean, default: true },
+      interviewReminder: { type: Boolean, default: true },
+      learningRecommendation: { type: Boolean, default: true },
+      applicationReminder: { type: Boolean, default: true },
+    },
+    appearance: {
+      theme: { type: String, enum: ['system', 'light', 'dark'], default: 'system' },
+      reducedMotion: { type: Boolean, default: false },
+      compactNav: { type: Boolean, default: false },
+    },
+    jobs: {
+      defaultCountry: { type: String, default: 'in', trim: true, maxlength: 8 },
+      remoteOnly: { type: Boolean, default: false },
+      internshipPreferred: { type: Boolean, default: false },
+      fresherFriendly: { type: Boolean, default: false },
+      salaryMin: { type: Number, default: null },
+      datePostedWindow: { type: Number, default: null },
+      providers: { type: [String], default: [] },
     },
   },
   subscription: {
